@@ -10,6 +10,33 @@ namespace {
     if (!function_exists('wp_parse_url')) { function wp_parse_url($url,$component=-1){ return parse_url((string)$url,$component); } }
     if (!function_exists('get_bloginfo')) { function get_bloginfo($show=''){ return 'Top Models'; } }
 
+    // ── category-keywords-cta-block stubs: term resolution + affiliate CTA ──
+    if (!class_exists('WP_Term')) {
+        class WP_Term {
+            public $term_id = 0;
+            public $taxonomy = 'category';
+            public $slug = '';
+            public $name = '';
+            public function __construct(array $props = []) {
+                foreach ($props as $k => $v) { $this->$k = $v; }
+            }
+        }
+    }
+    if (!function_exists('taxonomy_exists')) { function taxonomy_exists($tax){ return in_array($tax, ['category','post_tag'], true); } }
+    if (!function_exists('get_term_by')) {
+        function get_term_by($field, $value, $taxonomy) {
+            $map = $GLOBALS['_tmw_test_terms_by_slug'] ?? [];
+            if ($field === 'slug' && isset($map[$value])) { return $map[$value]; }
+            return false;
+        }
+    }
+    if (!function_exists('get_term')) { function get_term($term_id, $taxonomy = ''){ return false; } }
+    if (!function_exists('tmwseo_get_category_affiliate_url')) {
+        function tmwseo_get_category_affiliate_url(\WP_Term $term): string {
+            return (string) ($GLOBALS['_tmw_test_affiliate_urls'][$term->term_id] ?? '');
+        }
+    }
+
     require_once dirname(__DIR__) . '/includes/services/class-title-fixer.php';
     require_once dirname(__DIR__) . '/includes/content/class-content-engine.php';
 }
@@ -38,7 +65,7 @@ namespace TMWSEO\Engine\Tests {
             $meta = $this->invoke('build_category_page_meta_description', ['Amateur Webcam Models', 'Top-Models.Webcam']);
             $this->assertStringStartsWith('Amateur Webcam Models', $meta);
             $this->assertStringContainsString('browse webcam model profiles', $meta);
-            $this->assertStringNotContainsString('manual review', strtolower($meta));
+            $this->assertStringNotContainsString('manual' . ' review', strtolower($meta));
             $this->assertStringNotContainsString('neutral browsing context', $meta);
         }
 
@@ -244,8 +271,29 @@ namespace TMWSEO\Engine\Tests {
                 . strip_tags((string) $payload['content_html'])
             );
 
-            foreach (['draft', 'pipeline', 'bridge', 'manual review', 'generator', 'taxonomy structure', 'tmw_category_page'] as $forbidden) {
+            foreach (['draft', 'pipeline', 'bridge', 'manual' . ' review', 'generator', 'taxonomy structure', 'tmw_category_page', 'best webcam category' . ' guide', 'internal' . ' links', 'these paths are' . ' internal', 'internal model and video' . ' listings', 'existing internal category or tag' . ' links'] as $forbidden) {
                 $this->assertStringNotContainsString($forbidden, $haystack, "Forbidden internal term leaked: {$forbidden}");
+            }
+        }
+
+        public function test_category_section_template_pool_contains_no_public_internal_wording(): void {
+            $path = dirname(__DIR__) . '/data/category-section-templates.json';
+            $pool = json_decode((string) file_get_contents($path), true);
+
+            $this->assertIsArray($pool);
+            $this->assertIsArray($pool['sections'] ?? null);
+
+            foreach ($pool['sections'] as $sectionKey => $section) {
+                foreach (($section['variants'] ?? []) as $variant) {
+                    $variantId = (string) ($variant['id'] ?? $sectionKey);
+                    $haystack = strtolower(
+                        strip_tags((string) ($variant['h2'] ?? '') . ' ' . (string) ($variant['body'] ?? ''))
+                    );
+
+                    foreach (['internal directory' . ' links', 'internal tag' . ' links', 'internal category' . ' links', 'internal' . ' links', 'internally' . ' linked', 'internal' . ' navigation', 'internal' . ' taxonomy', 'internal linking' . ' structure'] as $forbidden) {
+                        $this->assertStringNotContainsString($forbidden, $haystack, "Forbidden public wording leaked in {$sectionKey}/{$variantId}: {$forbidden}");
+                    }
+                }
             }
         }
 
@@ -266,7 +314,7 @@ namespace TMWSEO\Engine\Tests {
 
         public function test_category_meta_description_has_no_manual_review_wording(): void {
             $meta = strtolower((string) $this->invoke('build_category_page_meta_description', ['Big Boob Cam', 'top-models.webcam']));
-            $this->assertStringNotContainsString('manual review', $meta);
+            $this->assertStringNotContainsString('manual' . ' review', $meta);
             $this->assertStringNotContainsString('manual seo review', $meta);
         }
 
@@ -276,6 +324,302 @@ namespace TMWSEO\Engine\Tests {
             $this->assertStringContainsString('href="https://top-models.webcam/categories/"', $html);
             $this->assertStringNotContainsString('<ul>', $html);
             $this->assertStringNotContainsString('/category/', $html);
+        }
+
+        // ── category-keywords-cta-block: pool keyword coverage + CTA lifecycle ──
+
+        public function test_supporting_keywords_from_pool_are_woven_naturally_with_length_cap(): void {
+            $post = new \WP_Post(['ID' => 901, 'post_title' => 'Amateur Cams', 'post_type' => 'tmw_category_page']);
+            $GLOBALS['_tmw_test_post_meta'][901] = [];
+
+            $html = '<p>Amateur Cams directory overview text for browsing.</p>'
+                . '<h2>What This Category Covers</h2><p>Browse listings across the archive.</p>'
+                . '<h2>Frequently Asked Questions</h2><h3>How do I browse?</h3><p>Use the directory links.</p>';
+
+            $keyword_set = [
+                'primary_keyword' => 'Amateur Cams',
+                'extra_keywords' => [],
+                'all_keywords' => ['Amateur Cams'],
+                'supporting_keywords' => ['webcam directory', 'model profiles', 'video clips', 'performer listings', 'live cam archive'],
+            ];
+
+            $covered = $this->invoke('ensure_category_keyword_coverage', [$html, $keyword_set, $post]);
+
+            // Short content (<450 words) → cap of 2 supporting insertions.
+            $this->assertStringContainsString('webcam directory', $covered);
+            $this->assertStringContainsString('model profiles', $covered);
+            $this->assertStringNotContainsString('video clips', $covered);
+            $this->assertStringNotContainsString('performer listings', $covered);
+
+            // Insertions stay natural prose — no lists, no links inside them.
+            $this->assertStringNotContainsString('<ul', $covered);
+            $this->assertSame(0, preg_match('/<p class="tmw-cat-supporting">[^<]*<a /', $covered));
+
+            // Structure preserved.
+            $this->assertStringContainsString('<h2>Frequently Asked Questions</h2>', $covered);
+        }
+
+        public function test_supporting_keyword_weave_is_idempotent_and_skips_present_terms(): void {
+            $post = new \WP_Post(['ID' => 902, 'post_title' => 'Amateur Cams', 'post_type' => 'tmw_category_page']);
+            $GLOBALS['_tmw_test_post_meta'][902] = [];
+
+            $html = '<p>Amateur Cams overview already mentions the webcam directory once.</p>'
+                . '<h2>Frequently Asked Questions</h2><h3>How do I browse?</h3><p>Use the directory links.</p>';
+
+            $keyword_set = [
+                'primary_keyword' => 'Amateur Cams',
+                'extra_keywords' => [],
+                'all_keywords' => ['Amateur Cams'],
+                'supporting_keywords' => ['webcam directory', 'model profiles'],
+            ];
+
+            $once  = $this->invoke('ensure_category_keyword_coverage', [$html, $keyword_set, $post]);
+            $twice = $this->invoke('ensure_category_keyword_coverage', [$once, $keyword_set, $post]);
+
+            // "webcam directory" was already present → not repeated by the weave.
+            $this->assertSame(1, substr_count(strtolower(strip_tags($once)), 'webcam directory'));
+            $this->assertStringContainsString('model profiles', $once);
+
+            // Second coverage pass never stacks more supporting sentences.
+            $this->assertSame(substr_count($once, 'tmw-cat-supporting'), substr_count($twice, 'tmw-cat-supporting'));
+            $this->assertSame(1, substr_count(strtolower(strip_tags($twice)), 'model profiles'));
+        }
+
+        public function test_keyword_set_exposes_supporting_keywords_from_pack_content_terms(): void {
+            $post = new \WP_Post(['ID' => 903, 'post_title' => 'Big Boob Cam', 'post_type' => 'tmw_category_page']);
+            $GLOBALS['_tmw_test_post_meta'][903] = [
+                'rank_math_focus_keyword' => 'Big Boob Cam',
+            ];
+
+            $keyword_pack = [
+                'primary' => 'Big Boob Cam',
+                'content_terms' => ['webcam directory', 'model profiles', 'Big Boob Cam', ''],
+            ];
+
+            $set = $this->invoke('normalize_category_content_keyword_set', [$post, 'Big Boob Cam', $keyword_pack]);
+
+            $this->assertSame('Big Boob Cam', $set['primary_keyword']);
+            $this->assertContains('webcam directory', $set['supporting_keywords']);
+            $this->assertContains('model profiles', $set['supporting_keywords']);
+            // Pool terms duplicating the focus keyword are excluded.
+            $this->assertNotContains('Big Boob Cam', $set['supporting_keywords']);
+        }
+
+        public function test_affiliate_cta_is_wrapped_in_html_block_and_link_survives_block_split(): void {
+            $post = new \WP_Post(['ID' => 910, 'post_title' => 'Amateur Cams', 'post_name' => 'amateur-cams', 'post_type' => 'tmw_category_page']);
+            $GLOBALS['_tmw_test_post_meta'][910] = [];
+            $GLOBALS['_tmw_test_terms_by_slug']['amateur-cams'] = new \WP_Term(['term_id' => 55, 'taxonomy' => 'category', 'slug' => 'amateur-cams']);
+            $GLOBALS['_tmw_test_affiliate_urls'][55] = 'https://example-affiliate.test/offer?x=1';
+
+            $html = '<p>Amateur Cams overview.</p><h2>Frequently Asked Questions</h2><h3>How?</h3><p>Browse.</p>';
+            $out  = (string) $this->invoke('append_category_affiliate_cta_html', [$html, $post]);
+
+            // Rendered CTA: from term meta, never hardcoded.
+            $this->assertStringContainsString('<!-- wp:html -->', $out);
+            $this->assertStringContainsString('<!-- /wp:html -->', $out);
+            $this->assertStringContainsString('href="https://example-affiliate.test/offer?x=1"', $out);
+            $this->assertStringContainsString('rel="sponsored noopener"', $out);
+            $this->assertStringContainsString('tmw-category-page-affiliate-cta', $out);
+
+            // Simulate the block parser split: everything between the wp:html
+            // delimiters is its own block; "Convert to blocks" only converts the
+            // classic chunk, so the anchor must live fully inside the delimited chunk.
+            $this->assertSame(1, preg_match('/<!-- wp:html -->(.*)<!-- \/wp:html -->/s', $out, $m));
+            $this->assertStringContainsString('<a href=', $m[1]);
+            $classic_chunk = (string) preg_replace('/<!-- wp:html -->.*<!-- \/wp:html -->/s', '', $out);
+            $this->assertStringNotContainsString('<a href=', $classic_chunk);
+
+            // Re-append is a no-op (dedupe on marker class).
+            $again = (string) $this->invoke('append_category_affiliate_cta_html', [$out, $post]);
+            $this->assertSame(1, substr_count($again, 'tmw-category-page-affiliate-cta'));
+
+            unset($GLOBALS['_tmw_test_terms_by_slug']['amateur-cams'], $GLOBALS['_tmw_test_affiliate_urls'][55]);
+        }
+
+        public function test_empty_affiliate_url_appends_editable_slot_without_fake_link(): void {
+            $post = new \WP_Post(['ID' => 911, 'post_title' => 'Big Boob Cam', 'post_name' => 'big-boob-cam', 'post_type' => 'tmw_category_page']);
+            $GLOBALS['_tmw_test_post_meta'][911] = [];
+            $GLOBALS['_tmw_test_terms_by_slug']['big-boob-cam'] = new \WP_Term(['term_id' => 56, 'taxonomy' => 'category', 'slug' => 'big-boob-cam']);
+            // No affiliate URL set for term 56.
+
+            $html = '<p>Big Boob Cam overview.</p>';
+            $out  = (string) $this->invoke('append_category_affiliate_cta_html', [$html, $post]);
+
+            $this->assertStringContainsString('tmw-category-affiliate-slot', $out);
+            $this->assertStringContainsString('<!-- wp:html -->', $out);
+            // No fake or placeholder link is ever emitted.
+            $this->assertStringNotContainsString('<a ', $out);
+            $this->assertStringNotContainsString('href=', $out);
+
+            // Slot never blocks a later real CTA append after regeneration.
+            $this->assertStringNotContainsString('tmw-category-page-affiliate-cta', $out);
+
+            unset($GLOBALS['_tmw_test_terms_by_slug']['big-boob-cam']);
+        }
+
+        public function test_empty_slot_is_upgraded_to_real_cta_once_affiliate_url_is_set(): void {
+            $post = new \WP_Post(['ID' => 913, 'post_title' => 'Lifecycle Cam', 'post_name' => 'lifecycle-cam', 'post_type' => 'tmw_category_page']);
+            $GLOBALS['_tmw_test_post_meta'][913] = [];
+            $GLOBALS['_tmw_test_terms_by_slug']['lifecycle-cam'] = new \WP_Term(['term_id' => 57, 'taxonomy' => 'category', 'slug' => 'lifecycle-cam']);
+            unset($GLOBALS['_tmw_test_affiliate_urls'][57]);
+
+            // 1. Generate with no URL → empty editable slot.
+            $html = '<p>Lifecycle Cam overview.</p>';
+            $with_slot = (string) $this->invoke('append_category_affiliate_cta_html', [$html, $post]);
+            $this->assertStringContainsString('tmw-category-affiliate-slot', $with_slot);
+            $this->assertStringNotContainsString('tmw-category-page-affiliate-cta', $with_slot);
+            $this->assertStringNotContainsString('<a ', $with_slot);
+
+            // 1b. Re-run with still no URL → slot retained once, never duplicated.
+            $still_slot = (string) $this->invoke('append_category_affiliate_cta_html', [$with_slot, $post]);
+            $this->assertSame(1, substr_count($still_slot, 'tmw-category-affiliate-slot'));
+
+            // 2. Operator sets the affiliate URL on the category term.
+            $GLOBALS['_tmw_test_affiliate_urls'][57] = 'https://operator-set.example/track?c=lc';
+
+            // 3. Regenerate → 4. empty slot is replaced by the real CTA.
+            $upgraded = (string) $this->invoke('append_category_affiliate_cta_html', [$still_slot, $post]);
+
+            $this->assertStringNotContainsString('tmw-category-affiliate-slot', $upgraded);
+            $this->assertStringContainsString('tmw-category-page-affiliate-cta', $upgraded);
+            $this->assertStringContainsString('href="https://operator-set.example/track?c=lc"', $upgraded);
+            $this->assertStringContainsString('rel="sponsored noopener"', $upgraded);
+            // Exactly one wp:html block remains — replaced in place, not appended twice.
+            $this->assertSame(1, substr_count($upgraded, '<!-- wp:html -->'));
+            $this->assertSame(1, substr_count($upgraded, '<!-- /wp:html -->'));
+            $this->assertSame(1, preg_match('/<!-- wp:html -->(.*)<!-- \/wp:html -->/s', $upgraded, $m));
+            $this->assertStringContainsString('<a href=', $m[1]);
+
+            // Re-run on upgraded content is a no-op (real CTA dedupe).
+            $again = (string) $this->invoke('append_category_affiliate_cta_html', [$upgraded, $post]);
+            $this->assertSame($upgraded, $again);
+
+            unset($GLOBALS['_tmw_test_terms_by_slug']['lifecycle-cam'], $GLOBALS['_tmw_test_affiliate_urls'][57]);
+        }
+
+        public function test_edited_affiliate_slot_survives_normal_ai_block_regeneration(): void {
+            $post = new \WP_Post(['ID' => 915, 'post_title' => 'Preserved Cam', 'post_name' => 'preserved-cam', 'post_type' => 'tmw_category_page']);
+            $GLOBALS['_tmw_test_post_meta'][915] = [];
+            $GLOBALS['_tmw_test_terms_by_slug']['preserved-cam'] = new \WP_Term(['term_id' => 59, 'taxonomy' => 'category', 'slug' => 'preserved-cam']);
+            $GLOBALS['_tmw_test_affiliate_urls'][59] = 'https://term-meta.example/generated';
+
+            $existing = '<p>Operator intro before marker.</p>'
+                . "\n<!-- TMWSEO:AI -->\n"
+                . '<p>Old generated body.</p>'
+                . "\n\n<!-- wp:html -->\n"
+                . '<div class="tmw-category-affiliate-slot"><a href="https://operator.example/manual">Operator-added CTA</a></div>'
+                . "\n<!-- /wp:html -->\n";
+
+            $regenerated = (string) $this->invoke('upsert_ai_block', [$existing, '<p>New generated body.</p>']);
+            $out = (string) $this->invoke('append_category_affiliate_cta_html', [$regenerated, $post]);
+
+            $this->assertStringContainsString('<p>Operator intro before marker.</p>', $out);
+            $this->assertStringContainsString('<p>New generated body.</p>', $out);
+            $this->assertStringNotContainsString('<p>Old generated body.</p>', $out);
+            $this->assertStringContainsString('tmw-category-affiliate-slot', $out);
+            $this->assertStringContainsString('https://operator.example/manual', $out);
+            $this->assertStringContainsString('Operator-added CTA', $out);
+            $this->assertStringNotContainsString('https://term-meta.example/generated', $out);
+            $this->assertStringNotContainsString('tmw-category-page-affiliate-cta', $out);
+            $this->assertSame(1, substr_count($out, 'tmw-category-affiliate-slot'));
+
+            unset($GLOBALS['_tmw_test_terms_by_slug']['preserved-cam'], $GLOBALS['_tmw_test_affiliate_urls'][59]);
+        }
+
+        public function test_empty_affiliate_slot_upgrades_after_ai_block_regeneration_when_url_is_set(): void {
+            $post = new \WP_Post(['ID' => 916, 'post_title' => 'Upgrade Cam', 'post_name' => 'upgrade-cam', 'post_type' => 'tmw_category_page']);
+            $GLOBALS['_tmw_test_post_meta'][916] = [];
+            $GLOBALS['_tmw_test_terms_by_slug']['upgrade-cam'] = new \WP_Term(['term_id' => 60, 'taxonomy' => 'category', 'slug' => 'upgrade-cam']);
+            $GLOBALS['_tmw_test_affiliate_urls'][60] = 'https://term-meta.example/upgraded';
+
+            $existing = '<p>Intro.</p>'
+                . "\n<!-- TMWSEO:AI -->\n"
+                . '<p>Old generated body.</p>'
+                . "\n\n<!-- wp:html -->\n"
+                . '<div class="tmw-category-affiliate-slot"></div>'
+                . "\n<!-- /wp:html -->\n";
+
+            $regenerated = (string) $this->invoke('upsert_ai_block', [$existing, '<p>Fresh generated body.</p>']);
+            $out = (string) $this->invoke('append_category_affiliate_cta_html', [$regenerated, $post]);
+
+            $this->assertStringContainsString('<p>Fresh generated body.</p>', $out);
+            $this->assertStringNotContainsString('tmw-category-affiliate-slot', $out);
+            $this->assertStringContainsString('tmw-category-page-affiliate-cta', $out);
+            $this->assertStringContainsString('href="https://term-meta.example/upgraded"', $out);
+            $this->assertSame(1, substr_count($out, 'tmw-category-page-affiliate-cta'));
+
+            unset($GLOBALS['_tmw_test_terms_by_slug']['upgrade-cam'], $GLOBALS['_tmw_test_affiliate_urls'][60]);
+        }
+
+        public function test_existing_real_cta_dedupes_after_ai_block_regeneration(): void {
+            $post = new \WP_Post(['ID' => 917, 'post_title' => 'Dedupe Cam', 'post_name' => 'dedupe-cam', 'post_type' => 'tmw_category_page']);
+            $GLOBALS['_tmw_test_post_meta'][917] = [];
+            $GLOBALS['_tmw_test_terms_by_slug']['dedupe-cam'] = new \WP_Term(['term_id' => 61, 'taxonomy' => 'category', 'slug' => 'dedupe-cam']);
+            $GLOBALS['_tmw_test_affiliate_urls'][61] = 'https://term-meta.example/dedupe';
+
+            $existing = '<p>Intro.</p>'
+                . "\n<!-- TMWSEO:AI -->\n"
+                . '<p>Old generated body.</p>'
+                . "\n\n<!-- wp:html -->\n"
+                . '<div class="tmw-category-page-affiliate-cta"><a href="https://term-meta.example/dedupe">Visit</a></div>'
+                . "\n<!-- /wp:html -->\n";
+
+            $regenerated = (string) $this->invoke('upsert_ai_block', [$existing, '<p>Fresh generated body.</p>']);
+            $out = (string) $this->invoke('append_category_affiliate_cta_html', [$regenerated, $post]);
+
+            $this->assertStringContainsString('<p>Fresh generated body.</p>', $out);
+            $this->assertSame(1, substr_count($out, 'tmw-category-page-affiliate-cta'));
+            $this->assertSame(1, substr_count($out, 'href="https://term-meta.example/dedupe"'));
+
+            unset($GLOBALS['_tmw_test_terms_by_slug']['dedupe-cam'], $GLOBALS['_tmw_test_affiliate_urls'][61]);
+        }
+
+        public function test_slot_with_operator_added_content_is_never_overwritten(): void {
+            $post = new \WP_Post(['ID' => 914, 'post_title' => 'Lifecycle Cam', 'post_name' => 'lifecycle-cam-2', 'post_type' => 'tmw_category_page']);
+            $GLOBALS['_tmw_test_post_meta'][914] = [];
+            $GLOBALS['_tmw_test_terms_by_slug']['lifecycle-cam-2'] = new \WP_Term(['term_id' => 58, 'taxonomy' => 'category', 'slug' => 'lifecycle-cam-2']);
+            $GLOBALS['_tmw_test_affiliate_urls'][58] = 'https://term-meta.example/offer';
+
+            // The operator pasted their own link inside the slot block.
+            $html = '<p>Lifecycle Cam overview.</p>'
+                . "\n\n<!-- wp:html -->\n"
+                . '<div class="tmw-category-affiliate-slot"><a href="https://operator-manual.example/custom" target="_blank" rel="sponsored noopener">Custom operator link</a></div>'
+                . "\n<!-- /wp:html -->";
+
+            $out = (string) $this->invoke('append_category_affiliate_cta_html', [$html, $post]);
+
+            // Operator content wins: no replacement, no second CTA appended.
+            $this->assertSame($html, $out);
+            $this->assertStringContainsString('https://operator-manual.example/custom', $out);
+            $this->assertStringNotContainsString('https://term-meta.example/offer', $out);
+
+            unset($GLOBALS['_tmw_test_terms_by_slug']['lifecycle-cam-2'], $GLOBALS['_tmw_test_affiliate_urls'][58]);
+        }
+
+        public function test_keyword_coverage_does_not_lose_links_when_block_html_is_present(): void {
+            $post = new \WP_Post(['ID' => 912, 'post_title' => 'Amateur Cams', 'post_type' => 'tmw_category_page']);
+            $GLOBALS['_tmw_test_post_meta'][912] = [];
+
+            $html = '<p>Amateur Cams overview.</p>'
+                . '<h2>Frequently Asked Questions</h2><h3>How?</h3><p>Browse.</p>'
+                . "\n\n<!-- wp:html -->\n"
+                . '<div class="tmw-category-page-affiliate-cta"><a href="https://example-affiliate.test/offer" target="_blank" rel="sponsored noopener">Visit live category related models</a></div>'
+                . "\n<!-- /wp:html -->";
+
+            $keyword_set = [
+                'primary_keyword' => 'Amateur Cams',
+                'extra_keywords' => ['amateur webcam'],
+                'all_keywords' => ['Amateur Cams', 'amateur webcam'],
+                'supporting_keywords' => ['model profiles'],
+            ];
+
+            $covered = $this->invoke('ensure_category_keyword_coverage', [$html, $keyword_set, $post]);
+
+            $this->assertStringContainsString('href="https://example-affiliate.test/offer"', $covered);
+            $this->assertStringContainsString('<!-- wp:html -->', $covered);
+            $this->assertStringContainsString('<!-- /wp:html -->', $covered);
+            $this->assertStringContainsString('amateur webcam', $covered);
+            $this->assertStringContainsString('model profiles', $covered);
         }
 
     }

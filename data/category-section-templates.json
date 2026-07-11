@@ -41,7 +41,7 @@
         },
         {
           "id": "intro_02",
-          "body": "<p>If you are looking for {{category_name}}, this page groups the most relevant model profiles and video pages under one accessible archive. Visitors can scan listings at their own pace, compare what is available, and follow internal links into profile pages or video sections that fit their preference. No sign-up is needed to browse.</p>"
+          "body": "<p>If you are looking for {{category_name}}, this page groups the most relevant model profiles and video pages under one accessible archive. Visitors can scan listings at their own pace, compare what is available, and follow related site links into profile pages or video sections that fit their preference. No sign-up is needed to browse.</p>"
         },
         {
           "id": "intro_03",
@@ -49,11 +49,11 @@
         },
         {
           "id": "intro_04",
-          "body": "<p>This {{category_name}} directory page gives you a single place to find model profiles and video listings that match one clear browsing intent. The categories, internal links, and navigation below are part of the same site directory, so every destination you follow stays within a familiar structure.</p>"
+          "body": "<p>This {{category_name}} directory page gives you a single place to find model profiles and video listings that match one clear browsing intent. The categories, related site links, and navigation below are part of the same site directory, so every destination you follow stays within a familiar structure.</p>"
         },
         {
           "id": "intro_05",
-          "body": "<p>Browsing {{category_name}} starts here. This archive page indexes relevant model cards and video clips so visitors can scan quickly, choose what looks interesting, and navigate deeper without retracing their steps. The focus is on practical discovery rather than promotion — every link on this page points to a real internal destination.</p>"
+          "body": "<p>Browsing {{category_name}} starts here. This archive page indexes relevant model cards and video clips so visitors can scan quickly, choose what looks interesting, and navigate deeper without retracing their steps. The focus is on practical discovery rather than promotion — every link on this page points to a real site destination.</p>"
         },
         {
           "id": "intro_06",
@@ -65,7 +65,7 @@
         },
         {
           "id": "intro_08",
-          "body": "<p>{{category_name}} is a category on {{site_name}} designed to reduce browsing friction. Rather than searching through unrelated listings, visitors land here and immediately have access to relevant profiles, connected videos, and internal links that lead further into the same theme. Use the sections below to orient yourself before clicking through.</p>"
+          "body": "<p>{{category_name}} is a category on {{site_name}} designed to reduce browsing friction. Rather than searching through unrelated listings, visitors land here and immediately have access to relevant profiles, connected videos, and related site links that lead further into the same theme. Use the sections below to orient yourself before clicking through.</p>"
         },
         {
           "id": "intro_09",
@@ -73,7 +73,7 @@
         },
         {
           "id": "intro_10",
-          "body": "<p>{{category_name}} is a directory archive for a focused webcam browsing theme. This page collects model profiles and video listings that match the same intent, covering searches such as {{secondary_keywords}}. Scan the sections below to find a starting point, then follow the internal directory links to individual profiles or video pages that match what you are looking for.</p>"
+          "body": "<p>{{category_name}} is a directory archive for a focused webcam browsing theme. This page collects model profiles and video listings that match the same intent, covering searches such as {{secondary_keywords}}. Scan the sections below to find a starting point, then follow the site links to individual profiles or video pages that match what you are looking for.</p>"
         }
       ]
     },
@@ -93,7 +93,7 @@
         {
           "id": "covers_03",
           "h2": "What This Category Covers",
-          "body": "<p>{{category_name}} as a category focuses on connecting visitors to relevant model profiles and video content within a shared browsing theme. It covers the range of performers who match this topic, the video clips associated with the same focus, and the internal navigation paths that let you move between related sections on {{site_name}}.</p>"
+          "body": "<p>{{category_name}} as a category focuses on connecting visitors to relevant model profiles and video content within a shared browsing theme. It covers the range of performers who match this topic, the video clips associated with the same focus, and the site navigation paths that let you move between related sections on {{site_name}}.</p>"
         },
         {
           "id": "covers_04",
@@ -113,7 +113,7 @@
         {
           "id": "covers_07",
           "h2": "What This Category Covers",
-          "body": "<p>This page covers webcam models and video content under the {{category_name}} theme. It draws from the {{site_name}} directory to surface profiles and clips that are already published and internally linked. No external data is pulled in, and no platform availability is implied beyond what individual profile pages indicate.</p>"
+          "body": "<p>This page covers webcam models and video content under the {{category_name}} theme. It draws from the {{site_name}} directory to surface profiles and clips that are already published and linked within the site. No external data is pulled in, and no platform availability is implied beyond what individual profile pages indicate.</p>"
         },
         {
           "id": "covers_08",
@@ -183,7 +183,7 @@
         {
           "id": "browse_01",
           "h2": "How to Browse This Category",
-          "body": "<p>Start by scanning the model cards on this page. Each card links to a full profile where you can check platform availability, read a short description, and follow outbound links to live rooms or fan pages. From any profile page you can navigate back to this category or continue to related categories using the internal tag links. The video section follows the same pattern — click a clip title to reach the full video page with additional context.</p>"
+          "body": "<p>Start by scanning the model cards on this page. Each card links to a full profile where you can check platform availability, read a short description, and follow outbound links to live rooms or fan pages. From any profile page you can navigate back to this category or continue to related categories using the related site links. The video section follows the same pattern — click a clip title to reach the full video page with additional context.</p>"
         },
         {
           "id": "browse_02",
@@ -193,17 +193,17 @@
         {
           "id": "browse_03",
           "h2": "How to Browse This Category",
-          "body": "<p>The most efficient way to browse {{category_name}} is to use the internal directory links at the bottom of this page. The Models Directory shows performer profiles sorted by the site's standard display order. The Videos Directory shows clip listings in the same theme. If you find a performer you want to follow, open their profile page and use the links there to reach the platform directly.</p>"
+          "body": "<p>The most efficient way to browse {{category_name}} is to use the site links at the bottom of this page. The Models Directory shows performer profiles sorted by the site's standard display order. The Videos Directory shows clip listings in the same theme. If you find a performer you want to follow, open their profile page and use the links there to reach the platform directly.</p>"
         },
         {
           "id": "browse_04",
           "h2": "How to Browse This Category",
-          "body": "<p>Browsing {{category_name}} works in two stages. First, use this page to get an overview of what the theme covers and which navigation paths are available. Second, follow the directory links to model profiles or video pages that match your preference. Once inside a profile or clip page, the related tags and internal links let you pivot into adjacent themes without returning to this page.</p>"
+          "body": "<p>Browsing {{category_name}} works in two stages. First, use this page to get an overview of what the theme covers and which navigation paths are available. Second, follow the directory links to model profiles or video pages that match your preference. Once inside a profile or clip page, the related tags and site links let you pivot into adjacent themes without returning to this page.</p>"
         },
         {
           "id": "browse_05",
           "h2": "How to Browse This Category",
-          "body": "<p>You can browse {{category_name}} by starting at the Models Directory to check performer profiles, or by going directly to the Videos Directory if clip content is more relevant to you. Both sections are independently navigable and internally linked so you can move between them without losing your place in the site hierarchy. Individual pages include additional context that this category-level page does not duplicate.</p>"
+          "body": "<p>You can browse {{category_name}} by starting at the Models Directory to check performer profiles, or by going directly to the Videos Directory if clip content is more relevant to you. Both sections are independently navigable and linked within the site so you can move between them without losing your place in the site hierarchy. Individual pages include additional context that this category-level page does not duplicate.</p>"
         },
         {
           "id": "browse_06",
@@ -218,7 +218,7 @@
         {
           "id": "browse_08",
           "h2": "How to Browse This Category",
-          "body": "<p>{{category_name}} is part of a broader directory structure on {{site_name}}. To navigate it effectively, use the main directory links below as entry points and then follow internal links from profile or video pages to go deeper. The related category links in the next section can also help you move laterally into themes that overlap with {{category_name}} without restarting your search.</p>"
+          "body": "<p>{{category_name}} is part of a broader directory structure on {{site_name}}. To navigate it effectively, use the main directory links below as entry points and then follow the site links from profile or video pages to go deeper. The related category links in the next section can also help you move laterally into themes that overlap with {{category_name}} without restarting your search.</p>"
         }
       ]
     },
@@ -228,7 +228,7 @@
         {
           "id": "tips_01",
           "h2": "Live Cam and Model Discovery Tips",
-          "body": "<p>When browsing live cam profiles under {{category_name}}, a few habits make the process faster. Check a profile's availability section first — this tells you which platforms the performer is listed on so you know where to look before clicking outbound. If a room shows as offline on one platform, the model may be live on another listed platform. Use the profile's internal links rather than searching directly on the platform to avoid landing on unrelated accounts.</p>"
+          "body": "<p>When browsing live cam profiles under {{category_name}}, a few habits make the process faster. Check a profile's availability section first — this tells you which platforms the performer is listed on so you know where to look before clicking outbound. If a room shows as offline on one platform, the model may be live on another listed platform. Use the profile's listed links rather than searching directly on the platform to avoid landing on unrelated accounts.</p>"
         },
         {
           "id": "tips_02",
@@ -278,7 +278,7 @@
         {
           "id": "similar_01",
           "h2": "Similar Categories to Explore",
-          "body": "<p>If {{category_name}} matches part of your interest but not all of it, there are related categories on {{site_name}} that may complete the picture. Browse adjacent themes to find performers or video content that overlaps with this one. The internal category structure is designed so that related themes link to each other, making it easier to move laterally without starting a new search.</p>"
+          "body": "<p>If {{category_name}} matches part of your interest but not all of it, there are related categories on {{site_name}} that may complete the picture. Browse adjacent themes to find performers or video content that overlaps with this one. The site category structure is designed so that related themes link to each other, making it easier to move laterally without starting a new search.</p>"
         },
         {
           "id": "similar_02",
@@ -293,22 +293,22 @@
         {
           "id": "similar_04",
           "h2": "Similar Categories to Explore",
-          "body": "<p>Beyond {{category_name}}, {{site_name}} organises model and video content into a range of other themed categories. If the performers or videos here are close but not exactly what you need, a related category page may have a better match. The site's internal linking structure connects overlapping themes so you can navigate between them without returning to the homepage.</p>"
+          "body": "<p>Beyond {{category_name}}, {{site_name}} organises model and video content into a range of other themed categories. If the performers or videos here are close but not exactly what you need, a related category page may have a better match. The site's linking structure connects overlapping themes so you can navigate between them without returning to the homepage.</p>"
         },
         {
           "id": "similar_05",
           "h2": "Similar Categories to Explore",
-          "body": "<p>{{category_name}} is one of several themed archive pages on {{site_name}}. Related categories cover overlapping styles, performer types, and video content themes. If you reach the end of what this category offers and want to keep exploring, the internal category links in the site's navigation bar or in the footer are the fastest way to find a related page.</p>"
+          "body": "<p>{{category_name}} is one of several themed archive pages on {{site_name}}. Related categories cover overlapping styles, performer types, and video content themes. If you reach the end of what this category offers and want to keep exploring, the site category links in the site's navigation bar or in the footer are the fastest way to find a related page.</p>"
         },
         {
           "id": "similar_06",
           "h2": "Similar Categories to Explore",
-          "body": "<p>Webcam browsing themes often overlap, and {{category_name}} is no exception. Visitors who enjoy this category tend to find value in related themes that share some of the same performer characteristics or content styles. The {{site_name}} directory organises these related categories through internal tag links on individual model and video pages, making it easy to discover adjacent content without extra searching.</p>"
+          "body": "<p>Webcam browsing themes often overlap, and {{category_name}} is no exception. Visitors who enjoy this category tend to find value in related themes that share some of the same performer characteristics or content styles. The {{site_name}} directory organises these related categories through related site links on individual model and video pages, making it easy to discover adjacent content without extra searching.</p>"
         },
         {
           "id": "similar_07",
           "h2": "Similar Categories to Explore",
-          "body": "<p>If you have browsed through the {{category_name}} listings and want to continue exploring, the most direct path is through related categories linked from within individual model or video pages. These adjacent themes are identified through the site's existing tag structure and share at least one browsing characteristic with this category. Following those internal links is a faster route to related content than starting a new directory search.</p>"
+          "body": "<p>If you have browsed through the {{category_name}} listings and want to continue exploring, the most direct path is through related categories linked from within individual model or video pages. These adjacent themes are identified through the site's existing tag structure and share at least one browsing characteristic with this category. Following those related site links is a faster route to related content than starting a new directory search.</p>"
         },
         {
           "id": "similar_08",
@@ -373,12 +373,12 @@
         {
           "id": "nav_01",
           "h2": "Browse Models and Videos",
-          "body": "<p>The two core navigation hubs for {{category_name}} content on {{site_name}} are the Models Directory and the Videos Directory. Both are internally linked and cover the full range of available listings within this theme and across the broader site.</p><ul><li><a href=\"{{models_url}}\">Browse the Models Directory</a></li><li><a href=\"{{videos_url}}\">Browse the Videos Directory</a></li></ul>"
+          "body": "<p>The two core navigation hubs for {{category_name}} content on {{site_name}} are the Models Directory and the Videos Directory. Both are linked within the site and cover the full range of available listings within this theme and across the broader site.</p><ul><li><a href=\"{{models_url}}\">Browse the Models Directory</a></li><li><a href=\"{{videos_url}}\">Browse the Videos Directory</a></li></ul>"
         },
         {
           "id": "nav_02",
           "h2": "Find Models and Videos on This Site",
-          "body": "<p>{{site_name}} organises its {{category_name}} content through two main directories. The Models Directory covers performer profile pages; the Videos Directory covers clip and archive pages. Both are accessible without an account and are the main internal starting points for this theme.</p><ul><li><a href=\"{{models_url}}\">Models Directory</a></li><li><a href=\"{{videos_url}}\">Videos Directory</a></li></ul>"
+          "body": "<p>{{site_name}} organises its {{category_name}} content through two main directories. The Models Directory covers performer profile pages; the Videos Directory covers clip and archive pages. Both are accessible without an account and are the main site starting points for this theme.</p><ul><li><a href=\"{{models_url}}\">Models Directory</a></li><li><a href=\"{{videos_url}}\">Videos Directory</a></li></ul>"
         },
         {
           "id": "nav_03",
@@ -398,7 +398,7 @@
         {
           "id": "nav_06",
           "h2": "Site Navigation for This Category",
-          "body": "<p>The quickest way to continue browsing {{category_name}} content is through the directory links below. These links take you to the {{site_name}} listing pages where performers and video content are organised by the same internal taxonomy that supports this category page.</p><ul><li><a href=\"{{models_url}}\">Models Directory — {{site_name}}</a></li><li><a href=\"{{videos_url}}\">Videos Directory — {{site_name}}</a></li></ul>"
+          "body": "<p>The quickest way to continue browsing {{category_name}} content is through the directory links below. These links take you to the {{site_name}} listing pages where performers and video content are organised by the same site taxonomy that supports this category page.</p><ul><li><a href=\"{{models_url}}\">Models Directory — {{site_name}}</a></li><li><a href=\"{{videos_url}}\">Videos Directory — {{site_name}}</a></li></ul>"
         },
         {
           "id": "nav_07",
@@ -421,7 +421,7 @@
         },
         {
           "id": "close_02",
-          "body": "<p>This {{category_name}} page is part of the {{site_name}} directory structure. It is generated from the same data that powers the models and videos sections of the site, which means the profile and video links you follow from here are part of the same internally consistent archive. The directory presents listings without editorial promotion.</p>"
+          "body": "<p>This {{category_name}} page is part of the {{site_name}} directory structure. It is generated from the same data that powers the models and videos sections of the site, which means the profile and video links you follow from here are part of the same consistent site archive. The directory presents listings without editorial promotion.</p>"
         },
         {
           "id": "close_03",
@@ -433,7 +433,7 @@
         },
         {
           "id": "close_05",
-          "body": "<p>Every section on this {{category_name}} page is designed to reduce browsing friction. The overview sections give context before you click; the directory links take you to the actual listings; the FAQ section covers the questions most visitors have before navigating deeper. Use the page as a starting point and follow the internal links at your own pace.</p>"
+          "body": "<p>Every section on this {{category_name}} page is designed to reduce browsing friction. The overview sections give context before you click; the directory links take you to the actual listings; the FAQ section covers the questions most visitors have before navigating deeper. Use the page as a starting point and follow the related site links at your own pace.</p>"
         },
         {
           "id": "close_06",
@@ -449,7 +449,7 @@
         },
         {
           "id": "close_09",
-          "body": "<p>The {{category_name}} archive on {{site_name}} is maintained as a neutral browsing resource. It is designed to serve visitors who arrive with a specific topic in mind - searches like {{secondary_keywords}} often lead to pages like this one. The directory structure is kept practical: sections provide context, and the internal links lead to real profile and video pages within the same site.</p>"
+          "body": "<p>The {{category_name}} archive on {{site_name}} is maintained as a neutral browsing resource. It is designed to serve visitors who arrive with a specific topic in mind - searches like {{secondary_keywords}} often lead to pages like this one. The directory structure is kept practical: sections provide context, and the related site links lead to real profile and video pages within the same site.</p>"
         }
       ]
     }

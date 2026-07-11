@@ -292,7 +292,7 @@
         {
           "id": "in_01",
           "q": "How is {{site_name}} organised beyond the {{category_name}} page?",
-          "a": "{{site_name}} is structured as a directory with model profile pages, video listings, and category archive pages. The category pages like this one connect to the underlying directories through internal links."
+          "a": "{{site_name}} is structured as a directory with model profile pages, video listings, and category archive pages. The category pages like this one connect to the underlying directories through related site links."
         },
         {
           "id": "in_02",
@@ -316,8 +316,8 @@
         },
         {
           "id": "in_06",
-          "q": "Do the internal links on this {{category_name}} page stay current?",
-          "a": "The internal links on this page point to {{site_name}} directory pages. If a link appears broken, return to the main directory to find the current listing."
+          "q": "Do the site links on this {{category_name}} page stay current?",
+          "a": "The site links on this page point to {{site_name}} directory pages. If a link appears broken, return to the main directory to find the current listing."
         },
         {
           "id": "in_07",
