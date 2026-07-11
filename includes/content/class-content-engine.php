@@ -1141,7 +1141,7 @@ class ContentEngine {
             if ($body !== '') {
                 $primary_keyword = trim((string) ($category_data['primary_keyword'] ?? $category_data['focus_keyword'] ?? $category_data['category_name'] ?? ''));
                 if ($primary_keyword !== '' && stripos(wp_strip_all_tags($body), $primary_keyword) === false) {
-                    $body .= '<p>The ' . esc_html($primary_keyword) . ' archive remains a neutral starting point for visitors who want to continue through internal model and video listings.</p>';
+                    $body .= '<p>The ' . esc_html($primary_keyword) . ' archive remains a neutral starting point for visitors who want to continue through related model and video listings.</p>';
                 }
                 $html .= $body;
             }
@@ -1204,11 +1204,45 @@ class ContentEngine {
         $extras = array_slice($extras, 0, 4);
         $all = array_values(array_merge($primary !== '' ? [$primary] : [], $extras));
 
+        // v5.9.x: supporting keywords from the plugin extra keyword pool.
+        // Source of truth is keyword_pack['content_terms'], which
+        // build_category_keyword_pack() fills from CategoryApprovedKeywordResolver
+        // (status=approved rows only) or the deterministic Layer 2 fallback pool.
+        // When the pack in hand lacks it (e.g. save-path re-checks), the stored
+        // _tmwseo_keyword_pack meta written by bootstrap_manual_category_generate()
+        // is reused. These terms are never written to Rank Math fields.
+        $supporting_raw = [];
+        if (!empty($keyword_pack['content_terms']) && is_array($keyword_pack['content_terms'])) {
+            $supporting_raw = $keyword_pack['content_terms'];
+        } else {
+            $stored_pack_raw = get_post_meta($post_id, '_tmwseo_keyword_pack', true);
+            $stored_pack = is_string($stored_pack_raw) && $stored_pack_raw !== '' ? json_decode($stored_pack_raw, true) : null;
+            if (is_array($stored_pack) && !empty($stored_pack['content_terms']) && is_array($stored_pack['content_terms'])) {
+                $supporting_raw = $stored_pack['content_terms'];
+            }
+        }
+
+        $supporting = [];
+        foreach ($supporting_raw as $raw_term) {
+            $supporting_term = trim(wp_strip_all_tags((string) $raw_term));
+            if ($supporting_term === '') {
+                continue;
+            }
+            $key = function_exists('mb_strtolower') ? mb_strtolower($supporting_term, 'UTF-8') : strtolower($supporting_term);
+            if (isset($seen[$key])) {
+                continue;
+            }
+            $seen[$key] = true;
+            $supporting[] = $supporting_term;
+        }
+        $supporting = array_slice($supporting, 0, 8);
+
         Logs::info('content', '[TMW-CAT-SEO-KW] Category keyword set built', [
             'term_id' => (int) ($term_context['term_id'] ?: $post_id),
             'taxonomy' => (string) ($term_context['taxonomy'] ?: 'tmw_category_page'),
             'primary_keyword' => $primary,
             'extra_keyword_count' => count($extras),
+            'supporting_keyword_count' => count($supporting),
             'total_keywords' => count($all),
         ]);
 
@@ -1216,6 +1250,7 @@ class ContentEngine {
             'primary_keyword' => $primary,
             'extra_keywords' => $extras,
             'all_keywords' => $all,
+            'supporting_keywords' => $supporting,
         ];
     }
 
@@ -1317,6 +1352,7 @@ class ContentEngine {
             return $html;
         }
 
+        // A real CTA is already present — never duplicate it.
         if (strpos($html, 'tmw-category-page-affiliate-cta') !== false) {
             Logs::info('content', '[TMW-CAT-CTA-GEN] skipped existing CTA marker', [
                 'post_id' => (int) $post->ID,
@@ -1325,30 +1361,78 @@ class ContentEngine {
         }
 
         $term = self::resolve_category_content_term($post);
-        if (! $term instanceof \WP_Term) {
-            Logs::info('content', '[TMW-CAT-CTA-GEN] skipped no valid WP_Term context', [
+
+        $cta_html = '';
+        if ($term instanceof \WP_Term) {
+            if (function_exists('tmwseo_get_category_affiliate_cta_html')) {
+                $cta_html = (string) tmwseo_get_category_affiliate_cta_html($term);
+            } elseif (function_exists('tmwseo_get_category_affiliate_url')) {
+                $affiliate_url = (string) tmwseo_get_category_affiliate_url($term);
+                if ($affiliate_url !== '') {
+                    $cta_html = '<div class="tmw-category-page-affiliate-cta"><a href="' . esc_url($affiliate_url) . '" target="_blank" rel="sponsored noopener">Visit live category related models</a></div>';
+                }
+            }
+        } else {
+            Logs::info('content', '[TMW-CAT-CTA-GEN] no valid WP_Term context', [
+                'post_id' => (int) $post->ID,
+            ]);
+        }
+
+        $has_slot = strpos($html, 'tmw-category-affiliate-slot') !== false;
+
+        // Slot lifecycle:
+        //  - slot present, still no URL   → keep the slot, change nothing.
+        //  - slot present, URL now set    → replace the EMPTY slot block with
+        //    the real CTA block (the slot never blocks the upgrade).
+        //  - slot present but operator put their own content inside it →
+        //    leave the operator's content untouched.
+        if ($has_slot) {
+            if (trim($cta_html) === '') {
+                Logs::info('content', '[TMW-CAT-CTA-GEN] slot retained, still no affiliate URL', [
+                    'post_id' => (int) $post->ID,
+                ]);
+                return $html;
+            }
+
+            $empty_slot_pattern = '/<!--\s*wp:html\s*-->\s*<div class="tmw-category-affiliate-slot">\s*<\/div>\s*<!--\s*\/wp:html\s*-->/';
+            if (preg_match($empty_slot_pattern, $html, $m, PREG_OFFSET_CAPTURE)) {
+                $offset = (int) $m[0][1];
+                $length = strlen($m[0][0]);
+                $html   = substr($html, 0, $offset)
+                    . self::wrap_category_cta_block(trim($cta_html))
+                    . substr($html, $offset + $length);
+
+                Logs::info('content', '[TMW-CAT-CTA-GEN] upgraded empty slot to real CTA', [
+                    'post_id'  => (int) $post->ID,
+                    'term_id'  => (int) $term->term_id,
+                    'taxonomy' => (string) $term->taxonomy,
+                ]);
+                return $html;
+            }
+
+            // Slot marker exists but the block is not empty — the operator
+            // added their own content there. Their edit wins.
+            Logs::info('content', '[TMW-CAT-CTA-GEN] slot has operator content, left untouched', [
                 'post_id' => (int) $post->ID,
             ]);
             return $html;
         }
 
-        $cta_html = '';
-        if (function_exists('tmwseo_get_category_affiliate_cta_html')) {
-            $cta_html = (string) tmwseo_get_category_affiliate_cta_html($term);
-        } elseif (function_exists('tmwseo_get_category_affiliate_url')) {
-            $affiliate_url = (string) tmwseo_get_category_affiliate_url($term);
-            if ($affiliate_url !== '') {
-                $cta_html = '<div class="tmw-category-page-affiliate-cta"><a href="' . esc_url($affiliate_url) . '" target="_blank" rel="sponsored noopener">Visit live category related models</a></div>';
-            }
-        }
-
         if (trim($cta_html) === '') {
-            Logs::info('content', '[TMW-CAT-CTA-GEN] skipped no affiliate URL', [
-                'post_id'  => (int) $post->ID,
-                'term_id'  => (int) $term->term_id,
-                'taxonomy' => (string) $term->taxonomy,
+            // v5.9.x: no affiliate URL set (or no term resolved) — instead of
+            // appending nothing, emit an empty, operator-editable slot so every
+            // generated category page has a stable outbound link area. The empty
+            // div renders nothing on the frontend. The slot class deliberately
+            // does NOT contain the CTA marker substring, and the upgrade path
+            // above replaces it with the real CTA once a URL is set.
+            $slot_html = '<div class="tmw-category-affiliate-slot"></div>';
+
+            Logs::info('content', '[TMW-CAT-CTA-GEN] appended empty affiliate slot', [
+                'post_id' => (int) $post->ID,
+                'term_id' => $term instanceof \WP_Term ? (int) $term->term_id : 0,
             ]);
-            return $html;
+
+            return rtrim($html) . "\n\n" . self::wrap_category_cta_block($slot_html);
         }
 
         Logs::info('content', '[TMW-CAT-CTA-GEN] appended CTA', [
@@ -1357,7 +1441,7 @@ class ContentEngine {
             'taxonomy' => (string) $term->taxonomy,
         ]);
 
-        return rtrim($html) . "\n\n" . trim($cta_html);
+        return rtrim($html) . "\n\n" . self::wrap_category_cta_block(trim($cta_html));
     }
 
     /**
@@ -1386,6 +1470,13 @@ class ContentEngine {
         if (!empty($missing)) {
             $fallback_used = true;
             $html = self::inject_category_keyword_fallback_sentences($html, $missing);
+        }
+
+        // v5.9.x: supporting keyword coverage from the plugin extra keyword pool.
+        // Runs after Rank Math coverage so the guaranteed keyword set is untouched.
+        $supporting = array_values(array_filter(array_map('strval', $keyword_set['supporting_keywords'] ?? []), 'strlen'));
+        if (!empty($supporting)) {
+            $html = self::weave_category_supporting_keywords($html, $supporting, $post);
         }
 
         // Re-check after injection so logs report final missing count.
@@ -1464,6 +1555,120 @@ class ContentEngine {
         }
 
         return rtrim($html) . $paragraph;
+    }
+
+    /**
+     * v5.9.x: weave supporting keywords from the plugin extra keyword pool
+     * into category content, without keyword stuffing.
+     *
+     * Rules:
+     *  - Insertion cap scales with visible length: 2 (<450 words),
+     *    3 (<700 words), 4 otherwise.
+     *  - Terms already present in the visible text are never repeated.
+     *  - At most two short neutral sentences are added (early + before FAQ),
+     *    each carrying up to two terms — no lists, no links, no slugs.
+     *  - The tmw-cat-supporting marker class makes the weave idempotent, so
+     *    repeated coverage passes on the same content never stack sentences.
+     *
+     * @param string[] $supporting
+     */
+    private static function weave_category_supporting_keywords(string $html, array $supporting, \WP_Post $post): string {
+        if ($html === '' || empty($supporting)) {
+            return $html;
+        }
+
+        // Idempotency guard: only one weave per generated content string.
+        if (strpos($html, 'tmw-cat-supporting') !== false) {
+            return $html;
+        }
+
+        $visible = html_entity_decode(wp_strip_all_tags($html), ENT_QUOTES, 'UTF-8');
+        $visible_lc = function_exists('mb_strtolower') ? mb_strtolower($visible, 'UTF-8') : strtolower($visible);
+        $word_count = str_word_count($visible);
+
+        $cap = 4;
+        if ($word_count < 450) {
+            $cap = 2;
+        } elseif ($word_count < 700) {
+            $cap = 3;
+        }
+
+        $missing = [];
+        foreach ($supporting as $term) {
+            $term = trim($term);
+            if ($term === '') {
+                continue;
+            }
+            $term_lc = function_exists('mb_strtolower') ? mb_strtolower($term, 'UTF-8') : strtolower($term);
+            if (strpos($visible_lc, $term_lc) !== false) {
+                continue; // Already covered naturally — never repeat.
+            }
+            $missing[] = $term;
+            if (count($missing) >= $cap) {
+                break;
+            }
+        }
+
+        if (empty($missing)) {
+            return $html;
+        }
+
+        $early_terms = array_slice($missing, 0, 2);
+        $late_terms  = array_slice($missing, 2, 2);
+
+        $early_sentence = '<p class="tmw-cat-supporting">Popular ways to explore this archive include '
+            . self::format_category_keyword_list($early_terms)
+            . ', using the same site model and video listings.</p>';
+
+        $late_sentence = '';
+        if (!empty($late_terms)) {
+            $late_sentence = '<p class="tmw-cat-supporting">Visitors who browse with terms like '
+                . self::format_category_keyword_list($late_terms)
+                . ' will find the same directory sections cover those paths as well.</p>';
+        }
+
+        // Early sentence lands after the first paragraph so it reads as intro
+        // context; the late sentence lands before the FAQ block.
+        $first_p_end = stripos($html, '</p>');
+        if ($first_p_end !== false) {
+            $insert_at = $first_p_end + 4;
+            $html = substr($html, 0, $insert_at) . $early_sentence . substr($html, $insert_at);
+        } else {
+            $html = $early_sentence . $html;
+        }
+
+        if ($late_sentence !== '') {
+            $faq_pos = stripos($html, '<h2>Frequently Asked Questions</h2>');
+            if ($faq_pos !== false) {
+                $html = substr($html, 0, $faq_pos) . $late_sentence . substr($html, $faq_pos);
+            } else {
+                $html = rtrim($html) . $late_sentence;
+            }
+        }
+
+        Logs::info('content', '[TMW-CAT-SEO-KW] Supporting keyword coverage woven', [
+            'post_id' => (int) $post->ID,
+            'inserted_terms' => count($missing),
+            'insertion_cap' => $cap,
+            'word_count' => $word_count,
+        ]);
+
+        return $html;
+    }
+
+    /**
+     * v5.9.x: wrap the affiliate CTA/slot in explicit wp:html block delimiters.
+     *
+     * The CTA used to be appended as bare classic HTML; the block editor's
+     * "Convert to blocks" raw handler does not treat a trailing div-wrapped
+     * anchor as valid block content and drops it. Persisting the CTA as its
+     * own Custom HTML block means block conversion only converts the classic
+     * text chunk and never touches the CTA, while the frontend renders the
+     * inner HTML verbatim and the operator can still edit the link in the
+     * editor. The affiliate destination stays in term meta — never hardcoded.
+     */
+    private static function wrap_category_cta_block(string $inner_html): string {
+        return "<!-- wp:html -->\n" . $inner_html . "\n<!-- /wp:html -->";
     }
 
 
@@ -2762,7 +2967,7 @@ class ContentEngine {
             'related categories',
             'model discovery',
             'category archive',
-            'internal search',
+            'site search',
             'profile navigation',
             'listed platforms',
             'performer index',
