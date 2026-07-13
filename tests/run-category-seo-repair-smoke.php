@@ -13,7 +13,7 @@
  *      rank_math_focus_keyword CSV (primary first), refreshes a stale
  *      one-keyword list, backs up the previous CSV, writes the regeneration
  *      report; no-pool path leaves the CSV untouched.
- *   C. RankMathMapper — category cap is 8 extras, model cap stays 4.
+ *   C. RankMathMapper — tmw_category_page cap is 8 extras; model, post, page, and unknown custom types stay 4.
  *   D. Title builder — five audit categories: keyword-first, power word,
  *      sentiment word, no year/number, no prohibited superlative, unique,
  *      length budget; validator failure codes.
@@ -282,7 +282,7 @@ if ($engine_loadable) {
 }
 
 // ═════════════════════════════════════════════════════════════════════════════
-echo "\nC. RankMathMapper — page-type aware extras cap\n";
+echo "\nC. RankMathMapper — post-type aware extras cap\n";
 // ═════════════════════════════════════════════════════════════════════════════
 
 $pid3 = 4561;
@@ -296,12 +296,20 @@ RankMathMapper::sync_to_rank_math($pid3, $pack8, true);
 $csv3 = (string) ($GLOBALS['_tmw_test_post_meta'][$pid3]['rank_math_focus_keyword'] ?? '');
 check('mapper writes 1 + 8 keywords for category pages', count(array_filter(array_map('trim', explode(',', $csv3)))) === 9, $csv3);
 
-$pid4 = 9001;
-make_post($pid4, ['post_type' => 'model', 'post_title' => 'Abby Murray', 'post_name' => 'abby-murray']);
-$GLOBALS['_tmw_test_post_meta'][$pid4] = [];
-RankMathMapper::sync_to_rank_math($pid4, ['primary' => 'Abby Murray', 'rankmath_additional' => ['a','b','c','d','e','f','g','h']], true);
-$csv4 = (string) ($GLOBALS['_tmw_test_post_meta'][$pid4]['rank_math_focus_keyword'] ?? '');
-check('model pages keep the 1 + 4 cap (no regression)', count(array_filter(array_map('trim', explode(',', $csv4)))) === 5, $csv4);
+$cap4_pack = ['primary' => 'Primary Keyword', 'rankmath_additional' => ['a','b','c','d','e','f','g','h']];
+$cap4_cases = [
+    'model pages keep the 1 + 4 cap (no regression)' => ['id' => 9001, 'post_type' => 'model', 'post_title' => 'Abby Murray'],
+    'post pages keep the 1 + 4 cap (no regression)' => ['id' => 9002, 'post_type' => 'post', 'post_title' => 'Sample Video'],
+    'normal pages keep the 1 + 4 cap (no category fallback)' => ['id' => 9003, 'post_type' => 'page', 'post_title' => 'About Us'],
+    'unknown custom post types keep the 1 + 4 cap (no category fallback)' => ['id' => 9004, 'post_type' => 'custom_unknown', 'post_title' => 'Custom Entry'],
+];
+foreach ($cap4_cases as $label => $case) {
+    make_post($case['id'], ['post_type' => $case['post_type'], 'post_title' => $case['post_title'], 'post_name' => strtolower(str_replace(' ', '-', $case['post_title']))]);
+    $GLOBALS['_tmw_test_post_meta'][$case['id']] = [];
+    RankMathMapper::sync_to_rank_math($case['id'], $cap4_pack, true);
+    $csv = (string) ($GLOBALS['_tmw_test_post_meta'][$case['id']]['rank_math_focus_keyword'] ?? '');
+    check($label, count(array_filter(array_map('trim', explode(',', $csv)))) === 5, $csv);
+}
 
 // ═════════════════════════════════════════════════════════════════════════════
 echo "\nD. CategorySeoTitleBuilder — five audit categories\n";

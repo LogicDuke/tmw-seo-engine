@@ -238,7 +238,7 @@
         {
           "id": "rc_08",
           "q": "Can I suggest a related category for {{category_name}}?",
-          "a": "Category connections on {{site_name}} follow the category and tag links visible on model and video pages. Site feedback options may be available through the site's contact or support page."
+          "a": "Yes, if {{site_name}} makes contact or support options available, you can use those channels to suggest a related category for {{category_name}}. The site does not list a dedicated category suggestion form in this plugin data, so use the contact or support page if one is available."
         }
       ]
     },
