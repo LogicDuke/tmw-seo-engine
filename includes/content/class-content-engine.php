@@ -1202,8 +1202,9 @@ class ContentEngine {
             return strcasecmp($keyword, $primary) !== 0;
         }));
         // v5.9.5: up to 8 extras (pool-backed Rank Math lists carry 4–8).
+        // v5.9.6: extras remain Rank Math tracking terms; only a smaller,
+        // root-aware subset is required in body copy.
         $extras = array_slice($extras, 0, 8);
-        $all = array_values(array_merge($primary !== '' ? [$primary] : [], $extras));
 
         // v5.9.x: supporting keywords from the plugin extra keyword pool.
         // Source of truth is keyword_pack['content_terms'], which
@@ -1240,22 +1241,103 @@ class ContentEngine {
         }
         $supporting = array_slice($supporting, 0, 8);
 
+        $body_plan_supporting = $supporting_source === 'category_db_approved' ? $supporting : [];
+        $body_plan = self::plan_category_body_keywords($primary, $extras, $body_plan_supporting);
+        $body_keywords = (array) ($body_plan['body_keywords'] ?? []);
+        $unused_keywords = (array) ($body_plan['unused_keywords'] ?? []);
+        $root_families = (array) ($body_plan['root_families'] ?? []);
+        $all = array_values(array_merge($primary !== '' ? [$primary] : [], $body_keywords));
+
         Logs::info('content', '[TMW-CAT-SEO-KW] Category keyword set built', [
             'term_id' => (int) ($term_context['term_id'] ?: $post_id),
             'taxonomy' => (string) ($term_context['taxonomy'] ?: 'tmw_category_page'),
             'primary_keyword' => $primary,
             'extra_keyword_count' => count($extras),
             'supporting_keyword_count' => count($supporting),
+            'body_keyword_count' => count($body_keywords),
+            'unused_keyword_count' => count($unused_keywords),
             'total_keywords' => count($all),
+            'root_families' => $root_families,
         ]);
 
         return [
             'primary_keyword' => $primary,
             'extra_keywords' => $extras,
             'all_keywords' => $all,
-            'supporting_keywords' => $supporting,
+            'rankmath_tracking_keywords' => array_values(array_merge($primary !== '' ? [$primary] : [], $extras)),
+            'supporting_keywords' => $body_keywords,
+            'body_use_keywords' => $body_keywords,
+            'unused_keywords' => $unused_keywords,
+            'keyword_root_families' => $root_families,
             'supporting_source' => $supporting_source,
         ];
+    }
+
+
+    /**
+     * Split saved Rank Math keywords into tracking-only and natural body-use sets.
+     * Closely overlapping terms share a root family, so category copy never has
+     * to repeat every exact variant (for example free cam chat / free webcam chat
+     * / cam to cam chat / webcam chat rooms).
+     *
+     * @param string[] $extras
+     * @param string[] $supporting
+     * @return array{body_keywords:string[],unused_keywords:array<int,array<string,string>>,root_families:array<string,string>}
+     */
+    private static function plan_category_body_keywords(string $primary, array $extras, array $supporting = []): array {
+        $candidates = [];
+        foreach (array_merge($extras, $supporting) as $kw) {
+            $kw = trim((string) $kw);
+            if ($kw === '' || strcasecmp($kw, $primary) === 0) {
+                continue;
+            }
+            $key = function_exists('mb_strtolower') ? mb_strtolower($kw, 'UTF-8') : strtolower($kw);
+            $candidates[$key] = $kw;
+        }
+
+        $primary_family = self::category_keyword_root_family($primary);
+        $used_by_family = [];
+        $body = [];
+        $unused = [];
+        $families = [];
+        $body_cap = 3;
+
+        foreach ($candidates as $kw) {
+            $family = self::category_keyword_root_family($kw);
+            $families[$kw] = $family;
+            $limit = ($family !== '' && $family === $primary_family) ? 1 : 2;
+            $count = (int) ($used_by_family[$family] ?? 0);
+            if (count($body) >= $body_cap) {
+                $unused[] = ['keyword' => $kw, 'root_family' => $family, 'reason' => 'body exact-phrase cap reached; retained in Rank Math tracking'];
+                continue;
+            }
+            if ($count >= $limit) {
+                $unused[] = ['keyword' => $kw, 'root_family' => $family, 'reason' => 'overlaps an already-used keyword root family; retained in Rank Math tracking'];
+                continue;
+            }
+            $body[] = $kw;
+            $used_by_family[$family] = $count + 1;
+        }
+
+        return ['body_keywords' => $body, 'unused_keywords' => $unused, 'root_families' => $families];
+    }
+
+    private static function category_keyword_root_family(string $keyword): string {
+        $kw = function_exists('mb_strtolower') ? mb_strtolower($keyword, 'UTF-8') : strtolower($keyword);
+        $kw = preg_replace('/[^a-z0-9\s]+/u', ' ', $kw) ?: '';
+        $tokens = preg_split('/\s+/', trim($kw)) ?: [];
+        $drop = ['free','best','top','new','live','sites','site','rooms','room','public','online','the','a','an'];
+        $norm = [];
+        foreach ($tokens as $token) {
+            if ($token === 'webcam' || $token === 'cams') { $token = 'cam'; }
+            if ($token === 'chats') { $token = 'chat'; }
+            if ($token === 'to') { continue; }
+            if (in_array($token, $drop, true)) { continue; }
+            $norm[] = $token;
+        }
+        $norm = array_values(array_unique($norm));
+        sort($norm);
+        return !empty($norm) ? implode(' ', $norm) : trim($kw);
     }
 
     /**
@@ -1533,6 +1615,7 @@ class ContentEngine {
         $primary = trim((string) ($keyword_set['primary_keyword'] ?? ''));
         if ($primary !== '') {
             $html = self::reduce_category_focus_keyword_density($html, $primary, $post);
+            $html = self::reduce_category_root_family_density($html, $primary, (array) ($keyword_set['extra_keywords'] ?? []), (array) ($keyword_set['body_use_keywords'] ?? $supporting), $post);
         }
 
         // v5.9.5: final deterministic copy guard — repairs any surviving
@@ -1561,6 +1644,54 @@ class ContentEngine {
         ]);
 
         return $html;
+    }
+
+
+    /**
+     * Keep combined exact variants from the primary root family below the hard
+     * 2.2% ceiling by replacing non-selected extras with natural paraphrases.
+     *
+     * @param string[] $extras
+     * @param string[] $body_use
+     */
+    private static function reduce_category_root_family_density(string $html, string $primary, array $extras, array $body_use, \WP_Post $post): string {
+        if ($html === '' || $primary === '') { return $html; }
+        $visible = html_entity_decode(wp_strip_all_tags($html), ENT_QUOTES, 'UTF-8');
+        $words = max(1, str_word_count($visible));
+        $family = self::category_keyword_root_family($primary);
+        $family_terms = [];
+        foreach (array_merge([$primary], $extras) as $term) {
+            $term = trim((string) $term);
+            if ($term !== '' && self::category_keyword_root_family($term) === $family) { $family_terms[] = $term; }
+        }
+        $hits = 0;
+        foreach (array_unique($family_terms) as $term) { $hits += preg_match_all('/(?<![\p{L}\p{N}])' . preg_quote($term, '/') . '(?![\p{L}\p{N}])/iu', $visible) ?: 0; }
+        if (($hits / $words) * 100 <= 2.2) { return $html; }
+
+        $body_keys = [];
+        foreach ($body_use as $term) { $body_keys[strtolower(trim((string) $term))] = true; }
+        $replace_terms = array_values(array_filter($extras, static function ($term) use ($body_keys): bool {
+            $key = strtolower(trim((string) $term));
+            return $key !== '' && empty($body_keys[$key]);
+        }));
+        if (empty($replace_terms)) { return $html; }
+
+        $parts = preg_split('/(<[^>]+>)/', $html, -1, PREG_SPLIT_DELIM_CAPTURE);
+        if (!is_array($parts)) { return $html; }
+        $replaced = 0;
+        $alts = ['similar public cam-room searches', 'related room-browsing intent', 'nearby cam-room queries'];
+        foreach ($parts as $i => $part) {
+            if ($part === '' || ($part[0] ?? '') === '<') { continue; }
+            foreach ($replace_terms as $term) {
+                $replacement = $alts[$replaced % count($alts)];
+                $parts[$i] = (string) preg_replace('/(?<![\p{L}\p{N}])' . preg_quote((string) $term, '/') . '(?![\p{L}\p{N}])/iu', $replacement, $parts[$i], -1, $count);
+                $replaced += (int) $count;
+            }
+        }
+        if ($replaced > 0) {
+            Logs::info('content', '[TMW-CAT-SEO-KW] root-family density reduced', ['post_id' => (int) $post->ID, 'root_family' => $family, 'replaced' => $replaced]);
+        }
+        return implode('', $parts);
     }
 
     /**
@@ -1774,10 +1905,10 @@ class ContentEngine {
         $pairs   = array_chunk($missing, 2);
 
         $templates = [
-            '<p>Visitors comparing %s can start from the same model and video listings on this page and narrow the path through the related category links.</p>',
-            '<p>Searches for %s lead to the same directory sections covered here, so the profile and video links above remain the fastest starting point.</p>',
-            '<p>If you arrived looking for %s, the listings on this page cover that focus as well — open a profile or clip and follow its category tags for closer matches.</p>',
-            '<p>People exploring %s will find matching performers and clips through the directory links on this page.</p>',
+            '<p>Visitors comparing %s can use this page to look for active public cam rooms, then open individual listings to check whether a performer, clip, or platform fit is relevant.</p>',
+            '<p>Search intent around %s is best handled with practical checks: public-room access, private or paid feature labels, and whether a listing clearly matches the category before you click.</p>',
+            '<p>If you arrived looking for %s, compare the visible performer and video details first, and avoid assuming that every feature on a linked platform is fully free.</p>',
+            '<p>People exploring %s should review room activity, privacy expectations, and platform prompts before sharing information or moving into private features.</p>',
         ];
 
         // Anchor points, computed fresh after every insertion.
@@ -1887,15 +2018,15 @@ class ContentEngine {
         $early_terms = array_slice($missing, 0, 2);
         $late_terms  = array_slice($missing, 2, 2);
 
-        $early_sentence = '<p class="tmw-cat-supporting">Popular ways to explore this archive include '
+        $early_sentence = '<p class="tmw-cat-supporting">Visitors comparing '
             . self::format_category_keyword_list($early_terms)
-            . ', using the same site model and video listings.</p>';
+            . ' should look for active public rooms, clear free-access labels, and any prompts that move into private or paid features.</p>';
 
         $late_sentence = '';
         if (!empty($late_terms)) {
-            $late_sentence = '<p class="tmw-cat-supporting">Visitors who browse with terms like '
+            $late_sentence = '<p class="tmw-cat-supporting">For '
                 . self::format_category_keyword_list($late_terms)
-                . ' will find the same directory sections cover those paths as well.</p>';
+                . ', compare performer details, video context, and platform expectations instead of assuming every listing offers the same free features.</p>';
         }
 
         // Early sentence lands after the first paragraph so it reads as intro
@@ -1924,7 +2055,37 @@ class ContentEngine {
             'word_count' => $word_count,
         ]);
 
-        return $html;
+        return self::repair_category_keyword_dump_patterns($html, array_merge($supporting, $missing));
+    }
+
+    /**
+     * Repair deterministic keyword-dump patterns after coverage weaving.
+     *
+     * @param string[] $keywords
+     */
+    private static function repair_category_keyword_dump_patterns(string $html, array $keywords): string {
+        if ($html === '' || empty($keywords)) { return $html; }
+        $keywords = array_values(array_filter(array_map('trim', array_map('strval', $keywords)), 'strlen'));
+        $parts = preg_split('/(<p[^>]*>|<\/p>)/i', $html, -1, PREG_SPLIT_DELIM_CAPTURE);
+        if (!is_array($parts)) { return $html; }
+        $out = '';
+        for ($i = 0; $i < count($parts); $i++) {
+            $part = $parts[$i];
+            if (preg_match('/^<p/i', $part) && isset($parts[$i+1], $parts[$i+2]) && preg_match('/^<\/p>/i', $parts[$i+2])) {
+                $text = wp_strip_all_tags($parts[$i+1]);
+                $exact = 0;
+                foreach ($keywords as $kw) {
+                    if (preg_match('/(?<![\p{L}\p{N}])' . preg_quote($kw, '/') . '(?![\p{L}\p{N}])/iu', $text)) { $exact++; }
+                }
+                if ($exact >= 3 || preg_match('/\b[^.?!]*\b(?:cam|webcam)[^.!?]*,\s*(?:free\s+)?(?:cam|webcam)/iu', $text)) {
+                    $out .= $part . 'Use the category as a starting point for active public rooms, then compare performer details, video context, privacy expectations, and any paid or private prompts before clicking through.' . $parts[$i+2];
+                    $i += 2;
+                    continue;
+                }
+            }
+            $out .= $part;
+        }
+        return $out;
     }
 
     /**
@@ -3209,10 +3370,15 @@ class ContentEngine {
             }
 
             // Regeneration keyword report — total pool, selected, skipped, statuses.
+            $body_plan = self::plan_category_body_keywords($primary, $extras, (array) ($pack['content_terms'] ?? []));
             $report = [
                 'generated_at'            => current_time('mysql'),
                 'primary'                 => $primary,
                 'rankmath_extras_saved'   => $extras,
+                'rankmath_keywords_saved' => $focus_list,
+                'body_use_keywords'       => (array) ($body_plan['body_keywords'] ?? []),
+                'unused_rankmath_keywords'=> (array) ($body_plan['unused_keywords'] ?? []),
+                'keyword_root_families'   => (array) ($body_plan['root_families'] ?? []),
                 'rankmath_focus_csv'      => $focus_csv,
                 'previous_focus_csv'      => $previous_csv,
                 'content_terms'           => array_values(array_map('strval', (array) ($pack['content_terms'] ?? []))),

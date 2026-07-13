@@ -350,6 +350,7 @@ namespace TMWSEO\Engine\Tests {
                 'extra_keywords' => [],
                 'all_keywords' => ['Amateur Cams'],
                 'supporting_keywords' => ['webcam directory', 'model profiles', 'video clips', 'performer listings', 'live cam archive'],
+                'supporting_source' => 'category_db_approved',
             ];
 
             $covered = $this->invoke('ensure_category_keyword_coverage', [$html, $keyword_set, $post]);
@@ -380,6 +381,7 @@ namespace TMWSEO\Engine\Tests {
                 'extra_keywords' => [],
                 'all_keywords' => ['Amateur Cams'],
                 'supporting_keywords' => ['webcam directory', 'model profiles'],
+                'supporting_source' => 'category_db_approved',
             ];
 
             $once  = $this->invoke('ensure_category_keyword_coverage', [$html, $keyword_set, $post]);
@@ -841,6 +843,62 @@ namespace TMWSEO\Engine\Tests {
             $count = preg_match_all('/(?<![\p{L}\p{N}])Big Boob Cam(?![\p{L}\p{N}])/iu', $content);
             $this->assertLessThanOrEqual(8, $count);
             $this->assertGreaterThanOrEqual(1, $count);
+        }
+
+
+        public function test_free_cam_chat_root_family_limits_body_use_without_removing_rank_math_tracking(): void {
+            $post = new \WP_Post(['ID' => 944, 'post_title' => 'Free Cam Chat', 'post_type' => 'tmw_category_page']);
+            $GLOBALS['_tmw_test_post_meta'][944] = [
+                'rank_math_focus_keyword' => 'Free Cam Chat,free cam chat sites,free webcam chat,free cam to cam chat,cam to cam chat,free live cam chat,free live cams,cam chat sites,webcam chat rooms',
+            ];
+
+            $pack = [
+                'primary' => 'Free Cam Chat',
+                'rankmath_additional' => ['free cam chat sites','free webcam chat','free cam to cam chat','cam to cam chat','free live cam chat','free live cams','cam chat sites','webcam chat rooms'],
+                'content_terms' => ['free cam chat sites','free webcam chat','free cam to cam chat','cam to cam chat','free live cam chat','free live cams','cam chat sites','webcam chat rooms'],
+                'content_terms_source' => 'category_db_approved',
+            ];
+
+            $set = $this->invoke('normalize_category_content_keyword_set', [$post, 'Free Cam Chat', $pack]);
+            $this->assertCount(9, $set['rankmath_tracking_keywords']);
+            $this->assertLessThan(8, count($set['body_use_keywords']));
+            $this->assertNotEmpty($set['unused_keywords']);
+            $this->assertContains('free cam chat sites', $set['body_use_keywords']);
+        }
+
+        public function test_free_cam_chat_coverage_avoids_keyword_dumps_and_keeps_family_density_safe(): void {
+            $post = new \WP_Post(['ID' => 945, 'post_title' => 'Free Cam Chat', 'post_type' => 'tmw_category_page']);
+            $GLOBALS['_tmw_test_post_meta'][945] = [];
+            $base = '<p>Free Cam Chat helps visitors browse public cam rooms and compare what is visible before clicking through. Free Cam Chat pages should explain that free access can differ from private or paid features.</p>';
+            for ($i = 0; $i < 18; $i++) {
+                $base .= '<p>Use the listings to compare active rooms, performer details, video context, safety expectations, privacy prompts, and platform labels without assuming every feature is free.</p>';
+            }
+            $base .= '<h2>Frequently Asked Questions</h2><h3>How should visitors compare rooms?</h3><p>Look for clear labels and current activity.</p>';
+            $keyword_set = [
+                'primary_keyword' => 'Free Cam Chat',
+                'extra_keywords' => ['free cam chat sites','free webcam chat','free cam to cam chat','cam to cam chat','free live cam chat','free live cams','cam chat sites','webcam chat rooms'],
+                'all_keywords' => ['Free Cam Chat','free cam chat sites'],
+                'supporting_keywords' => ['free cam chat sites'],
+                'supporting_source' => 'category_db_approved',
+            ];
+            $covered = (string) $this->invoke('ensure_category_keyword_coverage', [$base, $keyword_set, $post]);
+            $text = strtolower(strip_tags($covered));
+            $words = max(1, str_word_count($text));
+            $family_hits = preg_match_all('/\b(?:cam|chat|webcam|cams)\b/i', $text);
+            $this->assertLessThan(2.2, ($family_hits / $words) * 100);
+            $this->assertSame(0, preg_match('/free cam to cam chat,\s*free live cams,\s*free webcam chat/i', $text));
+            foreach (preg_split('/(?<=[.!?])\s+/', $text) ?: [] as $sentence) {
+                $hits = 0;
+                foreach ($keyword_set['extra_keywords'] as $kw) {
+                    if (strpos($sentence, strtolower($kw)) !== false) { $hits++; }
+                }
+                $this->assertLessThanOrEqual(2, $hits);
+            }
+            $this->assertStringContainsString('free cam chat', $text);
+            foreach (['share the same browsing focus','using the same site model and video listings','related to this collection','directory structure here narrows the listings'] as $banned) {
+                $this->assertStringNotContainsString($banned, $text);
+            }
+            $this->assertGreaterThanOrEqual(700, str_word_count($text));
         }
 
         public function test_admin_notice_html_shows_term_url_and_state(): void {

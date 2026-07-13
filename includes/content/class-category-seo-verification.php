@@ -72,8 +72,11 @@ class CategorySeoVerification {
 		$keywords = array_values( array_filter( array_map( 'trim', explode( ',', $focus_csv ) ), 'strlen' ) );
 
 		$visible  = html_entity_decode( wp_strip_all_tags( $content ), ENT_QUOTES, 'UTF-8' );
+		$word_count = max( 1, str_word_count( $visible ) );
 		$headings = self::extract_headings( $content );
 		$image    = self::featured_image_meta_text( $post_id );
+		$paragraphs = self::extract_paragraphs( $content );
+		$dump_report = self::detect_keyword_dumps( $content, $keywords );
 
 		$rows       = [];
 		$all_passed = true;
@@ -84,6 +87,10 @@ class CategorySeoVerification {
 			$in_title     = self::contains( $title, $keyword );
 			$in_meta_desc = self::contains( $meta_desc, $keyword );
 			$in_image     = self::contains( $image, $keyword );
+			$family       = self::keyword_root_family( $keyword );
+			$family_count = self::count_family_occurrences( $visible, $family );
+			$family_density = round( ( $family_count / $word_count ) * 100, 2 );
+			$paragraph_max = self::paragraph_family_max( $paragraphs, $family );
 
 			$reason = '';
 			if ( $is_primary ) {
@@ -92,9 +99,9 @@ class CategorySeoVerification {
 					$reason = 'primary keyword must appear in content, SEO title and meta description';
 				}
 			} else {
-				$passed = $in_content > 0;
-				if ( ! $passed ) {
-					$reason = 'supporting keyword not found in body content';
+				$passed = true;
+				if ( $in_content <= 0 ) {
+					$reason = 'intentionally not used verbatim in body; retained in Rank Math tracking to avoid root-family stuffing';
 				} elseif ( ! $in_title && ! $in_meta_desc ) {
 					// Informational only — extras are not expected in title/description.
 					$reason = 'not in title/description by design (only the primary keyword belongs there)';
@@ -114,6 +121,12 @@ class CategorySeoVerification {
 				'found_in_meta_description' => $in_meta_desc,
 				'found_in_image_meta'       => $in_image,
 				'occurrence_count'          => $in_content,
+				'keyword_root_family'       => $family,
+				'family_occurrence_count'   => $family_count,
+				'family_density_percentage' => $family_density,
+				'paragraph_level_concentration' => $paragraph_max,
+				'body_use_selected'         => $is_primary || $in_content > 0,
+				'intentionally_unused_verbatim' => ( ! $is_primary && $in_content <= 0 ),
 				'status'                    => $passed ? 'pass' : 'fail',
 				'reason'                    => $reason,
 			];
@@ -122,7 +135,7 @@ class CategorySeoVerification {
 		$banned = class_exists( CategoryCopyGuard::class )
 			? CategoryCopyGuard::find_banned_phrases( $content )
 			: [];
-		if ( ! empty( $banned ) ) {
+		if ( ! empty( $banned ) || ! empty( $dump_report['failed'] ) ) {
 			$all_passed = false;
 		}
 
@@ -130,10 +143,48 @@ class CategorySeoVerification {
 			'post_id'        => $post_id,
 			'verified_at'    => function_exists( 'current_time' ) ? current_time( 'mysql' ) : gmdate( 'Y-m-d H:i:s' ),
 			'focus_csv'      => $focus_csv,
+			'rank_math_keywords_saved' => $keywords,
+			'keywords_selected_for_body_use' => array_values( array_map( static fn( $r ) => $r['keyword'], array_filter( $rows, static fn( $r ) => ! empty( $r['body_use_selected'] ) ) ) ),
+			'keywords_intentionally_not_used_verbatim' => array_values( array_map( static fn( $r ) => $r['keyword'], array_filter( $rows, static fn( $r ) => ! empty( $r['intentionally_unused_verbatim'] ) ) ) ),
 			'keywords'       => $rows,
+			'dump_detection' => $dump_report,
 			'banned_phrases' => $banned,
 			'all_passed'     => $all_passed,
 		];
+	}
+
+
+	private static function extract_paragraphs( string $html ): array {
+		if ( ! preg_match_all( '/<p[^>]*>(.*?)<\/p>/is', $html, $m ) ) { return []; }
+		return array_map( static fn( $p ) => html_entity_decode( wp_strip_all_tags( (string) $p ), ENT_QUOTES, 'UTF-8' ), $m[1] );
+	}
+
+	private static function keyword_root_family( string $keyword ): string {
+		$kw = function_exists( 'mb_strtolower' ) ? mb_strtolower( $keyword, 'UTF-8' ) : strtolower( $keyword );
+		$kw = preg_replace( '/[^a-z0-9\s]+/u', ' ', $kw ) ?: '';
+		$tokens = preg_split( '/\s+/', trim( $kw ) ) ?: [];
+		$drop = [ 'free', 'best', 'top', 'new', 'live', 'sites', 'site', 'rooms', 'room', 'public', 'online', 'the', 'a', 'an' ];
+		$norm = [];
+		foreach ( $tokens as $token ) { if ( $token === 'webcam' || $token === 'cams' ) { $token = 'cam'; } if ( $token === 'chats' ) { $token = 'chat'; } if ( $token === 'to' || in_array( $token, $drop, true ) ) { continue; } $norm[] = $token; }
+		$norm = array_values( array_unique( $norm ) ); sort( $norm );
+		return ! empty( $norm ) ? implode( ' ', $norm ) : trim( $kw );
+	}
+
+	private static function count_family_occurrences( string $text, string $family ): int {
+		$count = 0; foreach ( preg_split( '/\s+/', $family ) ?: [] as $token ) { if ( $token === '' ) { continue; } $count += preg_match_all( '/(?<![\p{L}\p{N}])' . preg_quote( $token, '/' ) . '(?![\p{L}\p{N}])/iu', $text ) ?: 0; } return $count;
+	}
+
+	private static function paragraph_family_max( array $paragraphs, string $family ): int {
+		$max = 0; foreach ( $paragraphs as $p ) { $max = max( $max, self::count_family_occurrences( (string) $p, $family ) ); } return $max;
+	}
+
+	private static function detect_keyword_dumps( string $html, array $keywords ): array {
+		$visible = html_entity_decode( wp_strip_all_tags( $html ), ENT_QUOTES, 'UTF-8' );
+		$sentences = preg_split( '/(?<=[.!?])\s+/', $visible ) ?: [];
+		$issues = [];
+		foreach ( $sentences as $sentence ) { $hits = 0; foreach ( $keywords as $kw ) { if ( self::count_occurrences( $sentence, $kw ) > 0 ) { $hits++; } } if ( $hits >= 3 ) { $issues[] = 'three_or_more_exact_keywords_in_sentence'; break; } }
+		if ( preg_match( '/\b(?:free\s+)?(?:cam|webcam)[^.!?]{0,80},\s*(?:free\s+)?(?:cam|webcam)/iu', $visible ) ) { $issues[] = 'comma_separated_keyword_list'; }
+		return [ 'status' => empty( $issues ) ? 'pass' : 'fail', 'failed' => $issues ];
 	}
 
 	// ── Internals ────────────────────────────────────────────────────────────

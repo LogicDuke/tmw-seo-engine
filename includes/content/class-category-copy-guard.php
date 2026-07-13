@@ -67,6 +67,10 @@ class CategoryCopyGuard {
 		'/\bbrowsing theme(s)?\b/iu'                                          => 'category$1',
 		'/\bcategory browsing\b/iu'                                           => 'browsing by category',
 		'/\blive cam category\b/iu'                                           => 'live cam listings',
+		'/\bshare the same browsing focus\b/iu'                              => 'help visitors compare room activity and listing details',
+		'/\busing the same site model and video listings\b/iu'                => 'by comparing the visible performer and video details',
+		'/\brelated to this collection\b/iu'                                  => 'relevant to this category',
+		'/\bdirectory structure here narrows the listings\b/iu'               => 'filters and category links help narrow the listings',
 	];
 
 	/**
@@ -135,6 +139,10 @@ class CategoryCopyGuard {
 			'category browsing',
 			'live cam category',
 			'this webcam theme',
+			'share the same browsing focus',
+			'using the same site model and video listings',
+			'related to this collection',
+			'directory structure here narrows the listings',
 		];
 		$found = [];
 		$lc    = function_exists( 'mb_strtolower' ) ? mb_strtolower( $visible, 'UTF-8' ) : strtolower( $visible );
