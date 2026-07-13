@@ -465,6 +465,36 @@ if ($engine_loadable) {
     check('fallback terms never framed as user searches',
         stripos($out2, 'browse with terms like model profiles') === false
         && stripos($out2, 'Popular ways to explore this archive include model profiles') === false);
+
+    $norm = new ReflectionMethod('\TMWSEO\Engine\Content\ContentEngine', 'normalize_category_content_keyword_set');
+    $norm->setAccessible(true);
+    $fallback_post = make_post(4561, ['post_title' => 'Free Cam Chat', 'post_type' => 'tmw_category_page']);
+    $GLOBALS['_tmw_test_post_meta'][4561] = [];
+    $fallback_pack = [
+        'primary' => 'Free Cam Chat',
+        'rankmath_additional' => [],
+        'content_terms' => ['webcam directory', 'model profiles', 'video clips'],
+        'content_terms_source' => 'deterministic_fallback_pool',
+    ];
+    $fallback_set = (array) $norm->invoke(null, $fallback_post, 'Free Cam Chat', $fallback_pack);
+    check('fallback navigation terms are not promoted to body keywords', empty($fallback_set['body_use_keywords'] ?? []));
+    check('fallback navigation terms are not promoted to all keywords', ($fallback_set['all_keywords'] ?? []) === ['Free Cam Chat'], json_encode($fallback_set['all_keywords'] ?? []));
+    $out3 = (string) $cov->invoke(null, $base_html, $fallback_set, $post);
+    $visible3 = html_entity_decode(wp_strip_all_tags($out3), ENT_QUOTES, 'UTF-8');
+    check('no-approved-pool path does not inject fallback phrases as prose',
+        stripos($visible3, 'webcam directory') === false
+        && stripos($visible3, 'model profiles') === false
+        && stripos($visible3, 'video clips') === false,
+        $visible3);
+
+    $repair = new ReflectionMethod('\TMWSEO\Engine\Content\ContentEngine', 'repair_category_keyword_dump_patterns');
+    $repair->setAccessible(true);
+    $dump_html = '<p>Popular choices include free webcam chat, webcam chat rooms for quick browsing.</p>';
+    $repaired = (string) $repair->invoke(null, $dump_html, ['free webcam chat', 'webcam chat rooms']);
+    check('two-keyword comma dump is detected and repaired',
+        stripos(wp_strip_all_tags($repaired), 'free webcam chat, webcam chat rooms') === false
+        && stripos(wp_strip_all_tags($repaired), 'starting point for active public rooms') !== false,
+        $repaired);
 }
 
 // ═════════════════════════════════════════════════════════════════════════════

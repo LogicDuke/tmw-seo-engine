@@ -1241,7 +1241,8 @@ class ContentEngine {
         }
         $supporting = array_slice($supporting, 0, 8);
 
-        $body_plan = self::plan_category_body_keywords($primary, $extras, $supporting);
+        $body_plan_supporting = $supporting_source === 'category_db_approved' ? $supporting : [];
+        $body_plan = self::plan_category_body_keywords($primary, $extras, $body_plan_supporting);
         $body_keywords = (array) ($body_plan['body_keywords'] ?? []);
         $unused_keywords = (array) ($body_plan['unused_keywords'] ?? []);
         $root_families = (array) ($body_plan['root_families'] ?? []);
@@ -2076,7 +2077,7 @@ class ContentEngine {
                 foreach ($keywords as $kw) {
                     if (preg_match('/(?<![\p{L}\p{N}])' . preg_quote($kw, '/') . '(?![\p{L}\p{N}])/iu', $text)) { $exact++; }
                 }
-                if ($exact >= 3 || preg_match('/[^.?!]*(?:cam|webcam)[^.!?]*,\s*(?:free\s+)?(?:cam|webcam)/iu', $text)) {
+                if ($exact >= 3 || preg_match('/\b[^.?!]*\b(?:cam|webcam)[^.!?]*,\s*(?:free\s+)?(?:cam|webcam)/iu', $text)) {
                     $out .= $part . 'Use the category as a starting point for active public rooms, then compare performer details, video context, privacy expectations, and any paid or private prompts before clicking through.' . $parts[$i+2];
                     $i += 2;
                     continue;
