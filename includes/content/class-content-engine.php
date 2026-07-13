@@ -798,7 +798,7 @@ class ContentEngine {
             $brand = 'Top-Models.Webcam';
         }
 
-        $seo_title        = self::build_category_page_seo_title($category_term, $year);
+        $seo_title        = self::build_category_page_seo_title($category_term, $year, $post_id, (string) $post->post_name);
         $meta_description = self::build_category_page_meta_description($category_term, $brand);
 
         // ── v5.9.0: Try CategoryTemplatePool before legacy builder ──────────
@@ -1201,7 +1201,8 @@ class ContentEngine {
         $extras = array_values(array_filter($keywords, static function (string $keyword) use ($primary): bool {
             return strcasecmp($keyword, $primary) !== 0;
         }));
-        $extras = array_slice($extras, 0, 4);
+        // v5.9.5: up to 8 extras (pool-backed Rank Math lists carry 4–8).
+        $extras = array_slice($extras, 0, 8);
         $all = array_values(array_merge($primary !== '' ? [$primary] : [], $extras));
 
         // v5.9.x: supporting keywords from the plugin extra keyword pool.
@@ -1211,14 +1212,16 @@ class ContentEngine {
         // When the pack in hand lacks it (e.g. save-path re-checks), the stored
         // _tmwseo_keyword_pack meta written by bootstrap_manual_category_generate()
         // is reused. These terms are never written to Rank Math fields.
-        $supporting_raw = [];
+        $supporting_raw    = [];
+        $supporting_source = (string) ($keyword_pack['content_terms_source'] ?? '');
         if (!empty($keyword_pack['content_terms']) && is_array($keyword_pack['content_terms'])) {
             $supporting_raw = $keyword_pack['content_terms'];
         } else {
             $stored_pack_raw = get_post_meta($post_id, '_tmwseo_keyword_pack', true);
             $stored_pack = is_string($stored_pack_raw) && $stored_pack_raw !== '' ? json_decode($stored_pack_raw, true) : null;
             if (is_array($stored_pack) && !empty($stored_pack['content_terms']) && is_array($stored_pack['content_terms'])) {
-                $supporting_raw = $stored_pack['content_terms'];
+                $supporting_raw    = $stored_pack['content_terms'];
+                $supporting_source = (string) ($stored_pack['content_terms_source'] ?? $supporting_source);
             }
         }
 
@@ -1251,6 +1254,7 @@ class ContentEngine {
             'extra_keywords' => $extras,
             'all_keywords' => $all,
             'supporting_keywords' => $supporting,
+            'supporting_source' => $supporting_source,
         ];
     }
 
@@ -1467,7 +1471,14 @@ class ContentEngine {
             $category_focus_kw = trim((string) $post->post_title);
         }
 
-        return self::reduce_category_focus_keyword_density($html, $category_focus_kw, $post);
+        $html = self::reduce_category_focus_keyword_density($html, $category_focus_kw, $post);
+
+        // v5.9.5: same deterministic copy guard as the template path.
+        if (class_exists('\\TMWSEO\\Engine\\Content\\CategoryCopyGuard')) {
+            $html = CategoryCopyGuard::cleanup($html, (int) $post->ID);
+        }
+
+        return $html;
     }
 
     private static function ensure_category_keyword_coverage(string $html, array $keyword_set, \WP_Post $post): string {
@@ -1495,9 +1506,25 @@ class ContentEngine {
 
         // v5.9.x: supporting keyword coverage from the plugin extra keyword pool.
         // Runs after Rank Math coverage so the guaranteed keyword set is untouched.
-        $supporting = array_values(array_filter(array_map('strval', $keyword_set['supporting_keywords'] ?? []), 'strlen'));
-        if (!empty($supporting)) {
+        //
+        // v5.9.5 ROOT-CAUSE FIX: the weave frames its terms as things visitors
+        // search for ("Popular ways to explore this archive include …").
+        // That framing is only truthful for REAL approved search phrases from
+        // the category keyword pool. The deterministic fallback vocabulary
+        // ("performer listings", "live cam category", "model directory", …)
+        // is internal navigation shorthand — presenting it as user search
+        // terms produced the nonsense sentences documented in the audit PDF.
+        // The weave therefore only runs when the supporting terms came from
+        // the approved pool; fallback terms are never framed as searches.
+        $supporting        = array_values(array_filter(array_map('strval', $keyword_set['supporting_keywords'] ?? []), 'strlen'));
+        $supporting_source = (string) ($keyword_set['supporting_source'] ?? '');
+        if (!empty($supporting) && $supporting_source === 'category_db_approved') {
             $html = self::weave_category_supporting_keywords($html, $supporting, $post);
+        } elseif (!empty($supporting)) {
+            Logs::info('content', '[TMW-CAT-SEO-KW] supporting-term weave skipped (fallback vocabulary is not user search phrasing)', [
+                'post_id' => (int) $post->ID,
+                'source'  => $supporting_source !== '' ? $supporting_source : 'unknown',
+            ]);
         }
 
         // v5.8.32: cap exact focus-keyword repetition so Rank Math density
@@ -1506,6 +1533,12 @@ class ContentEngine {
         $primary = trim((string) ($keyword_set['primary_keyword'] ?? ''));
         if ($primary !== '') {
             $html = self::reduce_category_focus_keyword_density($html, $primary, $post);
+        }
+
+        // v5.9.5: final deterministic copy guard — repairs any surviving
+        // implementation-language phrase or article/possessive collision.
+        if (class_exists('\\TMWSEO\\Engine\\Content\\CategoryCopyGuard')) {
+            $html = CategoryCopyGuard::cleanup($html, (int) $post->ID);
         }
 
         // Re-check after injection so logs report final missing count.
@@ -1602,13 +1635,25 @@ class ContentEngine {
         }
         $keep = array_flip($keep);
 
-        $alternatives = ['this category', 'this archive', 'this webcam theme', 'this browsing theme', 'this page'];
+        // v5.9.5: alternatives no longer include implementation-language
+        // phrases ("this webcam theme", "this browsing theme") that leaked
+        // internal vocabulary into visitor copy. 'as' and 'content' are also
+        // removed from the follow-word allowlist: replacing before "as a
+        // category" produced "This page as a category …" and replacing before
+        // "content" produced "… its this webcam theme content".
+        $alternatives = ['this category', 'this archive', 'this page', 'this collection', 'this section'];
         $safe_follow = [
-            'is', 'are', 'was', 'were', 'as', 'and', 'or', 'also', 'remains', 'works',
+            'is', 'are', 'was', 'were', 'and', 'or', 'also', 'remains', 'works',
             'covers', 'offers', 'keeps', 'gives', 'collects', 'provides', 'includes',
             'sits', 'stays', 'helps', 'serves', 'features', 'matches', 'leads',
             'connects', 'lets', 'allows', 'can', 'will', 'does', 'has', 'have',
-            'may', 'should', 'would', 'content', 'in', 'on', 'for', 'with', 'from', 'to', 'at',
+            'may', 'should', 'would', 'in', 'on', 'for', 'with', 'from', 'to', 'at',
+        ];
+        // Never substitute "this …" straight after an article/possessive —
+        // "the Free Cam Chat archive" must not become "the this category archive".
+        $blocked_preceding = [
+            'the', 'a', 'an', 'its', 'their', 'our', 'your', 'this', 'that',
+            'each', 'every', 'his', 'her',
         ];
 
         $replaced = 0;
@@ -1635,6 +1680,13 @@ class ContentEngine {
             }
             if (!$follow_ok) {
                 continue; // attributive use ("... performers") — leave intact
+            }
+
+            // v5.9.5: preceding-word guard against article/possessive collisions.
+            $before_probe = rtrim(substr($text, 0, $offset));
+            if (preg_match('/([A-Za-z\x{2019}\']+)$/u', $before_probe, $pm)
+                && in_array(strtolower(str_replace(["\u{2019}", "'"], '', $pm[1])), $blocked_preceding, true)) {
+                continue; // "the/its/their <keyword> …" — replacement would collide
             }
 
             $replacement = $alternatives[$rotation % count($alternatives)];
@@ -1696,32 +1748,84 @@ class ContentEngine {
         return implode(', ', $formatted) . ', or ' . $last;
     }
 
-    /** @param string[] $missing_keywords */
+    /**
+     * Guarantee every saved Rank Math keyword appears in the visible copy.
+     *
+     * v5.9.5: rewritten to DISTRIBUTE the missing keywords across the page
+     * instead of dumping them into one comma-separated sentence. Rules:
+     *  - never more than TWO exact keyword phrases in any single sentence;
+     *  - each pair lands at a different anchor point (after the intro
+     *    paragraph, mid-page before a later <h2>, and before the FAQ block);
+     *  - sentence templates rotate so pages don't repeat one formula;
+     *  - at most 8 keywords are injected (Rank Math CSV cap).
+     *
+     * @param string[] $missing_keywords
+     */
     private static function inject_category_keyword_fallback_sentences(string $html, array $missing_keywords): string {
-        $keyword_list = self::format_category_keyword_list($missing_keywords);
-        if ($keyword_list === '') {
+        $missing = array_values(array_filter(array_map(static function ($kw): string {
+            return trim((string) $kw);
+        }, $missing_keywords), 'strlen'));
+
+        if (empty($missing) || $html === '') {
             return $html;
         }
 
-        $keyword_count = 0;
-        foreach ($missing_keywords as $keyword) {
-            if (trim((string) $keyword) !== '') {
-                $keyword_count++;
+        $missing = array_slice($missing, 0, 8);
+        $pairs   = array_chunk($missing, 2);
+
+        $templates = [
+            '<p>Visitors comparing %s can start from the same model and video listings on this page and narrow the path through the related category links.</p>',
+            '<p>Searches for %s lead to the same directory sections covered here, so the profile and video links above remain the fastest starting point.</p>',
+            '<p>If you arrived looking for %s, the listings on this page cover that focus as well — open a profile or clip and follow its category tags for closer matches.</p>',
+            '<p>People exploring %s will find matching performers and clips through the directory links on this page.</p>',
+        ];
+
+        // Anchor points, computed fresh after every insertion.
+        $sentences = [];
+        foreach ($pairs as $i => $pair) {
+            $sentences[] = sprintf($templates[$i % count($templates)], self::format_category_keyword_list($pair));
+        }
+
+        // 1) First sentence after the opening paragraph.
+        $first = array_shift($sentences);
+        if ($first !== null) {
+            $first_p_end = stripos($html, '</p>');
+            if ($first_p_end !== false) {
+                $insert_at = $first_p_end + 4;
+                $html = substr($html, 0, $insert_at) . $first . substr($html, $insert_at);
+            } else {
+                $html = $first . $html;
             }
         }
 
-        if ($keyword_count === 1) {
-            $paragraph = '<p>This category is also useful for visitors comparing ' . $keyword_list . ' pages from one structured directory view. Start with the profile and video links above, then use the listed platform links and related categories to narrow the browsing path.</p>';
-        } else {
-            $paragraph = '<p>This category is also useful for visitors comparing ' . $keyword_list . ' options from one structured directory view. Start with the profile and video links above, then use the listed platform links and related categories to narrow the browsing path without leaving the Top Models Webcam structure.</p>';
+        // 2) Middle sentence before the third <h2> (roughly mid-page).
+        $second = array_shift($sentences);
+        if ($second !== null) {
+            $h2_positions = [];
+            if (preg_match_all('/<h2\b/i', $html, $m, PREG_OFFSET_CAPTURE)) {
+                foreach ($m[0] as $hit) {
+                    $h2_positions[] = (int) $hit[1];
+                }
+            }
+            $mid_pos = $h2_positions[2] ?? ($h2_positions[1] ?? null);
+            if ($mid_pos !== null) {
+                $html = substr($html, 0, $mid_pos) . $second . substr($html, $mid_pos);
+            } else {
+                $html = rtrim($html) . $second;
+            }
         }
 
-        $faq_pos = stripos($html, '<h2>Frequently Asked Questions</h2>');
-        if ($faq_pos !== false) {
-            return substr($html, 0, $faq_pos) . $paragraph . substr($html, $faq_pos);
+        // 3) Remaining sentences before the FAQ block (or appended).
+        foreach ($sentences as $sentence) {
+            $faq_pos = stripos($html, '<h2>Frequently Asked Questions</h2>');
+            if ($faq_pos !== false) {
+                $html = substr($html, 0, $faq_pos) . $sentence . substr($html, $faq_pos);
+            } else {
+                $html = rtrim($html) . $sentence;
+            }
         }
 
-        return rtrim($html) . $paragraph;
+        return $html;
     }
 
     /**
@@ -1908,11 +2012,26 @@ class ContentEngine {
         return '<p>Browse the full <a href="' . esc_url(home_url('/categories/')) . '">categories overview</a> to find nearby themes that match the same browsing intent.</p>';
     }
 
-    private static function build_category_page_seo_title(string $category_term, string $year): string {
+    /**
+     * v5.9.5: category SEO titles now come from CategorySeoTitleBuilder —
+     * primary keyword first, one Rank Math power word, one sentiment word,
+     * deterministic per-category variation, no automatic year or number,
+     * no unsupported superlatives, unique across categories.
+     *
+     * The $year parameter is retained for signature compatibility but is
+     * intentionally ignored: years were only ever inserted to satisfy Rank
+     * Math's number check and are no longer added automatically.
+     */
+    private static function build_category_page_seo_title(string $category_term, string $year, int $post_id = 0, string $slug = ''): string {
         $category_term = trim($category_term) !== '' ? trim($category_term) : 'Webcam Models';
-        $year = trim($year) !== '' ? trim($year) : (string) gmdate('Y');
+        unset($year);
 
-        return TitleFixer::shorten($category_term . ': Webcam Category Guide ' . $year, 70);
+        if (class_exists('\\TMWSEO\\Engine\\Content\\CategorySeoTitleBuilder')) {
+            $existing = CategorySeoTitleBuilder::collect_existing_category_titles($post_id);
+            return CategorySeoTitleBuilder::build($category_term, $post_id, $slug, $existing);
+        }
+
+        return TitleFixer::shorten($category_term . ' – Discover Popular Live Models & Videos', 70);
     }
 
     private static function build_category_page_meta_description(string $category_term, string $brand): string {
@@ -2626,6 +2745,11 @@ class ContentEngine {
                 self::maybe_clear_rank_math_noindex($post);
             }
 
+            // v5.9.5: image metadata + per-keyword verification (apply mode only).
+            if ($post->post_type === 'tmw_category_page' && $insert_block) {
+                self::finalize_category_generation($post_id, $post, $keyword_pack);
+            }
+
             delete_post_meta($post_id, '_tmwseo_optimize_enqueued');
             update_post_meta($post_id, '_tmwseo_optimize_done', ($strategy === 'template') ? 'template' : 'template_fallback');
 
@@ -2814,6 +2938,12 @@ class ContentEngine {
             // Provider titles may miss a required number or sentiment word.
             $fallback_name = trim((string)($keyword_pack['primary'] ?? $keyword ?: $post->post_title));
             $seo_title = TemplateContent::build_default_model_seo_title($fallback_name, TemplateContent::resolve_primary_platform_label_for_title($post_id), $post_id);
+        } elseif ($post->post_type === 'tmw_category_page') {
+            // v5.9.5: category AI titles must also satisfy Rank Math's
+            // power-word and sentiment checks — always use the canonical
+            // deterministic builder (keyword-first, no year, unique).
+            $cat_primary = trim((string)($keyword_pack['primary'] ?? $focus_kw ?: $post->post_title));
+            $seo_title = self::build_category_page_seo_title($cat_primary, '', $post_id, (string) $post->post_name);
         }
         $meta_desc = trim($meta_desc);
         // For model pages, focus keyword must be the model name.
@@ -2908,6 +3038,9 @@ class ContentEngine {
                 'strategy'       => $strategy,
                 'content_length' => strlen( $new_content ),
             ] );
+
+            // v5.9.5: image metadata + per-keyword verification (AI path).
+            self::finalize_category_generation($post_id, $post, $keyword_pack);
         }
 
         delete_post_meta($post_id, '_tmwseo_optimize_enqueued');
@@ -2975,6 +3108,38 @@ class ContentEngine {
     }
 
     /**
+     * v5.9.5: post-save finalizer for category page generation.
+     *
+     * Runs after the content + Rank Math meta writes on BOTH the template and
+     * AI category save paths:
+     *  1. keyword-aware featured-image metadata (alt/title/caption/description,
+     *     shared-attachment safe, never overwrites manual values);
+     *  2. deterministic per-keyword Rank Math verification report.
+     *
+     * Never touches content, slugs, canonical, or indexing state.
+     *
+     * @param array<string,mixed> $keyword_pack
+     */
+    private static function finalize_category_generation(int $post_id, \WP_Post $post, array $keyword_pack): void {
+        if ($post->post_type !== 'tmw_category_page') {
+            return;
+        }
+
+        if (class_exists('\\TMWSEO\\Engine\\Media\\CategoryFeaturedImageMetaHelper')
+            && method_exists('\\TMWSEO\\Engine\\Media\\CategoryFeaturedImageMetaHelper', 'apply_for_category_generation')) {
+            $image_report = \TMWSEO\Engine\Media\CategoryFeaturedImageMetaHelper::apply_for_category_generation($post, $keyword_pack);
+            Logs::info('content', '[TMW-CAT-IMG] featured image metadata pass', array_merge(
+                ['post_id' => $post_id],
+                is_array($image_report) ? $image_report : []
+            ));
+        }
+
+        if (class_exists('\\TMWSEO\\Engine\\Content\\CategorySeoVerification')) {
+            CategorySeoVerification::verify_and_store($post_id);
+        }
+    }
+
+    /**
      * v5.8.31: write Rank Math additional keywords for a category page.
      *
      * Rank Math supports 4 extra keywords next to the focus keyword. When the
@@ -2987,34 +3152,96 @@ class ContentEngine {
      * label-derived additionals are written only when the meta is still empty.
      */
     private static function apply_category_rankmath_extras(int $post_id, array $pack): void {
-        $existing = trim((string) get_post_meta($post_id, 'rank_math_additional_keywords', true));
-        $has_pool = isset($pack['sources']['category_pool']);
+        $existing_mirror = trim((string) get_post_meta($post_id, 'rank_math_additional_keywords', true));
+        $has_pool        = isset($pack['sources']['category_pool']);
 
         if ($has_pool && !empty($pack['rankmath_additional']) && is_array($pack['rankmath_additional'])) {
-            $extras = array_slice(array_values(array_filter(array_map('strval', $pack['rankmath_additional']), 'strlen')), 0, 4);
+            $extras = array_slice(array_values(array_filter(array_map('strval', $pack['rankmath_additional']), 'strlen')), 0, 8);
             if (empty($extras)) {
                 return;
             }
-            $rm_value = implode(', ', $extras);
 
-            if ($existing !== '' && strcasecmp($existing, $rm_value) === 0) {
-                return;
+            // v5.9.5 ROOT-CAUSE FIX: Rank Math reads the full focus keyword
+            // list (primary + extras) from ONE meta key —
+            // `rank_math_focus_keyword`, stored as a comma-separated list.
+            // The previous implementation wrote the pool extras only to the
+            // plugin-invented `rank_math_additional_keywords` key, which Rank
+            // Math never reads, so a category with 17 approved keywords still
+            // showed a single stale extra in the Rank Math meta box.
+            //
+            // This write is authoritative on every manual category generate:
+            // it re-resolves the approved pool, replaces a stale one-keyword
+            // list, keeps the primary keyword first, and backs up the
+            // previous CSV once so an operator can roll back.
+            $primary = trim((string) ($pack['primary'] ?? ''));
+            if ($primary === '') {
+                $primary = trim((string) get_post_meta($post_id, '_tmwseo_keyword', true));
             }
 
-            update_post_meta($post_id, 'rank_math_additional_keywords', $rm_value);
-            Logs::info('content', '[TMW-CAT-KW] rank math extras written from approved pool', [
-                'post_id'  => $post_id,
-                'extras'   => $rm_value,
-                'previous' => $existing,
-                'count'    => count($extras),
+            $focus_list = array_merge($primary !== '' ? [$primary] : [], $extras);
+            $seen       = [];
+            $focus_list = array_values(array_filter($focus_list, static function (string $kw) use (&$seen): bool {
+                $key = function_exists('mb_strtolower') ? mb_strtolower(trim($kw), 'UTF-8') : strtolower(trim($kw));
+                if ($key === '' || isset($seen[$key])) {
+                    return false;
+                }
+                $seen[$key] = true;
+                return true;
+            }));
+            $focus_list = array_slice($focus_list, 0, 9); // 1 primary + up to 8 extras
+            $focus_csv  = implode(',', $focus_list);
+
+            $previous_csv = trim((string) get_post_meta($post_id, 'rank_math_focus_keyword', true));
+            if ($previous_csv !== '' && strcasecmp($previous_csv, $focus_csv) !== 0) {
+                if ((string) get_post_meta($post_id, '_tmwseo_prev_rank_math_focus_keyword', true) === '') {
+                    update_post_meta($post_id, '_tmwseo_prev_rank_math_focus_keyword', $previous_csv);
+                    update_post_meta($post_id, '_tmwseo_prev_rank_math_focus_keyword_at', current_time('mysql'));
+                }
+            }
+            if (strcasecmp($previous_csv, $focus_csv) !== 0) {
+                update_post_meta($post_id, 'rank_math_focus_keyword', $focus_csv);
+            }
+
+            // Keep the plugin-side mirror for internal tooling/backwards compat.
+            $rm_value = implode(', ', $extras);
+            if ($existing_mirror === '' || strcasecmp($existing_mirror, $rm_value) !== 0) {
+                update_post_meta($post_id, 'rank_math_additional_keywords', $rm_value);
+            }
+
+            // Regeneration keyword report — total pool, selected, skipped, statuses.
+            $report = [
+                'generated_at'            => current_time('mysql'),
+                'primary'                 => $primary,
+                'rankmath_extras_saved'   => $extras,
+                'rankmath_focus_csv'      => $focus_csv,
+                'previous_focus_csv'      => $previous_csv,
+                'content_terms'           => array_values(array_map('strval', (array) ($pack['content_terms'] ?? []))),
+                'content_terms_source'    => (string) ($pack['content_terms_source'] ?? ''),
+                'pool_status_counts'      => (array) ($pack['pool_status_counts'] ?? []),
+                'skipped_terms'           => (array) ($pack['sources']['pool_skipped'] ?? []),
+            ];
+            update_post_meta($post_id, '_tmwseo_category_keyword_report', wp_json_encode($report));
+
+            Logs::info('content', '[TMW-CAT-KW] rank math focus keyword CSV written from approved pool', [
+                'post_id'      => $post_id,
+                'focus_csv'    => $focus_csv,
+                'previous_csv' => $previous_csv,
+                'extras_count' => count($extras),
             ]);
             return;
         }
 
-        // Legacy fallback path (no approved pool): fill only when empty.
-        if (!empty($pack['additional']) && $existing === '') {
+        // Legacy fallback path (no approved pool): fill the mirror only when
+        // empty, and never rewrite the Rank Math focus CSV from label-derived
+        // candidates — those are echoes of the existing CSV itself.
+        if (!empty($pack['additional']) && $existing_mirror === '') {
             update_post_meta($post_id, 'rank_math_additional_keywords', implode(', ', array_slice($pack['additional'], 0, 8)));
         }
+
+        Logs::info('content', '[TMW-CAT-KW] no approved pool at generate time; Rank Math focus CSV left unchanged', [
+            'post_id'            => $post_id,
+            'pool_status_counts' => (array) ($pack['pool_status_counts'] ?? []),
+        ]);
     }
 
     /**
@@ -3092,30 +3319,44 @@ class ContentEngine {
         // Reads status=approved rows for this category post from the keyword
         // pool DB table. Falls back to label-derived pack if none exist.
         // Never uses queued_for_review or any other non-approved status.
-        $content_terms = [];
+        $content_terms        = [];
+        $content_terms_source = '';
+        $pool_status_counts   = [];
         if ( class_exists( CategoryApprovedKeywordResolver::class ) ) {
-            $resolver        = new CategoryApprovedKeywordResolver();
-            $resolver_result = $resolver->resolve_for_category( $post_id, $primary );
+            $resolver = new CategoryApprovedKeywordResolver();
+            // v5.9.5: request up to 8 Rank Math extras (was 4). Rank Math
+            // stores the full focus keyword list as one CSV; the actual count
+            // written per category is 4–8 depending on approved pool size.
+            $resolver_result = $resolver->resolve_for_category( $post_id, $primary, 8, 16 );
             $pool_count      = (int) ( $resolver_result['pool_count'] ?? 0 );
+            $skipped_terms   = is_array( $resolver_result['skipped'] ?? null ) ? $resolver_result['skipped'] : [];
+            if ( method_exists( $resolver, 'status_counts_for_category' ) ) {
+                $pool_status_counts = $resolver->status_counts_for_category( $post_id );
+            }
 
             if ( $pool_count > 0 ) {
                 $additional               = $resolver_result['rankmath_extras'];
                 $longtail                 = $additional;
                 $content_terms            = $resolver_result['content_terms'];
+                $content_terms_source     = 'category_db_approved';
                 $sources['category_pool'] = $resolver_result['source'];
+                $sources['pool_skipped']  = $skipped_terms;
 
                 Logs::info( 'content', sprintf(
-                    '[TMW-CAT-KW] resolved post_id=%d focus=%s rankmath_extras=%s content_terms=%s pool_count=%d',
+                    '[TMW-CAT-KW] resolved post_id=%d focus=%s rankmath_extras=%s content_terms=%s pool_count=%d skipped=%d status_counts=%s',
                     $post_id,
                     $primary,
                     implode( '|', $additional ),
                     implode( '|', $content_terms ),
-                    $pool_count
+                    $pool_count,
+                    count( $skipped_terms ),
+                    wp_json_encode( $pool_status_counts )
                 ) );
             } else {
                 Logs::info( 'content', sprintf(
-                    '[TMW-CAT-KW] no_approved_pool_terms post_id=%d fallback=label_derived',
-                    $post_id
+                    '[TMW-CAT-KW] no_approved_pool_terms post_id=%d fallback=label_derived status_counts=%s',
+                    $post_id,
+                    wp_json_encode( $pool_status_counts )
                 ) );
             }
         }
@@ -3131,7 +3372,8 @@ class ContentEngine {
         // deterministically per category so output is stable across re-generates —
         // without ever writing these terms as Rank Math keywords.
         if ( empty( $content_terms ) ) {
-            $content_terms = self::deterministic_category_supporting_keywords( $post_id, $primary );
+            $content_terms        = self::deterministic_category_supporting_keywords( $post_id, $primary );
+            $content_terms_source = 'deterministic_fallback_pool';
             $sources['supporting_keywords'] = 'deterministic_fallback_pool';
 
             Logs::info( 'content', sprintf(
@@ -3139,15 +3381,21 @@ class ContentEngine {
                 $post_id,
                 implode( '|', $content_terms )
             ) );
+        } else {
+            $sources['supporting_keywords'] = $content_terms_source;
         }
 
         return [
-            'primary'             => $primary,
-            'additional'          => array_slice( $additional, 0, 8 ),
-            'rankmath_additional' => array_slice( $additional, 0, 4 ),
-            'longtail'            => $longtail,
-            'content_terms'       => $content_terms,
-            'sources'             => $sources,
+            'primary'              => $primary,
+            'additional'           => array_slice( $additional, 0, 8 ),
+            // v5.9.5: Rank Math receives 4–8 extras when the approved pool
+            // supports it (previously hard-capped at 4).
+            'rankmath_additional'  => array_slice( $additional, 0, 8 ),
+            'longtail'             => $longtail,
+            'content_terms'        => $content_terms,
+            'content_terms_source' => $content_terms_source,
+            'pool_status_counts'   => $pool_status_counts,
+            'sources'              => $sources,
         ];
     }
 
@@ -3165,23 +3413,23 @@ class ContentEngine {
      *                   any keyword already present in $exclude.
      */
     private static function deterministic_category_supporting_keywords( int $post_id, string $primary, array $exclude = [] ): array {
+        // v5.9.5: pool pruned. Removed implementation-language terms that
+        // leaked into visitor copy when framed as search phrases —
+        // 'live cam category', 'category browsing', 'browsing guide',
+        // 'performer index', 'profile navigation', 'category archive',
+        // 'performer listings', 'model directory', 'site search'. The
+        // remaining terms are plain navigational nouns that read naturally in
+        // template prose; they are never framed as user search phrases and are
+        // never written to Rank Math.
         $pool = [
-            'webcam directory',
+            'webcam models',
             'model profiles',
             'video clips',
-            'performer listings',
-            'live cam category',
-            'browsing guide',
+            'live cam rooms',
             'platform links',
             'related categories',
             'model discovery',
-            'category archive',
-            'site search',
-            'profile navigation',
             'listed platforms',
-            'performer index',
-            'category browsing',
-            'model directory',
             'video archive',
         ];
 
@@ -3234,7 +3482,7 @@ class ContentEngine {
         $term_list = implode(', ', array_map('esc_html', array_slice($terms, 0, -1)))
             . (count($terms) > 1 ? ' and ' . esc_html($terms[count($terms) - 1]) : esc_html($terms[0]));
 
-        return '<p>This page is also useful for related browsing tasks such as ' . $term_list . ', since the same model and video links above cover those paths as well.</p>';
+        return '<p>The listings on this page also connect to ' . $term_list . ', so the same model and video links above cover those areas as well.</p>';
     }
 
     /**

@@ -219,6 +219,11 @@ class Loader {
         // v5.9.0: CategoryTemplatePool — must load before ContentEngine so the
         // class_exists() gate inside build_category_page_template_preview() resolves.
         tmwseo_safe_require( $p . 'class-category-template-pool.php' );
+        // v5.9.5: category SEO repair helpers — must load before ContentEngine
+        // so the class_exists() gates inside the category pipeline resolve.
+        tmwseo_safe_require( $p . 'class-category-seo-title-builder.php' );
+        tmwseo_safe_require( $p . 'class-category-copy-guard.php' );
+        tmwseo_safe_require( $p . 'class-category-seo-verification.php' );
         tmwseo_safe_require( $p . 'class-content-engine.php' );
         tmwseo_safe_require( $p . 'class-assisted-draft-enrichment-service.php' );
         tmwseo_safe_require( $p . 'class-quality-score-engine.php' );

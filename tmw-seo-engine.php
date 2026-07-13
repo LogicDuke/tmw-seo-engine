@@ -1,8 +1,8 @@
 <?php
 /**
  * Plugin Name: TMW SEO Engine
- * Description: Intelligence Core v5.8.32-category-density-cta-notice-v1.0.0 - Category pages: focus keyword density reducer, layered backend affiliate CTA visibility (metabox + edit-screen notice).
- * Version: 5.8.32-category-density-cta-notice-v1.0.0
+ * Description: Intelligence Core v5.9.5-category-rankmath-keywords-titles-images-v1.0.0 - Category pages: Rank Math extras written to the real focus-keyword CSV (4-8 approved pool keywords), power/sentiment SEO titles, keyword-aware featured-image metadata, implementation-language copy repair, per-keyword verification report.
+ * Version: 5.9.5-category-rankmath-keywords-titles-images-v1.0.0
  * Author: The Milisofia Ltd
  * Text Domain: tmwseo
  */
@@ -14,7 +14,7 @@ if (defined('TMWSEO_ENGINE_BOOTSTRAPPED')) {
 }
 
 define('TMWSEO_ENGINE_BOOTSTRAPPED', true);
-defined('TMWSEO_ENGINE_VERSION') || define('TMWSEO_ENGINE_VERSION', '5.8.32-category-density-cta-notice-v1.0.0');
+defined('TMWSEO_ENGINE_VERSION') || define('TMWSEO_ENGINE_VERSION', '5.9.5-category-rankmath-keywords-titles-images-v1.0.0');
 defined('TMWSEO_ENGINE_PATH') || define('TMWSEO_ENGINE_PATH', plugin_dir_path(__FILE__));
 defined('TMWSEO_ENGINE_URL') || define('TMWSEO_ENGINE_URL', plugin_dir_url(__FILE__));
 defined('TMWSEO_ENGINE_DATA_DIR') || define('TMWSEO_ENGINE_DATA_DIR', TMWSEO_ENGINE_PATH . 'data');

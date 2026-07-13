@@ -1,6 +1,6 @@
 {
   "_meta": {
-    "version": "1.1.0",
+    "version": "1.1.0+5.9.5",
     "description": "Category-specific FAQ pool for tmw_category_page TemplatePool generation. v1.1.0 adds keyword_intent bucket using {{secondary_keywords}} and {{content_terms}} placeholders. These resolve to empty string when no approved pool keywords exist. Answers are neutral and factual: no platform claims, no best/verified/official/guaranteed language.",
     "placeholders": {
       "{{category_name}}": "Display name of the category",
@@ -13,7 +13,8 @@
     },
     "selection_rule": "Pick 1 question per bucket per page. Use abs(crc32(post_id + bucket_position)) mod question_count as index.",
     "buckets_count": 9,
-    "min_questions_per_bucket": 6
+    "min_questions_per_bucket": 6,
+    "note": "v5.9.5: implementation-language answers rewritten to visitor-facing wording (no site-mechanics phrasing)."
   },
   "buckets": {
     "category_meaning": {
@@ -26,7 +27,7 @@
         },
         {
           "id": "cm_02",
-          "q": "Is {{category_name}} a live cam category or a video category?",
+          "q": "Is {{category_name}} about live cams, videos, or both?",
           "a": "It covers both. Model profiles linked from this page may include live cam room links, and the connected video listings cover recorded clip content under the same theme."
         },
         {
@@ -47,17 +48,17 @@
         {
           "id": "cm_06",
           "q": "How is {{category_name}} organised on {{site_name}}?",
-          "a": "The category is organised through model profile pages, associated video listings, and internal tag links. This category page serves as the index layer that connects those sections."
+          "a": "The category brings together model profile pages, their associated video listings, and the related category links between them. This page is the starting point that connects those sections."
         },
         {
           "id": "cm_07",
           "q": "How current is the {{category_name}} content on this page?",
-          "a": "Individual model and video pages reflect the most current availability for each listing. This category page is updated as part of the site's content cycle; check individual profile pages for the latest details."
+          "a": "Individual model and video pages reflect the most current availability for each listing. This category page is refreshed as new profiles and videos are added; check individual profile pages for the latest details."
         },
         {
           "id": "cm_08",
           "q": "Are all performers on this page available in {{category_name}}?",
-          "a": "Performers listed under {{category_name}} have been matched to this theme through the site's internal tagging and classification system. Check individual profile pages for current availability details."
+          "a": "Performers appear under {{category_name}} because their profiles and videos match this focus. Check individual profile pages for current availability details."
         }
       ]
     },
@@ -147,7 +148,7 @@
         {
           "id": "md_08",
           "q": "How are {{category_name}} performers selected for the directory?",
-          "a": "Performers in this category are listed because their profiles match the theme through the site's internal classification. The process does not involve manual endorsement or ranking by the editorial team."
+          "a": "Performers appear in this category because their profiles and videos match its focus. No performer is ranked above another — the page presents the available listings neutrally."
         }
       ]
     },
@@ -237,7 +238,7 @@
         {
           "id": "rc_08",
           "q": "Can I suggest a related category for {{category_name}}?",
-          "a": "Category connections on {{site_name}} are determined by the site's internal tagging and classification process. Site feedback options may be available through the site's contact or support page."
+          "a": "Category connections on {{site_name}} follow the category and tag links visible on model and video pages. Site feedback options may be available through the site's contact or support page."
         }
       ]
     },
@@ -352,7 +353,7 @@
         {
           "id": "ps_04",
           "q": "Does the order performers appear in {{category_name}} indicate quality or popularity?",
-          "a": "Directory order reflects the site's internal sorting logic rather than an editorial quality ranking. No performer in this category is editorially promoted above another."
+          "a": "Directory order is a neutral directory order, not a quality ranking. No performer in this category is editorially promoted above another."
         },
         {
           "id": "ps_05",
@@ -387,7 +388,7 @@
         {
           "id": "ki_02",
           "q": "Is {{category_name}} the same as {{secondary_keywords}}?",
-          "a": "These are related search terms for the same general browsing theme. The {{category_name}} category page covers model profiles and video content that match most of these variations. Individual profile pages provide more detail on each performer style."
+          "a": "These are related search terms for the same general category focus. The {{category_name}} category page covers model profiles and video content that match most of these variations. Individual profile pages provide more detail on each performer style."
         },
         {
           "id": "ki_03",

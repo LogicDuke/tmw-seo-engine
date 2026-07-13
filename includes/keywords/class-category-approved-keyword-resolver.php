@@ -55,6 +55,11 @@ class CategoryApprovedKeywordResolver {
      */
     private static array $columns_cache = [];
 
+    /** Test-only: reset the per-request column cache. */
+    public static function flush_columns_cache_for_tests(): void {
+        self::$columns_cache = [];
+    }
+
     // ── Public API ────────────────────────────────────────────────────────────
 
     /**
@@ -171,13 +176,28 @@ class CategoryApprovedKeywordResolver {
     }
 
     /**
-     * Fetch rows with status='approved', intent_type='category', entity_id=$post_id.
-     * Sorted by volume DESC (if column exists), then id ASC for deterministic order.
+     * Fetch rows with status='approved', intent_type='category' that belong to
+     * this category page. Sorted by volume DESC (if column exists), then id ASC
+     * for deterministic order.
+     *
+     * v5.9.5: ownership matching widened. Rows written by the keyword-pool
+     * import flow record the owning category page in the target_id column
+     * (context wiring), and depending on the import path/age the entity_id
+     * column may be 0. The old query matched entity_id only, which made a
+     * fully approved 17-keyword pool invisible to generation and collapsed
+     * Rank Math to a single stale extra keyword. A row now matches when:
+     *   - entity_id = $post_id, OR
+     *   - target_id = $post_id AND (entity_id = 0 OR entity_id IS NULL).
+     * A row explicitly owned by a DIFFERENT entity is never matched.
+     * Status gating is unchanged: only status='approved' rows are returned.
      *
      * @return array<int, array<string, mixed>>
      */
     private function fetch_approved_rows( string $table, int $post_id, bool $has_volume ): array {
         global $wpdb;
+
+        $columns    = $this->get_columns( $table );
+        $has_target = isset( $columns['target_id'] );
 
         $select = $has_volume
             ? 'SELECT id, keyword, status, volume FROM '
@@ -187,21 +207,95 @@ class CategoryApprovedKeywordResolver {
             ? 'ORDER BY COALESCE(NULLIF(volume, 0), 0) DESC, id ASC'
             : 'ORDER BY id ASC';
 
+        $ownership = $has_target
+            ? '(entity_id = %d OR (target_id = %d AND (entity_id = 0 OR entity_id IS NULL)))'
+            : 'entity_id = %d';
+
         // phpcs:disable WordPress.DB.PreparedSQL.InterpolatedNotPrepared
-        $sql = $wpdb->prepare(
-            $select . $table
-            . ' WHERE intent_type = %s AND entity_id = %d AND status = %s'
-            . ' ' . $order
-            . ' LIMIT %d',
-            'category',
-            $post_id,
-            self::SAFE_STATUS,
-            self::DB_FETCH_LIMIT
-        );
+        if ( $has_target ) {
+            $sql = $wpdb->prepare(
+                $select . $table
+                . ' WHERE intent_type = %s AND ' . $ownership . ' AND status = %s'
+                . ' ' . $order
+                . ' LIMIT %d',
+                'category',
+                $post_id,
+                $post_id,
+                self::SAFE_STATUS,
+                self::DB_FETCH_LIMIT
+            );
+        } else {
+            $sql = $wpdb->prepare(
+                $select . $table
+                . ' WHERE intent_type = %s AND ' . $ownership . ' AND status = %s'
+                . ' ' . $order
+                . ' LIMIT %d',
+                'category',
+                $post_id,
+                self::SAFE_STATUS,
+                self::DB_FETCH_LIMIT
+            );
+        }
         // phpcs:enable
 
         $rows = $wpdb->get_results( $sql, ARRAY_A );
         return is_array( $rows ) ? $rows : [];
+    }
+
+    /**
+     * Diagnostic: per-status row counts for this category page across BOTH
+     * ownership columns. Never used for content selection — only surfaced in
+     * regeneration reports/logs so an operator can see why a pool resolved
+     * to N approved keywords (e.g. 17 imported but 15 still queued_for_review).
+     *
+     * @return array<string, int> status => count
+     */
+    public function status_counts_for_category( int $post_id ): array {
+        if ( $post_id <= 0 ) {
+            return [];
+        }
+        $table = $this->table_name();
+        if ( ! $this->table_exists( $table ) ) {
+            return [];
+        }
+        $columns    = $this->get_columns( $table );
+        if ( ! isset( $columns['status'] ) || ! isset( $columns['intent_type'] ) || ! isset( $columns['entity_id'] ) ) {
+            return [];
+        }
+        $has_target = isset( $columns['target_id'] );
+        $ownership  = $has_target
+            ? '(entity_id = %d OR (target_id = %d AND (entity_id = 0 OR entity_id IS NULL)))'
+            : 'entity_id = %d';
+
+        global $wpdb;
+        // phpcs:disable WordPress.DB.PreparedSQL.InterpolatedNotPrepared
+        $sql = $has_target
+            ? $wpdb->prepare(
+                'SELECT status, COUNT(*) AS n FROM ' . $table
+                . ' WHERE intent_type = %s AND ' . $ownership . ' GROUP BY status',
+                'category',
+                $post_id,
+                $post_id
+            )
+            : $wpdb->prepare(
+                'SELECT status, COUNT(*) AS n FROM ' . $table
+                . ' WHERE intent_type = %s AND ' . $ownership . ' GROUP BY status',
+                'category',
+                $post_id
+            );
+        // phpcs:enable
+
+        $rows   = $wpdb->get_results( $sql, ARRAY_A );
+        $counts = [];
+        if ( is_array( $rows ) ) {
+            foreach ( $rows as $row ) {
+                $status = (string) ( $row['status'] ?? '' );
+                if ( $status !== '' ) {
+                    $counts[ $status ] = (int) ( $row['n'] ?? 0 );
+                }
+            }
+        }
+        return $counts;
     }
 
     // ── Private: Processing ───────────────────────────────────────────────────
