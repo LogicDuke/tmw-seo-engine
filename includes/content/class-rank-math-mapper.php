@@ -26,8 +26,22 @@ if ( ! defined( 'ABSPATH' ) ) { exit; }
 
 class RankMathMapper {
 
-    /** Maximum extra keywords Rank Math receives. */
+    /** Maximum extra keywords Rank Math receives (model/video pages). */
     private const RANK_MATH_EXTRA_CAP = 4;
+
+    /**
+     * v5.9.5: category pages may carry up to 8 extras when the approved
+     * category keyword pool supports it (Rank Math stores the full focus
+     * keyword list as one CSV, so this is purely a plugin-side cap).
+     */
+    private const RANK_MATH_EXTRA_CAP_CATEGORY = 8;
+
+    /** Post-type aware extras cap; only managed category pages receive the expanded allowance. */
+    private static function extras_cap_for_post( int $post_id ): int {
+        return (string) get_post_field( 'post_type', $post_id ) === 'tmw_category_page'
+            ? self::RANK_MATH_EXTRA_CAP_CATEGORY
+            : self::RANK_MATH_EXTRA_CAP;
+    }
 
     /**
      * Map a keyword pack to Rank Math post meta.
@@ -66,8 +80,8 @@ class RankMathMapper {
         $focus_list = array_merge( [ $primary ], $extras );
         $focus_list = array_values( array_unique( array_filter( array_map( 'trim', $focus_list ), 'strlen' ) ) );
 
-        // Cap: 1 primary + 4 extras = 5 total max.
-        $focus_list = array_slice( $focus_list, 0, 1 + self::RANK_MATH_EXTRA_CAP );
+        // Cap: 1 primary + N extras (N = 4 for model/video, 8 for category).
+        $focus_list = array_slice( $focus_list, 0, 1 + self::extras_cap_for_post( $post_id ) );
 
         $focus_csv = implode( ',', $focus_list );
         if ( ! empty( $focus_list ) ) {
@@ -196,7 +210,8 @@ class RankMathMapper {
             } ) );
         }
 
-        return array_slice( $extras, 0, self::RANK_MATH_EXTRA_CAP );
+        $cap = $post_id > 0 ? self::extras_cap_for_post( $post_id ) : self::RANK_MATH_EXTRA_CAP;
+        return array_slice( $extras, 0, $cap );
     }
 
     /**
@@ -216,7 +231,7 @@ class RankMathMapper {
         $extras  = self::extract_extras( $keyword_pack, $post_id );
         $list    = array_merge( [ $primary ], $extras );
         $list    = array_values( array_unique( array_filter( array_map( 'trim', $list ), 'strlen' ) ) );
-        return implode( ',', array_slice( $list, 0, 1 + self::RANK_MATH_EXTRA_CAP ) );
+        return implode( ',', array_slice( $list, 0, 1 + self::extras_cap_for_post( $post_id ) ) );
     }
 
     private static function page_type_for_post( int $post_id ): string {
@@ -227,7 +242,13 @@ class RankMathMapper {
         if ( $post_type === 'post' ) {
             return 'video';
         }
-        return 'category';
+        if ( $post_type === 'tmw_category_page' ) {
+            return 'category';
+        }
+        if ( $post_type === 'page' ) {
+            return 'page';
+        }
+        return 'generic';
     }
 
     /**
@@ -243,12 +264,13 @@ class RankMathMapper {
             return false;
         }
 
+        $cap    = self::extras_cap_for_post( $post_id );
         $extras = array_values( array_filter( array_map( 'trim', array_map( 'strval', $supporting_keywords ) ), 'strlen' ) );
-        $extras = array_slice( $extras, 0, self::RANK_MATH_EXTRA_CAP );
+        $extras = array_slice( $extras, 0, $cap );
 
         $focus_list = array_merge( [ $focus ], $extras );
         $focus_list = array_values( array_unique( array_filter( array_map( 'trim', $focus_list ), 'strlen' ) ) );
-        $focus_csv  = implode( ',', array_slice( $focus_list, 0, 1 + self::RANK_MATH_EXTRA_CAP ) );
+        $focus_csv  = implode( ',', array_slice( $focus_list, 0, 1 + $cap ) );
 
         $previous = (string) get_post_meta( $post_id, 'rank_math_focus_keyword', true );
         if ( $previous === $focus_csv ) {

@@ -1,7 +1,7 @@
 {
   "_meta": {
-    "version": "1.1.0",
-    "description": "Category landing page section templates for tmw_category_page TemplatePool generation. v1.1.0 adds keyword-enriched variants (intro_10, covers_09, who_09, tips_09, similar_09, close_09) using {{secondary_keywords}} and {{content_terms}} placeholders. These resolve to empty string when no approved pool keywords exist, preserving v1.0.0 fallback behavior.",
+    "version": "1.2.0",
+    "description": "Category landing page section templates for tmw_category_page TemplatePool generation. v1.1.0 added keyword-enriched variants (intro_10, covers_09, who_09, tips_09, similar_09, close_09) using {{secondary_keywords}} and {{content_terms}} placeholders; these resolve to empty string when no approved pool keywords exist. v1.2.0 (plugin 5.9.5): all implementation-language phrasing rewritten to visitor-facing category copy.",
     "placeholders": {
       "{{category_name}}": "Display name of the category (e.g. Blonde Webcam Models)",
       "{{category_slug}}": "URL slug of the category page",
@@ -37,7 +37,7 @@
       "variants": [
         {
           "id": "intro_01",
-          "body": "<p>{{category_name}} brings together a focused collection of webcam model profiles and video listings that share a common browsing theme. This page is the starting point for visitors who want to explore a specific type of performer or content style without navigating across unrelated sections. Use the directory links below to move deeper into individual profiles or clip archives that match your interest.</p>"
+          "body": "<p>{{category_name}} brings together a focused collection of webcam model profiles and video listings that share a common theme. This page is the starting point for visitors who want to explore a specific type of performer or content style without navigating across unrelated sections. Use the directory links below to move deeper into individual profiles or clip archives that match your interest.</p>"
         },
         {
           "id": "intro_02",
@@ -45,7 +45,7 @@
         },
         {
           "id": "intro_03",
-          "body": "<p>{{category_name}} is a discovery page for a specific webcam browsing theme. It collects models and videos that share the same focus so you can move between listings efficiently. Whether you are new to webcam browsing or returning to find something specific, the structure here is built for quick, practical exploration.</p>"
+          "body": "<p>{{category_name}} is a discovery page for a specific webcam category. It collects models and videos that share the same focus so you can move between listings efficiently. Whether you are new to webcam browsing or returning to find something specific, the structure here is built for quick, practical exploration.</p>"
         },
         {
           "id": "intro_04",
@@ -73,7 +73,7 @@
         },
         {
           "id": "intro_10",
-          "body": "<p>{{category_name}} is a directory archive for a focused webcam browsing theme. This page collects model profiles and video listings that match the same intent, covering searches such as {{secondary_keywords}}. Scan the sections below to find a starting point, then follow the site links to individual profiles or video pages that match what you are looking for.</p>"
+          "body": "<p>{{category_name}} is a directory archive for a focused webcam category. This page collects model profiles and video listings that match the same intent, covering searches such as {{secondary_keywords}}. Scan the sections below to find a starting point, then follow the site links to individual profiles or video pages that match what you are looking for.</p>"
         }
       ]
     },
@@ -93,12 +93,12 @@
         {
           "id": "covers_03",
           "h2": "What This Category Covers",
-          "body": "<p>{{category_name}} as a category focuses on connecting visitors to relevant model profiles and video content within a shared browsing theme. It covers the range of performers who match this topic, the video clips associated with the same focus, and the site navigation paths that let you move between related sections on {{site_name}}.</p>"
+          "body": "<p>{{category_name}} connects visitors to relevant model profiles and video content that share one clear focus. It covers the range of performers who match this topic, the video clips associated with the same focus, and the site navigation paths that let you move between related sections on {{site_name}}.</p>"
         },
         {
           "id": "covers_04",
           "h2": "What This Category Covers",
-          "body": "<p>The {{category_name}} category gathers model directory entries and video archive links that share a common topic. Coverage includes both profile-style model pages and clip-based video pages, so visitors interested in live interaction and those interested in recorded content can both find relevant starting points here.</p>"
+          "body": "<p>The {{category_name}} category gathers model profile pages and video archive links that share a common topic. Coverage includes both profile-style model pages and clip-based video pages, so visitors interested in live interaction and those interested in recorded content can both find relevant starting points here.</p>"
         },
         {
           "id": "covers_05",
@@ -123,7 +123,7 @@
         {
           "id": "covers_09",
           "h2": "What This Category Covers",
-          "body": "<p>{{category_name}} as a category covers performer profiles and video listings that share a recognisable browsing theme. Visitors arrive from searches including {{secondary_keywords}}, and this page is designed to orient them with a practical overview before they click through to individual profile or video pages. Coverage is neutral - no platform is promoted over another, and no performer is ranked editorially.</p>"
+          "body": "<p>{{category_name}} covers performer profiles and video listings with a clearly recognisable focus. Visitors arrive from searches including {{secondary_keywords}}, and this page is designed to orient them with a practical overview before they click through to individual profile or video pages. Coverage is neutral - no platform is promoted over another, and no performer is ranked editorially.</p>"
         }
       ]
     },
@@ -163,7 +163,7 @@
         {
           "id": "who_07",
           "h2": "Who This Category Is For",
-          "body": "<p>{{category_name}} is for adults who want a dedicated landing point for a specific webcam theme rather than starting from a general directory every time. The page works well as a bookmark for returning visitors and as an orientation layer for new ones. Every link from this page leads to content within the same site, so the browsing experience stays consistent.</p>"
+          "body": "<p>{{category_name}} is for adults who want a dedicated landing point for a specific webcam category rather than starting from a general directory every time. The page works well as a bookmark for returning visitors and as an orientation layer for new ones. Every link from this page leads to content within the same site, so the browsing experience stays consistent.</p>"
         },
         {
           "id": "who_08",
@@ -248,7 +248,7 @@
         {
           "id": "tips_05",
           "h2": "Live Cam and Model Discovery Tips",
-          "body": "<p>Discovering the right {{category_name}} model takes less time when you use the site's existing tagging and linking structure. Most model profiles link to related profiles in the same category, so if your first choice is offline you can move to a similar performer quickly. The video pages connected to this category also provide a useful reference point for finding performers whose style you might enjoy in a live context.</p>"
+          "body": "<p>Discovering the right {{category_name}} model takes less time when you follow the category and profile links already on the page. Most model profiles link to related profiles in the same category, so if your first choice is offline you can move to a similar performer quickly. The video pages connected to this category also provide a useful reference point for finding performers whose style you might enjoy in a live context.</p>"
         },
         {
           "id": "tips_06",
@@ -283,7 +283,7 @@
         {
           "id": "similar_02",
           "h2": "Similar Categories to Explore",
-          "body": "<p>{{category_name}} sits alongside a number of related browsing themes on {{site_name}}. If you find that this category covers part of what you are looking for, the related category links in the site's taxonomy will take you to pages with a slightly different focus but a similar browsing structure. Each category page follows the same format, so navigation remains consistent as you move between them.</p>"
+          "body": "<p>{{category_name}} sits alongside a number of related categories on {{site_name}}. If you find that this category covers part of what you are looking for, the related category links in the site's taxonomy will take you to pages with a slightly different focus but a similar browsing structure. Each category page follows the same format, so navigation remains consistent as you move between them.</p>"
         },
         {
           "id": "similar_03",
@@ -303,7 +303,7 @@
         {
           "id": "similar_06",
           "h2": "Similar Categories to Explore",
-          "body": "<p>Webcam browsing themes often overlap, and {{category_name}} is no exception. Visitors who enjoy this category tend to find value in related themes that share some of the same performer characteristics or content styles. The {{site_name}} directory organises these related categories through related site links on individual model and video pages, making it easy to discover adjacent content without extra searching.</p>"
+          "body": "<p>Webcam categories often overlap, and {{category_name}} is no exception. Visitors who enjoy this category tend to find value in related themes that share some of the same performer characteristics or content styles. The {{site_name}} directory organises these related categories through related site links on individual model and video pages, making it easy to discover adjacent content without extra searching.</p>"
         },
         {
           "id": "similar_07",
@@ -378,7 +378,7 @@
         {
           "id": "nav_02",
           "h2": "Find Models and Videos on This Site",
-          "body": "<p>{{site_name}} organises its {{category_name}} content through two main directories. The Models Directory covers performer profile pages; the Videos Directory covers clip and archive pages. Both are accessible without an account and are the main site starting points for this theme.</p><ul><li><a href=\"{{models_url}}\">Models Directory</a></li><li><a href=\"{{videos_url}}\">Videos Directory</a></li></ul>"
+          "body": "<p>The {{category_name}} listings on {{site_name}} are reachable through two main directories. The Models Directory covers performer profile pages; the Videos Directory covers clip and archive pages. Both are accessible without an account and are the main site starting points for this theme.</p><ul><li><a href=\"{{models_url}}\">Models Directory</a></li><li><a href=\"{{videos_url}}\">Videos Directory</a></li></ul>"
         },
         {
           "id": "nav_03",
@@ -429,7 +429,7 @@
         },
         {
           "id": "close_04",
-          "body": "<p>Navigating {{category_name}} through {{site_name}} gives you a structured path into a specific browsing theme without bypassing the context that makes that browsing more efficient. The directory organisation is updated as the underlying profile and video pages change.</p>"
+          "body": "<p>Navigating {{category_name}} through {{site_name}} gives you a structured path into a specific category focus without bypassing the context that makes that browsing more efficient. The directory organisation is updated as the underlying profile and video pages change.</p>"
         },
         {
           "id": "close_05",
@@ -445,7 +445,7 @@
         },
         {
           "id": "close_08",
-          "body": "<p>The {{category_name}} page is updated as part of the regular {{site_name}} content cycle. This means that new performers who match this theme may be added over time, and existing listings may be updated as platform availability changes. Returning to this page periodically is a simple way to see what is new in the category without browsing the full directory each time.</p>"
+          "body": "<p>The {{category_name}} page is refreshed as the site grows: new performers who match this focus are added over time, and existing listings are updated as platform availability changes. Returning to this page periodically is a simple way to see what is new without browsing the full directory each time.</p>"
         },
         {
           "id": "close_09",

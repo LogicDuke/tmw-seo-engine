@@ -8,6 +8,79 @@
 
 # TMW SEO Engine — Changelog
 
+## 5.9.5 — Category Rank Math Keywords, Titles, Image Metadata & Copy Repair (2026-07-13)
+
+### Root cause fixed: one-additional-keyword problem
+
+Rank Math reads the FULL focus keyword list (primary + extras) from a single
+comma-separated meta key: `rank_math_focus_keyword`. The plugin wrote the
+approved-pool extras to `rank_math_additional_keywords` — a plugin-invented
+key Rank Math never reads — and only wrote the primary keyword into
+`rank_math_focus_keyword` (and only when it was empty). The one visible extra
+was a stale echo of an old CSV that the label-derived fallback pack kept
+re-saving. Compounding this, `CategoryApprovedKeywordResolver` matched pool
+rows on `entity_id` only, while keyword-pool imports record the owning
+category page in the `target_id` column (with `entity_id` 0 on several import
+paths) — so a fully approved 17-keyword pool resolved as pool_count=0.
+
+### Fixes
+
+- **Rank Math extras** — `apply_category_rankmath_extras()` now writes the
+  Rank-Math-readable `rank_math_focus_keyword` CSV (primary first, then 4–8
+  approved pool extras), refreshes stale one-keyword lists on regeneration,
+  backs up the previous CSV once to `_tmwseo_prev_rank_math_focus_keyword`,
+  and keeps the old mirror key for internal tooling.
+- **Resolver ownership** — approved rows now match on
+  `entity_id = post_id OR (target_id = post_id AND entity_id IN (0, NULL))`;
+  status gating is unchanged (approved-only). New
+  `status_counts_for_category()` diagnostic surfaces per-status pool counts in
+  regeneration reports.
+- **4–8 extras** — resolver called with `rankmath_limit=8`; `RankMathMapper`
+  extras cap is now page-type aware (category = 8, model/video = 4).
+- **SEO titles** — new `CategorySeoTitleBuilder`: primary keyword first, one
+  Rank Math power word, one sentiment word, deterministic per-category
+  variation, no automatic year/number, no unsupported superlatives, unique
+  across categories, validated (`validate()`); applied on both the template
+  and AI category paths.
+- **Featured-image metadata** — `CategoryFeaturedImageMetaHelper` rewritten:
+  keyword-aware alt / attachment title / caption / description (primary + up
+  to two different supporting keywords, no lists, no stuffing, no claims about
+  the people shown), shared-attachment detection (never globally overwrites an
+  attachment used by other posts), manual values never overwritten (only empty
+  or known plugin-generated generic values are refreshed), invoked with the
+  fresh keyword pack after every category generation.
+- **Bad generated language** — root causes fixed, not just blacklisted:
+  - templates: removed "as a category", "browsing theme", "content cycle",
+    "organises its {{category_name}} content" and other implementation
+    phrasing from `category-section-templates.json` (v1.2.0) and
+    `category-faq-pool.json`;
+  - density reducer: dropped "this webcam theme"/"this browsing theme"
+    replacement phrases, removed `as`/`content` from the follow-word
+    allowlist, added a preceding article/possessive guard so "its {{kw}}
+    content" can no longer become "its this … content";
+  - fallback vocabulary is no longer framed as user search phrases: the
+    supporting-term weave only runs for approved-pool terms, and the
+    deterministic fallback pool was pruned of implementation terms
+    ("live cam category", "category browsing", "model directory", …);
+  - keyword coverage injection now distributes keywords across the page with
+    a hard max of TWO exact phrases per sentence (no comma dumps);
+  - new `CategoryCopyGuard` runs as a deterministic final pass on both save
+    paths, repairing any surviving collision and logging replacements.
+- **Verification** — new `CategorySeoVerification` writes a per-keyword report
+  (`_tmwseo_category_seo_verification`): found in content / heading / title /
+  meta description / image metadata, occurrence count, pass/fail with reason,
+  plus a banned-phrase scan. A regeneration keyword report
+  (`_tmwseo_category_keyword_report`) records selected, saved, skipped terms
+  and pool status counts.
+- **Table of Contents** — intentionally NOT addressed; Rank Math's ToC notice
+  is treated as a non-blocking recommendation (no theme/layout changes).
+
+### Scope
+Plugin only. No child-theme, layout, slug, URL, canonical, or
+readiness/noindex changes. Category bridge posts remain noindex until manual
+review.
+
+
 ## 5.2.0 — Full-Audit Recall: Case-Sensitive Link Hubs + Outbound Harvester (2026-04-18)
 
 ### Problem this release fixes
