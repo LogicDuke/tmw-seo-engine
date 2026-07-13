@@ -1,6 +1,6 @@
 # TMW SEO Engine
 
-**Version:** 5.9.5-category-rankmath-keywords-titles-images-v1.0.0 · **Author:** The Milisofia Ltd · **Requires PHP:** 8.0+ · **Requires WordPress:** 6.0+
+**Version:** 5.9.6-category-keyword-density-root-family-v1.0.0 · **Author:** The Milisofia Ltd · **Requires PHP:** 8.0+ · **Requires WordPress:** 6.0+
 
 ---
 

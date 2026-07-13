@@ -8,6 +8,15 @@
 
 # TMW SEO Engine — Changelog
 
+## 5.9.6-category-keyword-density-root-family-v1.0.0 — Category root-family keyword density guard (2026-07-13)
+
+- **Root cause fixed:** category coverage treated every saved Rank Math keyword as mandatory verbatim body copy, so closely overlapping cam-chat variants were injected together and inflated family density.
+- **Rank Math preserved:** category pages still save the primary keyword plus up to 8 approved supporting keywords in `rank_math_focus_keyword`; unused exact body variants remain tracked instead of being removed.
+- **Body-use planning:** approved extras are split into Rank Math tracking keywords, root-aware body-use keywords, and intentionally unused verbatim keywords with reasons.
+- **Dump prevention:** deterministic repairs reject comma-separated keyword lists and paragraphs/sentences carrying too many exact overlapping variants.
+- **Verification:** category SEO reports now include saved keywords, body-use selections, intentionally unused keywords, root family, exact/family occurrence counts, family density, paragraph concentration, dump detection, and pass/fail reasons.
+- **Copy quality:** category fallback/supporting language now discusses visitor-facing cam-room intent, public/free vs private/paid expectations, performer/video comparison, safety, and privacy instead of internal template wording.
+
 ## 5.9.5 — Category Rank Math Keywords, Titles, Image Metadata & Copy Repair (2026-07-13)
 
 ### Root cause fixed: one-additional-keyword problem

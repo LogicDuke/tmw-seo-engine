@@ -417,8 +417,9 @@ if ($engine_loadable) {
     $set_approved = [
         'primary_keyword'     => 'Free Cam Chat',
         'extra_keywords'      => ['free webcam chat','free cam to cam chat','free live cam chat','free live cams','cam chat sites','webcam chat rooms','webcam chat sites','free adult cam chat'],
-        'all_keywords'        => array_merge(['Free Cam Chat'], ['free webcam chat','free cam to cam chat','free live cam chat','free live cams','cam chat sites','webcam chat rooms','webcam chat sites','free adult cam chat']),
-        'supporting_keywords' => ['cam chat online','free video cam chat'],
+        'all_keywords'        => ['Free Cam Chat', 'free webcam chat'],
+        'supporting_keywords' => ['free webcam chat'],
+        'body_use_keywords'   => ['free webcam chat'],
         'supporting_source'   => 'category_db_approved',
     ];
     $out = (string) $cov->invoke(null, $base_html, $set_approved, $post);
@@ -428,7 +429,8 @@ if ($engine_loadable) {
     foreach ($set_approved['all_keywords'] as $kw) {
         if (stripos($visible, $kw) === false) { $missing_after[] = $kw; }
     }
-    check('every saved RM keyword present in final copy', empty($missing_after), implode('|', $missing_after));
+    check('body-use keyword subset present in final copy', empty($missing_after), implode('|', $missing_after));
+    check('not every saved Rank Math extra is forced into body copy', stripos($visible, 'free adult cam chat') === false);
 
     // No sentence carries 3+ exact keyword phrases.
     // Split block-by-block first (strip_tags concatenates blocks), then by
@@ -449,7 +451,7 @@ if ($engine_loadable) {
     }
     check('max exact supporting phrases in one sentence ≤ 2', $worst <= 2, "worst sentence had $worst");
     check('keywords distributed (injections at 2+ anchor points)',
-        substr_count($out, 'Visitors comparing') + substr_count($out, 'Searches for') + substr_count($out, 'If you arrived looking for') + substr_count($out, 'People exploring') >= 2);
+        substr_count($out, 'Visitors comparing') + substr_count($out, 'Search intent around') + substr_count($out, 'If you arrived looking for') + substr_count($out, 'People exploring') >= 1);
 
     // Fallback vocabulary must not be framed as searches.
     $set_fallback = [
@@ -551,7 +553,9 @@ check('report row per saved keyword', count($verify['keywords']) === 8);
 check('primary pass (content + title + description)', ($rows_by_kw['free cam chat']['status'] ?? '') === 'pass');
 check('supporting keyword found in content = pass', ($rows_by_kw['free webcam chat']['status'] ?? '') === 'pass');
 check('heading presence reported', !empty($rows_by_kw['free live cam chat']['found_in_heading'] ?? $rows_by_kw['cam chat sites']['found_in_heading'] ?? false) || true);
-check('missing supporting keyword = fail with reason', ($rows_by_kw['free adult cam chat']['status'] ?? '') === 'fail' && ($rows_by_kw['free adult cam chat']['reason'] ?? '') !== '');
+check('missing supporting keyword retained as Rank Math tracking-only with reason', ($rows_by_kw['free adult cam chat']['status'] ?? '') === 'pass' && !empty($rows_by_kw['free adult cam chat']['intentionally_unused_verbatim']) && ($rows_by_kw['free adult cam chat']['reason'] ?? '') !== '');
+check('verification records body-use and intentionally unused keywords', !empty($verify['keywords_selected_for_body_use']) && in_array('free adult cam chat', $verify['keywords_intentionally_not_used_verbatim'] ?? [], true));
+check('verification records root-family density and dump detection', isset($rows_by_kw['free cam chat']['family_density_percentage']) && ($verify['dump_detection']['status'] ?? '') !== '');
 check('occurrence counts recorded', ($rows_by_kw['free cam chat']['occurrence_count'] ?? 0) >= 1);
 check('report persisted to post meta', isset($GLOBALS['_tmw_test_post_meta'][4559][CategorySeoVerification::REPORT_META_KEY]));
 check('extras not required in title/description (informational reason only)',
