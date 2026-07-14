@@ -39,7 +39,7 @@ class CategoryIntentClassifier {
 	 */
 	private const SIGNALS = [
 		self::INTENT_FREE_ACCESS => [
-			'free', 'cheap', 'token', 'tokens', 'credit', 'credits', 'trial', 'no-cost', 'nocost',
+			'free', 'cheap', 'token', 'tokens', 'credit', 'credits', 'trial', 'no', 'cost', 'nocost',
 		],
 		self::INTENT_BODY_TYPE => [
 			'boob', 'boobs', 'breast', 'breasts', 'busty', 'tits', 'ass', 'booty', 'butt', 'curvy',
@@ -64,7 +64,7 @@ class CategoryIntentClassifier {
 			'show', 'shows', 'hd', '4k', 'vr',
 		],
 		self::INTENT_AGE_STYLE => [
-			'mature', 'milf', 'cougar', 'granny', 'college', 'coed', 'young-adult', 'twenties',
+			'mature', 'milf', 'cougar', 'granny', 'college', 'coed', 'young', 'adult', 'youngadult', 'twenties',
 			'gentleman', 'gentlemen', 'silver', 'daddy', 'mommy',
 		],
 		self::INTENT_LANGUAGE_LOCATION => [

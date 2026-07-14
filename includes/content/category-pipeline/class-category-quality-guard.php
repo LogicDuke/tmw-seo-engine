@@ -183,12 +183,14 @@ class CategoryQualityGuard {
 			$sentences = preg_split( '/(?<=[.!?])\s+/u', $text ) ?: [ $text ];
 			foreach ( $sentences as $i => $sentence ) {
 				if ( self::count_exact_keywords( $sentence, $keywords ) < 3 ) { continue; }
-				$seen = 0;
-				$new  = $sentence;
-				foreach ( $keywords as $kw ) {
+				$seen  = 0;
+				$terms = array_values( array_filter( array_map( static function ( $kw ) {
 					$kw = trim( (string) $kw );
-					if ( $kw === '' ) { continue; }
-					$pattern = '/(?:,\s*(?:and\s+)?)?(?<![\p{L}\p{N}])' . preg_quote( $kw, '/' ) . '(?![\p{L}\p{N}])/iu';
+					return $kw === '' ? null : preg_quote( $kw, '/' );
+				}, $keywords ) ) );
+				$new   = $sentence;
+				if ( ! empty( $terms ) ) {
+					$pattern = '/(?:,\s*(?:and\s+)?)?(?<![\p{L}\p{N}])(?:' . implode( '|', $terms ) . ')(?![\p{L}\p{N}])/iu';
 					$new     = (string) preg_replace_callback( $pattern, static function ( $m ) use ( &$seen ) {
 						$seen++;
 						return $seen <= 2 ? $m[0] : '';

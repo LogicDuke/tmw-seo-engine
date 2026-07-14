@@ -143,6 +143,10 @@ class CategoryContextBuilder {
 		$term = self::resolve_linked_term( $post );
 		if ( $term && isset( $term->count ) ) {
 			$parts['model_count'] = (int) $term->count;
+			$video_count = self::count_videos_for_term( $term );
+			if ( $video_count !== null ) {
+				$parts['video_count'] = $video_count;
+			}
 		}
 		if ( $term && function_exists( 'get_terms' ) ) {
 			$siblings = get_terms( [
@@ -165,7 +169,7 @@ class CategoryContextBuilder {
 		if ( ! function_exists( 'get_post_meta' ) || ! function_exists( 'get_term' ) ) {
 			return null;
 		}
-		foreach ( [ '_tmwseo_category_term_id', '_tmw_category_term_id' ] as $meta_key ) {
+		foreach ( [ '_tmwseo_term_id', '_tmwseo_category_term_id', '_tmwseo_target_term_id', 'target_term_id', '_tmw_category_term_id' ] as $meta_key ) {
 			$term_id = (int) get_post_meta( (int) $post->ID, $meta_key, true );
 			if ( $term_id > 0 ) {
 				$term = get_term( $term_id );
@@ -181,6 +185,31 @@ class CategoryContextBuilder {
 					return $term;
 				}
 			}
+		}
+		return null;
+	}
+
+	/** Count video posts linked to the resolved term when WP query helpers are available. */
+	private static function count_videos_for_term( $term ): ?int {
+		if ( ! isset( $term->term_id, $term->taxonomy ) ) { return null; }
+		if ( function_exists( 'get_posts' ) ) {
+			$posts = get_posts( [
+				'post_type'      => [ 'tmw_video', 'video' ],
+				'post_status'    => 'publish',
+				'fields'         => 'ids',
+				'posts_per_page' => 1,
+				'no_found_rows'  => false,
+				'tax_query'      => [ [
+					'taxonomy' => (string) $term->taxonomy,
+					'field'    => 'term_id',
+					'terms'    => [ (int) $term->term_id ],
+				] ],
+			] );
+			global $wp_query;
+			if ( isset( $wp_query->found_posts ) && is_numeric( $wp_query->found_posts ) ) {
+				return max( 0, (int) $wp_query->found_posts );
+			}
+			if ( is_array( $posts ) ) { return count( $posts ); }
 		}
 		return null;
 	}

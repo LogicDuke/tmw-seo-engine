@@ -113,6 +113,7 @@ class CategoryGenerationPipeline {
 		$stage       = [ 'raw' => '', 'normalized' => '', 'repaired' => '', 'final' => '' ];
 		$stage_diffs = [];
 		$sentence_ids = [];
+		$final_provider = $provider;
 
 		for ( $salt = 0; $salt < self::MAX_ATTEMPTS; $salt++ ) {
 			$plan = CategoryContentPlanner::plan( $context, $intent, $salt );
@@ -124,7 +125,11 @@ class CategoryGenerationPipeline {
 				$raw_draft = $provider_html;
 				$draft     = $provider_html;
 				if ( stripos( $draft, 'Frequently Asked Questions' ) === false && ! empty( $faqs ) ) {
-					$draft .= CategoryFaqPlanner::render( $faqs );
+					$faq_html = CategoryFaqPlanner::render( $faqs );
+					$closing_pos = self::closing_position( $draft );
+					$draft = $closing_pos !== null
+						? substr( $draft, 0, $closing_pos ) . $faq_html . substr( $draft, $closing_pos )
+						: $draft . $faq_html;
 				}
 				$composed = [ 'html' => $draft, 'used_keywords' => [], 'dropped_sentences' => 0, 'sentence_ids' => [], 'variant_ids' => [], 'intent_sections' => [] ];
 				$stage['raw'] = $provider_html;
@@ -199,6 +204,7 @@ class CategoryGenerationPipeline {
 				$final_html     = $draft;
 				$final_plan     = $plan;
 				$final_faqs     = $faqs;
+				$final_provider = (string) ( $attempts[ count( $attempts ) - 1 ]['provider'] ?? $provider );
 				$stage['final'] = $draft;
 				$stage_diffs    = [
 					'raw_to_normalized'   => self::paragraph_diff( $stage['raw'], $stage['normalized'] ),
@@ -233,7 +239,7 @@ class CategoryGenerationPipeline {
 			'category_id'            => (int) ( $context['category_id'] ?? 0 ),
 			'category_name'          => (string) ( $context['category_name'] ?? '' ),
 			'intent'                 => $intent,
-			'provider'               => $provider,
+			'provider'               => $ok ? $final_provider : $provider,
 			'content_plan'           => (array) ( $final_plan['sections'] ?? [] ),
 			'keyword_plan'           => [
 				'primary'            => (string) $keyword_plan['primary'],
@@ -368,8 +374,10 @@ class CategoryGenerationPipeline {
 
 	/** Position of the final paragraph (closing) so the FAQ lands before it. */
 	private static function closing_position( string $html ): ?int {
-		$last_p = strripos( $html, '<p>' );
-		if ( $last_p === false || $last_p === 0 ) { return null; }
-		return $last_p;
+		if ( ! preg_match_all( '/<p[^>]*>/i', $html, $m, PREG_OFFSET_CAPTURE ) || empty( $m[0] ) ) {
+			return null;
+		}
+		$last = end( $m[0] );
+		return $last[1] === 0 ? null : (int) $last[1];
 	}
 }

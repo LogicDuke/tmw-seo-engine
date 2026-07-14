@@ -28,6 +28,7 @@ if ( ! defined( 'ABSPATH' ) ) { exit; }
 class CategoryDifferentiationScorer {
 
 	public const OPTION_KEY = 'tmwseo_cat_diff_recent';
+	public const LOCK_KEY = 'tmwseo_cat_diff_recent_lock';
 
 	/** Max stored recent generations. */
 	private const STORE_LIMIT = 12;
@@ -150,17 +151,32 @@ class CategoryDifferentiationScorer {
 	/** Persist a fingerprint into the rolling store. */
 	public static function remember( array $fp ): void {
 		if ( ! function_exists( 'get_option' ) || ! function_exists( 'update_option' ) ) { return; }
-		$stored = get_option( self::OPTION_KEY, [] );
-		if ( ! is_array( $stored ) ) { $stored = []; }
-		$slug   = (string) ( $fp['slug'] ?? '' );
-		$stored = array_values( array_filter( $stored, static function ( $item ) use ( $slug ): bool {
-			return is_array( $item ) && (string) ( $item['slug'] ?? '' ) !== $slug;
-		} ) );
-		$stored[] = $fp;
-		if ( count( $stored ) > self::STORE_LIMIT ) {
-			$stored = array_slice( $stored, -self::STORE_LIMIT );
+		$locked = self::acquire_lock();
+		try {
+			$stored = get_option( self::OPTION_KEY, [] );
+			if ( ! is_array( $stored ) ) { $stored = []; }
+			$slug   = (string) ( $fp['slug'] ?? '' );
+			$stored = array_values( array_filter( $stored, static function ( $item ) use ( $slug ): bool {
+				return is_array( $item ) && (string) ( $item['slug'] ?? '' ) !== $slug;
+			} ) );
+			$stored[] = $fp;
+			if ( count( $stored ) > self::STORE_LIMIT ) {
+				$stored = array_slice( $stored, -self::STORE_LIMIT );
+			}
+			update_option( self::OPTION_KEY, $stored, false );
+		} finally {
+			if ( $locked && function_exists( 'delete_option' ) ) { delete_option( self::LOCK_KEY ); }
 		}
-		update_option( self::OPTION_KEY, $stored, false );
+	}
+
+	private static function acquire_lock(): bool {
+		if ( ! function_exists( 'add_option' ) ) { return false; }
+		$token = (string) microtime( true );
+		for ( $i = 0; $i < 10; $i++ ) {
+			if ( add_option( self::LOCK_KEY, $token, '', false ) ) { return true; }
+			if ( function_exists( 'usleep' ) ) { usleep( 25000 ); }
+		}
+		return false;
 	}
 
 	// ── primitives ─────────────────────────────────────────────────────────

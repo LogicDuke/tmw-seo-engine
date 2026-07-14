@@ -169,7 +169,8 @@ class CategorySeoVerification {
 				$recorded_hash = (string) ( $decoded['final_output_hash'] ?? '' );
 				if ( $recorded_hash !== ''
 					&& class_exists( '\\TMWSEO\\Engine\\Content\\CategoryPipeline\\CategoryGenerationResult' ) ) {
-					$actual_hash = \TMWSEO\Engine\Content\CategoryPipeline\CategoryGenerationResult::hash_output( $content );
+					$canonical_content = self::canonical_pipeline_body( $content );
+					$actual_hash = \TMWSEO\Engine\Content\CategoryPipeline\CategoryGenerationResult::hash_output( $canonical_content );
 					$pipeline['content_matches_generation'] = ( $actual_hash === $recorded_hash );
 					if ( ! $pipeline['content_matches_generation'] ) {
 						$all_passed = false;
@@ -228,6 +229,21 @@ class CategorySeoVerification {
 	}
 
 	// ── Internals ────────────────────────────────────────────────────────────
+
+	private static function canonical_pipeline_body( string $content ): string {
+		$marker = '<!-- TMWSEO:AI -->';
+		if ( strpos( $content, $marker ) !== false ) {
+			$content = (string) substr( $content, (int) strpos( $content, $marker ) + strlen( $marker ) );
+		}
+		foreach ( [ 'tmw-category-page-affiliate-cta', 'tmw-category-affiliate-slot' ] as $needle ) {
+			$pos = strpos( $content, $needle );
+			if ( $pos !== false ) {
+				$tag = strripos( substr( $content, 0, $pos ), '<' );
+				$content = substr( $content, 0, $tag === false ? $pos : $tag );
+			}
+		}
+		return trim( $content );
+	}
 
 	private static function extract_headings( string $html ): string {
 		if ( ! preg_match_all( '/<h[23][^>]*>(.*?)<\/h[23]>/is', $html, $m ) ) {

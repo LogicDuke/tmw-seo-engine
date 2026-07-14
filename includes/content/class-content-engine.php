@@ -2938,8 +2938,10 @@ class ContentEngine {
                 // here was a root cause of duplicated fallback sentences.
                 $cat_keyword_set_for_save = self::normalize_category_content_keyword_set($post, $focus_kw, $keyword_pack);
                 if ($cat_source_for_save !== 'category_universal_pipeline') {
-                    $final_content = self::ensure_category_keyword_coverage($final_content, $cat_keyword_set_for_save, $post);
                     $generated_content = self::ensure_category_keyword_coverage($generated_content, $cat_keyword_set_for_save, $post);
+                    $final_content = $insert_block
+                        ? self::upsert_ai_block((string)$post->post_content, $generated_content)
+                        : $generated_content;
                 }
                 if ($insert_block) {
                     $final_content = self::upsert_ai_block((string)$post->post_content, $generated_content);

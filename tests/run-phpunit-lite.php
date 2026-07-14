@@ -126,7 +126,6 @@ namespace {
                     if (!empty($instance->expectedException)) {
                         throw new \PHPUnit\Framework\AssertionFailedError('expected exception ' . $instance->expectedException . ' was not thrown');
                     }
-                    $tearDown = $ref->getMethod('tearDown'); $tearDown->setAccessible(true); $tearDown->invoke($instance);
                     $total_pass++;
                     echo "  ok  {$label}\n";
                 } catch (\PHPUnit\Framework\SkippedTest $e) {
@@ -141,6 +140,8 @@ namespace {
                     $total_fail++;
                     $failures[] = $label . ' — ' . $e->getMessage();
                     echo "  FAIL {$label} — {$e->getMessage()}\n";
+                } finally {
+                    $tearDown = $ref->getMethod('tearDown'); $tearDown->setAccessible(true); $tearDown->invoke($instance);
                 }
             }
         }

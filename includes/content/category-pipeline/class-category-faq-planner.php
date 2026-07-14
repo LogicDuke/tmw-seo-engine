@@ -72,7 +72,7 @@ class CategoryFaqPlanner {
 		$seed = CategoryContentPlanner::seed( $slug . '|faq|' . $intent . '|' . $salt );
 
 		$bucket_keys = CategoryFaqReuseGuard::rank_buckets( $buckets, $intent, $seed );
-		$count       = self::MIN_FAQ + ( $seed % 2 ); // 3-4 per page keeps the cooldown pool deep
+		$count       = self::MIN_FAQ + ( $salt % 3 ); // 3-5 per page keeps the cooldown pool deep
 
 		$values = [
 			'category_name'   => (string) ( $context['category_name'] ?? '' ),
@@ -110,6 +110,10 @@ class CategoryFaqPlanner {
 				if ( $is_generic ) { $generic_used++; }
 				break;
 			}
+		}
+
+		if ( count( $faqs ) < self::MIN_FAQ && ! empty( $used_ids ) ) {
+			return self::plan( $context, $intent, $salt, [] );
 		}
 
 		return $faqs;

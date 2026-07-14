@@ -52,7 +52,7 @@ class CategoryFactualSafety {
 		'/\bshows? the current count for this theme\b/iu' =>
 			[ 'live_counts', 'Live status and platform details can change; the destination platform has the current picture.' ],
 		'/\bmost (?:models|performers|profiles) link to related (?:performers|profiles|models)\b/iu' =>
-			[ '', 'The model and video directories lead on to related themes.' ],
+			[ '', 'Nearby options can continue the browsing path.' ],
 		'/\bprofile (?:page )?(?:shows|displays|reflects) (?:their |current )?availability\b/iu' =>
 			[ 'realtime_status', 'Current room status lives on the destination platform.' ],
 		'/\bavailability (?:context|notes?) (?:is|are) (?:present|included|listed)\b/iu' =>
@@ -80,9 +80,9 @@ class CategoryFactualSafety {
 			[ 'live_counts', 'Live status and platform details can change; the destination platform has the current picture.' ],
 		// Tag-existence claims.
 		'/\btags?\b[^.?!]{0,50}\b(?:lead|link|point|land|surface|help|show|reveal)/iu' =>
-			[ 'tags', 'Use the model and video directories to move between related themes.' ],
+			[ 'tags', 'Use nearby options to continue browsing.' ],
 		'/\b(?:profile|the) tags?\b/iu' =>
-			[ 'tags', 'Use the model and video directories to move between related themes.' ],
+			[ 'tags', 'Use nearby options to continue browsing.' ],
 		// Schedule / streaming-hours claims.
 		'/\b(?:sets?|choose|pick|keep)s? their own (?:streaming )?(?:hours|schedules?)\b/iu' =>
 			[ 'schedules', 'Live status can change; the destination platform shows the current picture.' ],

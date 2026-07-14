@@ -9,7 +9,7 @@
  * diagnostics, and tests all read the SAME object, and the generation ID
  * binds every surface to one run.
  *
- *  - input_hash:    sha1 of the canonicalized generation inputs;
+ *  - input_hash:    sha256 of the canonicalized generation inputs;
  *  - generation_id: derived from input_hash + final_output_hash, so any two
  *    surfaces showing the same generation ID are provably describing the
  *    same input AND the same output;
@@ -48,7 +48,7 @@ final class CategoryGenerationResult {
 			$data[ $key ] = $fields[ $key ] ?? null;
 		}
 		$data['generation_id'] = substr(
-			sha1( (string) $data['input_hash'] . '|' . (string) $data['final_output_hash'] ),
+			hash( 'sha256', (string) $data['input_hash'] . '|' . (string) $data['final_output_hash'] ),
 			0,
 			16
 		);
@@ -59,12 +59,12 @@ final class CategoryGenerationResult {
 	public static function hash_input( array $context, array $tracking_keywords, string $provider ): string {
 		$canonical = [ 'context' => $context, 'tracking' => array_values( $tracking_keywords ), 'provider' => $provider ];
 		self::ksort_deep( $canonical );
-		return sha1( (string) ( function_exists( 'wp_json_encode' ) ? wp_json_encode( $canonical ) : json_encode( $canonical ) ) );
+		return hash( 'sha256', (string) ( function_exists( 'wp_json_encode' ) ? wp_json_encode( $canonical ) : json_encode( $canonical ) ) );
 	}
 
 	/** Hash of an output stage (whitespace-insensitive so serialization noise cannot split hashes). */
 	public static function hash_output( string $html ): string {
-		return sha1( trim( (string) preg_replace( '/\s+/u', ' ', $html ) ) );
+		return hash( 'sha256', trim( (string) preg_replace( '/\s+/u', ' ', $html ) ) );
 	}
 
 	public function generation_id(): string { return (string) $this->data['generation_id']; }

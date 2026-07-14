@@ -48,7 +48,11 @@ class CategoryClaimLedger {
 		'/\brelated themes?\b|\bnearest useful neighbour\b|\bneighbouring themes\b|\badjacent themes?\b/iu'
 			=> [ 'related_categories', 'context_verified', 'related_categories' ],
 		// site_config — directory links are only rendered from configured URLs.
-		'/\bmodel director(?:y|ies)\b|\bvideo director(?:y|ies)\b|\bmain directories\b|\bfull directories\b/iu'
+		'/\bmodel director(?:y|ies)\b/iu'
+			=> [ 'model_directory', 'site_config', 'models_url' ],
+		'/\bvideo director(?:y|ies)\b/iu'
+			=> [ 'video_directory', 'site_config', 'videos_url' ],
+		'/\bmain directories\b|\bfull directories\b/iu'
 			=> [ 'directories', 'site_config', 'models_url' ],
 		// safe_general.
 		'/\bplatform features vary\b|\bfeatures?, pricing,? and availability\b|\bfeature sets?,? and pricing\b|\bplatform feature differences\b/iu'
@@ -99,7 +103,7 @@ class CategoryClaimLedger {
 			[ $claim_type, $class, $evidence_key ] = $rule;
 			if ( ! preg_match_all( $pattern, $visible, $m ) ) { continue; }
 			$evidence_value = $evidence_key !== '' ? ( $evidence[ $evidence_key ] ?? null ) : 'n/a';
-			$verified       = $evidence_key === '' || ! empty( $evidence_value ) || $evidence_value === 0;
+			$verified       = $evidence_key === '' || ( $evidence_key !== 'related_categories' && ( ! empty( $evidence_value ) || $evidence_value === 0 ) ) || ( $evidence_key === 'related_categories' && ! empty( $evidence_value ) );
 			$entries[]      = [
 				'claim_type' => $claim_type,
 				'class'      => $verified ? $class : 'unsupported',

@@ -33,7 +33,17 @@ use TMWSEO\Engine\Content\CategoryPipeline\CategoryDifferentiationScorer;
 use TMWSEO\Engine\Content\CategoryPipeline\CategoryGenerationPipeline;
 
 $out_dir = rtrim((string) ($argv[1] ?? '.'), '/');
-@mkdir($out_dir, 0777, true);
+if (!is_dir($out_dir) && !mkdir($out_dir, 0777, true) && !is_dir($out_dir)) {
+    fwrite(STDERR, "failed to create output directory: {$out_dir}\n");
+    exit(1);
+}
+$write_report = static function (string $path, string $body): void {
+    if (file_put_contents($path, $body) === false) {
+        fwrite(STDERR, "failed to write report: {$path}\n");
+        exit(1);
+    }
+};
+require_once __DIR__ . '/fixtures/category-provider-drafts.php';
 
 $base = ['site_name' => 'Top-Models.Webcam', 'models_url' => 'https://top-models.webcam/models/', 'videos_url' => 'https://top-models.webcam/videos/'];
 $fixtures = [
@@ -95,7 +105,7 @@ for ($i = 0; $i < count($slugs); $i++) {
 $body .= sprintf("\nWorst observed: para=%.3f close=%.3f intro=%.3f faq=%.3f — ALL WITHIN LIMITS: %s\n",
     $gmax['para'], $gmax['close'], $gmax['intro'], $gmax['faq'],
     ($gmax['para'] <= UGuard::MAX_PARAGRAPH_SIMILARITY && $gmax['close'] <= UGuard::MAX_CLOSING_SIMILARITY && $gmax['intro'] <= UGuard::MAX_INTRO_SIMILARITY && $gmax['faq'] <= UGuard::MAX_FAQ_ANSWER_SIMILARITY) ? 'yes' : 'NO');
-file_put_contents("$out_dir/report-paragraph-similarity.txt", $body);
+$write_report("$out_dir/report-paragraph-similarity.txt", $body);
 
 // ── 2. FAQ reuse report ─────────────────────────────────────────────────────
 $body = $hdr('FAQ REUSE REPORT');
@@ -109,7 +119,7 @@ foreach ($slugs as $slug) {
 $reused = array_filter($all_ids, static fn($u) => count($u) > 1);
 $body .= "\nVariant reuse across the ten pages: " . count($reused) . " (zero expected)\n";
 foreach ($reused as $fid => $users) { $body .= "  REUSED $fid: " . implode(', ', $users) . "\n"; }
-file_put_contents("$out_dir/report-faq-reuse.txt", $body);
+$write_report("$out_dir/report-faq-reuse.txt", $body);
 
 // ── 3. claim ledger report ──────────────────────────────────────────────────
 $body = $hdr('CLAIM LEDGER REPORT');
@@ -121,7 +131,7 @@ foreach ($slugs as $slug) {
         $body .= sprintf("    [%-16s] %-22s x%d evidence=%s  \"%s\"\n", $e['class'], $e['claim_type'], $e['matches'], is_array($e['evidence']) ? json_encode($e['evidence']) : $e['evidence'], $e['snippet']);
     }
 }
-file_put_contents("$out_dir/report-claim-ledger.txt", $body);
+$write_report("$out_dir/report-claim-ledger.txt", $body);
 
 // ── 4. grammar repair report ────────────────────────────────────────────────
 $body = $hdr('GRAMMAR REPAIR REPORT');
@@ -137,7 +147,7 @@ foreach ($slugs as $slug) {
     $repairs = (array) $results[$slug]['result']->get('grammar_repairs');
     $body .= sprintf("%-28s gen=%s  residual_issues=%d  repairs_applied=%d%s\n", $slug, $id($results[$slug]), count($issues), count($repairs), $repairs ? '  (' . implode(' | ', array_slice($repairs, 0, 3)) . ')' : '');
 }
-file_put_contents("$out_dir/report-grammar-repair.txt", $body);
+$write_report("$out_dir/report-grammar-repair.txt", $body);
 
 // ── 5. provider distinction report ──────────────────────────────────────────
 $body = $hdr('PROVIDER DISTINCTION REPORT');
@@ -145,10 +155,6 @@ $body .= "Three deliberately distinct drafts (clinical/openai, warm/claude, punc
 $voices = ['clinical' => 'openai', 'warm' => 'claude', 'punchy' => 'template'];
 // Reuse the canonical drafts from the executable test so the report and the
 // test can never diverge.
-$smoke = (string) file_get_contents(__DIR__ . '/run-category-quality-hardening-smoke.php');
-if (preg_match('/function provider_draft.*?\n\}/s', $smoke, $m)) {
-    eval($m[0]); // defines provider_draft() exactly as the test does
-}
 $finals = [];
 foreach ($voices as $voice => $provider) {
     $ctx = CategoryContextBuilder::build_from_parts($base + ['category_slug' => "provider-distinct-$voice", 'category_name' => 'Couples Cam Chat', 'primary_keyword' => 'Couples Cam Chat', 'approved_keywords' => ['couples webcam'], 'related_categories' => ['Free Cam Chat'], 'model_count' => 19, 'video_count' => 11]);
@@ -166,7 +172,7 @@ for ($i = 0; $i < count($vs); $i++) {
         $body .= sprintf("  %-9s vs %-9s body=%.3f %s\n", $vs[$i], $vs[$j], $sc['max_body'], $sc['max_body'] <= CategoryDifferentiationScorer::MAX_BODY_SIMILARITY ? 'ok' : 'FAIL');
     }
 }
-file_put_contents("$out_dir/report-provider-distinction.txt", $body);
+$write_report("$out_dir/report-provider-distinction.txt", $body);
 
 // ── 6. report/sample integrity report ───────────────────────────────────────
 $body = $hdr('REPORT / SAMPLE INTEGRITY REPORT');
@@ -179,11 +185,11 @@ foreach ($slugs as $slug) {
         'final_status' => (string) $rep['final_status'],
     ]);
     $hash_ok = $r->final_output_hash() === CategoryGenerationResult::hash_output((string) $results[$slug]['html']);
-    $gid_ok  = $r->generation_id() === substr(sha1($r->input_hash() . '|' . $r->final_output_hash()), 0, 16);
+    $gid_ok  = $r->generation_id() === substr(hash('sha256', $r->input_hash() . '|' . $r->final_output_hash()), 0, 16);
     $body .= sprintf("%-28s gen=%s intent=%-19s report==result: %s  html-hash: %s  gid-derivation: %s\n",
         $slug, $r->generation_id(), $r->intent(), empty($mismatch) ? 'ok' : 'MISMATCH', $hash_ok ? 'ok' : 'FAIL', $gid_ok ? 'ok' : 'FAIL');
 }
 $body .= "\nTamper detection demo: feeding intent 'age_style_tampered' into verify_against() -> " . (count($results[$slugs[0]]['result']->verify_against(['intent' => 'age_style_tampered'])) > 0 ? 'detected ok' : 'FAIL') . "\n";
-file_put_contents("$out_dir/report-sample-integrity.txt", $body);
+$write_report("$out_dir/report-sample-integrity.txt", $body);
 
 echo "reports written to $out_dir\n";

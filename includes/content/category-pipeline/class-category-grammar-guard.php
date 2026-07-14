@@ -112,6 +112,7 @@ class CategoryGrammarGuard {
 		$repairs = [];
 		$html    = self::walk_text( $html, static function ( string $text ) use ( &$repairs ): string {
 			$orig = $text;
+			$repairs_before = count( $repairs );
 
 			// 1. Collapse duplicated words (whitelist survives).
 			$text = (string) preg_replace_callback( '/\b([\p{L}]{2,})(\s+)\1\b/iu', static function ( $m ) use ( &$repairs ) {
@@ -154,7 +155,7 @@ class CategoryGrammarGuard {
 				return $m[1] . ( function_exists( 'mb_strtoupper' ) ? mb_strtoupper( $m[2], 'UTF-8' ) : strtoupper( $m[2] ) );
 			}, $text );
 
-			if ( $orig !== $text && trim( $orig ) !== trim( $text ) && count( $repairs ) === 0 ) {
+			if ( $orig !== $text && trim( $orig ) !== trim( $text ) && count( $repairs ) === $repairs_before ) {
 				$repairs[] = 'normalized_punctuation_or_spacing';
 			}
 			return $text;

@@ -53,6 +53,7 @@ class CategoryParagraphUniquenessGuard {
 		$paragraphs   = [];
 		$faq_answers  = [];
 		$in_faq       = false;
+		$last_tag     = '';
 		$body_paras   = [];
 
 		// Walk block-level elements in order so FAQ answers can be separated
@@ -63,16 +64,18 @@ class CategoryParagraphUniquenessGuard {
 				$text = self::normalize( (string) $block[2], $mask_terms );
 				if ( $tag === 'h2' ) {
 					$in_faq = ( stripos( (string) $block[2], 'frequently asked' ) !== false );
+					$last_tag = 'h2';
 					continue;
 				}
-				if ( $tag === 'h3' ) { continue; }
+				if ( $tag === 'h3' ) { $last_tag = $in_faq ? 'faq_h3' : 'h3'; continue; }
 				if ( str_word_count( $text ) < self::MIN_WORDS ) { continue; }
 				$fp = [ 'h' => crc32( $text ), 's' => self::trigrams( $text ) ];
-				if ( $in_faq ) {
+				if ( $in_faq && $last_tag === 'faq_h3' ) {
 					$faq_answers[] = $fp;
 				} else {
 					$body_paras[] = $fp;
 				}
+				$last_tag = 'p';
 			}
 		}
 
