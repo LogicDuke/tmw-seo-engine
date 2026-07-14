@@ -1,3 +1,79 @@
+## 5.9.8-universal-category-quality-hardening-v1.0.0
+
+Quality hardening of the universal category pipeline. Architecture, keyword
+roles, density protections, provider routing, and safe-failure behaviour are
+unchanged; the generation-quality layer is rebuilt.
+
+**Paragraph-level uniqueness (new hard limits).** `CategoryParagraphUniquenessGuard`
+compares every paragraph, the introduction, the closing, each FAQ answer, and
+the set of sentence templates against the last 8 generated category pages
+(normalization masks the category name, primary keyword, punctuation, and
+simple inflection). Limits: no exact normalized paragraph reuse; paragraph
+similarity <= 0.75; closing <= 0.60; introduction <= 0.60; FAQ answer <= 0.70;
+at most 1 shared sentence template with any single recent page. The composer
+avoids recently used section variants, sentence alternates, and the intent
+clarity line via cross-page cooldowns aligned on the same 8-page window.
+
+**Library v2.** `data/category-universal-sections.json` rebuilt (v2.0.0, 149
+variants): every sentence slot carries 2-3 alternates; intent-specific pools
+exist for intro, expectations, discovery advice, and closing across all ten
+intents; closings are intent-keyed next-action strategies; low-value metaphor
+prose and all unsupported claims removed. `data/category-universal-faq.json`
+rebuilt (v2.0.0, 65 variants across 12 buckets) with intent/generic tiers.
+
+**FAQ cooldown.** `CategoryFaqReuseGuard`: variants used inside the 8-page
+window are excluded before planning; a bucket with no unused variant is
+skipped entirely; intent-tier buckets rank before generic and at most one
+generic FAQ appears per page; FAQ answers resolve {{category_name}} context.
+
+**Grammar guard.** `CategoryGrammarGuard`: deterministic a/an agreement
+(vowel- and consonant-sound exceptions; "an Amateur Cams search", "a European
+Cams page"), duplicated words, repeated punctuation, malformed apostrophes,
+doubled determiners, empty joins, sentence-start capitalization. Runs as a
+repair stage and again as a validation check.
+
+**Claim ledger.** `CategoryClaimLedger` classifies every claim as
+context_verified / site_config / plugin_data / safe_general and prohibits the
+rest. `CategoryFactualSafety` extended: quantity, turnover, update-frequency,
+tag-existence, schedule, safety-comparative, location/timezone,
+profile-media, and public-room-behavior claims are detected and rewritten to
+claim-clean safe wording; scale wording is evidence-gated by real counts
+(derived verified flags in `CategoryContextBuilder`).
+
+**Specificity scoring.** `CategorySpecificityScorer` requires >= 3 materially
+intent-specific paragraphs per page (distinct concept markers per intent; no
+category names). The planner pins `expectations` and `discovery_advice` so the
+minimum is structurally reachable for every intent.
+
+**Immutable generation result.** `CategoryGenerationResult`: one object per
+generation carrying category, intent, provider, plans, raw/normalized/
+repaired/final output hashes, validation, similarity, uniqueness, claim
+ledger, grammar repairs, FAQ ids, specificity, stage diffs, attempts, and
+status. `generation_id` derives from input+final hashes; saving, samples,
+reports, debug meta, and tests all read this object, and
+`CategorySeoVerification` now fails when saved content no longer matches the
+recorded final hash. (Root cause fix for the v5.9.7 Silver Fox intent
+inconsistency, plus new age-style classifier signals.)
+
+**Provider preservation.** Raw, normalized, repaired, and final hashes with
+paragraph-level stage diffs; provider drafts fall back to the composer only
+after explicit validation failure; three deliberately distinct provider
+drafts remain distinct through the full pipeline (tested).
+
+**Low-value prose detector.** Rhetorical openings ("Think of…", "Consider
+this…", "Every category page…", "Some categories…"), self-referential page
+prose, and empty metaphors (shelf/drawer/"widest doors"/"well-labelled") are
+banned patterns: detected, repaired by sentence removal, and re-checked at
+validation.
+
+**Tests.** New `tests/run-category-quality-hardening-smoke.php` (184
+assertions) implements the 25-point hardening matrix against actual generated
+text, including failing-text probes for every defect example. New
+`tests/generate-category-samples.php` and
+`tests/generate-hardening-reports.php` produce deterministic samples and the
+six verification reports from the immutable result. The v5.9.7 suite
+(`run-category-universal-pipeline-smoke.php`, 91 assertions) remains green.
+
 
 ## PR-XXX — Reference Profiles verified-link family
 - Added a Reference Profiles family to Verified External Links for Babepedia, ThePornDB, FreeOnes, IMDb, Wikidata, Wikipedia, IAFD, and Boobpedia.
@@ -7,6 +83,32 @@
 - Rationale: WPS LiveJasmin owns video/platform data, and tmw-seo-engine now relies on manual Model Research evidence fields for bio evidence input.
 
 # TMW SEO Engine — Changelog
+
+## 5.9.7-universal-category-pipeline-v1.0.0 — Universal category generation pipeline (2026-07-14)
+
+### Root causes fixed (from the live-page audit)
+
+- **Placeholder vocabulary on live pages:** `reduce_category_root_family_density()` replaced excess keyword occurrences with literal analysis phrases ("related room-browsing intent", "similar public cam-room searches", "nearby cam-room queries"). Replacements are now neutral page references applied only in grammar-safe positions, the first occurrence of every term is preserved, and the phrases themselves are on the banned lists of both the pipeline quality guard and `CategoryCopyGuard::find_banned_phrases()`.
+- **Duplicated fallback keyword sentences:** coverage ran at build AND at save while the density reducer removed keywords between passes, so the injector re-added them. Injected sentences now carry a `tmw-cat-kwcov` marker and are stripped before recomputing coverage (idempotent), capped at two sentences per page, and rotated per category slug. Pipeline output skips the legacy injector entirely.
+- **Keyword dumps (Big Boob Cam pattern):** section templates injected comma-separated keyword lists. The new keyword planner assigns roles — Rank Math tracking vs body-use (max 4, one per root family) — with plural stemming, size-adjective dropping, and anatomical synonym folding so trivially close variants collapse into one family; tracking-only keywords are logged as intentionally unused.
+- **Templated sameness:** the fixed 9-section pool (identical headings and FAQ buckets on every category) is replaced by an intent-weighted content planner choosing sections, order, headings, and FAQs per category, backed by a differentiation scorer (5-gram shingle Jaccard with the category name masked, plus heading/FAQ/opening overlap) against a rolling store of recent generations.
+- **Empty/flattened AI output:** `run_optimize_job()` requested model-page JSON keys for every post type, so category jobs got no `content_html`. Categories now get their own strict JSON contract, the Claude strategy reaches Anthropic for categories (previously silently rerouted to OpenAI), raw provider output is preserved to `_tmwseo_category_raw_provider_output` before any post-processing, and provider drafts are validated/repaired by the pipeline instead of being flattened by the legacy coverage/density chain.
+
+### New universal pipeline (Stages 1-10)
+
+- `includes/content/category-pipeline/` — CategoryContextBuilder, CategoryIntentClassifier (10 intents, token-signal based, no category-name hardcoding), CategoryKeywordPlanner, CategoryContentPlanner (seeded, salt-aware), CategoryDraftComposer (sentence library with per-slot alternates; unresolved placeholders drop the sentence — never invented data), CategoryQualityGuard (banned phrases + dump/repetition pattern repair; never inserts synthetic phrases), CategoryFactualSafety (unsupported claims rewritten to qualified wording unless a verified flag is present; questions exempt), CategoryDifferentiationScorer, CategoryFaqPlanner (intent-tagged buckets, per-category rotation), CategoryFinalValidator, and CategoryGenerationPipeline (bounded 3-attempt loop with deterministic salts; failed drafts return `ok=false` and are never saved — `_tmwseo_category_generation_failure` records the reasons and the save paths skip the write).
+- `data/category-universal-sections.json` + `data/category-universal-faq.json` — universal, category-agnostic sentence/FAQ libraries keyed by purpose and intent.
+- Debug meta `_tmwseo_category_pipeline_debug` (intent, plan, keyword roles, similarity, repair actions, attempts, hashes) is merged into `_tmwseo_category_seo_verification` reports.
+
+### Backward compatibility preserved
+
+- `rank_math_focus_keyword` CSV writes (primary + up to 8 extras), backup meta, and `apply_category_rankmath_extras()` untouched; body-use planning never removes tracked keywords.
+- Category noindex is still never auto-cleared; image-metadata finalization, affiliate CTA append, title builders, `_manual_cat_generate` gating, and the audit meta `_tmwseo_category_last_save_result` all unchanged.
+- The TemplatePool/legacy builders remain as the fallback when the pipeline classes are unavailable.
+
+### Tests
+
+- `tests/run-category-universal-pipeline-smoke.php` — 91 assertions over the full matrix: the five regression categories plus a synthetic unknown category, intent classification, keyword role separation/family grouping/density, plan/heading/FAQ variation, cross-category similarity thresholds, sparse/missing data, models-without-videos and the reverse, deterministic stability and regeneration salts, safe failure, provider draft preservation and garbage-draft fallback, guard/factual unit checks, and a scan proving no regression-category names are hardcoded in pipeline code or data.
 
 ## 5.9.6-category-keyword-density-root-family-v1.0.0 — Category root-family keyword density guard (2026-07-13)
 

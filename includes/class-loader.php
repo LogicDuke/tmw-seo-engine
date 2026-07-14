@@ -224,6 +224,26 @@ class Loader {
         tmwseo_safe_require( $p . 'class-category-seo-title-builder.php' );
         tmwseo_safe_require( $p . 'class-category-copy-guard.php' );
         tmwseo_safe_require( $p . 'class-category-seo-verification.php' );
+        // v5.9.7: universal category generation pipeline (Stages 1-10) — one
+        // reusable pipeline for every current and future category. Must load
+        // before ContentEngine so its class_exists() gates resolve.
+        tmwseo_safe_require( $p . 'category-pipeline/class-category-context-builder.php' );
+        tmwseo_safe_require( $p . 'category-pipeline/class-category-intent-classifier.php' );
+        tmwseo_safe_require( $p . 'category-pipeline/class-category-keyword-planner.php' );
+        tmwseo_safe_require( $p . 'category-pipeline/class-category-content-planner.php' );
+        tmwseo_safe_require( $p . 'category-pipeline/class-category-draft-composer.php' );
+        tmwseo_safe_require( $p . 'category-pipeline/class-category-quality-guard.php' );
+        tmwseo_safe_require( $p . 'category-pipeline/class-category-factual-safety.php' );
+        tmwseo_safe_require( $p . 'category-pipeline/class-category-grammar-guard.php' );
+        tmwseo_safe_require( $p . 'category-pipeline/class-category-paragraph-uniqueness-guard.php' );
+        tmwseo_safe_require( $p . 'category-pipeline/class-category-claim-ledger.php' );
+        tmwseo_safe_require( $p . 'category-pipeline/class-category-specificity-scorer.php' );
+        tmwseo_safe_require( $p . 'category-pipeline/class-category-faq-reuse-guard.php' );
+        tmwseo_safe_require( $p . 'category-pipeline/class-category-generation-result.php' );
+        tmwseo_safe_require( $p . 'category-pipeline/class-category-differentiation-scorer.php' );
+        tmwseo_safe_require( $p . 'category-pipeline/class-category-faq-planner.php' );
+        tmwseo_safe_require( $p . 'category-pipeline/class-category-final-validator.php' );
+        tmwseo_safe_require( $p . 'category-pipeline/class-category-generation-pipeline.php' );
         tmwseo_safe_require( $p . 'class-content-engine.php' );
         tmwseo_safe_require( $p . 'class-assisted-draft-enrichment-service.php' );
         tmwseo_safe_require( $p . 'class-quality-score-engine.php' );

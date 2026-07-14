@@ -627,17 +627,20 @@ class ContentEngine {
             $user_content .= "- comparison_section_paragraphs[0] must name the active platforms and state how a visitor should choose between them.\n";
             $user_content .= "- Affiliate priority must not influence editorial weighting in comparison prose.\n";
         } elseif ($template_type === self::PREVIEW_TEMPLATE_CATEGORY_PAGE) {
-            $user_content .= "\nCATEGORY PAGE TEMPLATE (required):\n" .
-                "- Purpose: help users compare and choose options within this category intent.\n" .
-                "- Use this heading structure in content_html:\n" .
-                "  H1: Best {$focus_kw} Sites\n" .
-                "  H2: What to Expect From {$focus_kw}\n" .
-                "  H2: How to Choose the Right {$focus_kw} Platform\n" .
-                "  H2: Features That Matter for {$focus_kw}\n" .
-                "  H2: Safety, Privacy, and Billing Tips\n" .
-                "  H2: FAQ About {$focus_kw}\n" .
-                "- Include a short related-subtopics block near the end using an unordered list.\n" .
-                "- Keep sections practical, comparison-focused, and category-intent aligned.\n";
+            // v5.9.7: the fixed heading list previously dictated here made
+            // every AI category page share one skeleton ("What to Expect From
+            // X" / "How to Choose the Right X Platform" / ...). The provider
+            // now writes its own structure; sameness is caught downstream by
+            // the pipeline differentiation scorer, and safety by the quality
+            // guard + factual-safety validators.
+            $user_content .= "\nCATEGORY PAGE OUTPUT (required):\n" .
+                "- Return content_html as clean HTML using <h2>, <h3>, <p>, and <a> only (no <h1>, no inline styles).\n" .
+                "- Purpose: help a visitor decide what to open first within this category theme; write for that decision, not about the page itself.\n" .
+                "- Invent NOTHING about site features: no claims about filters, schedules, live status, counts, or account requirements.\n" .
+                "- 'Free' claims must be qualified: public viewing is typically free, private/paid features are set per platform.\n" .
+                "- Write 4-6 sections with headings specific to THIS category's intent — never reusable boilerplate headings that fit any category.\n" .
+                "- Use the primary keyword naturally 2-4 times total; use each secondary keyword at most once, never as a comma-separated list.\n" .
+                "- End with 3-5 FAQ items as <h3> question + <p> answer.\n";
         } elseif ($template_type === self::PREVIEW_TEMPLATE_VIDEO_PAGE) {
             $user_content .= "\nVIDEO PAGE TEMPLATE (required):\n" .
                 "- Focus on watch intent and user expectations for the specific video topic.\n" .
@@ -801,8 +804,65 @@ class ContentEngine {
         $seo_title        = self::build_category_page_seo_title($category_term, $year, $post_id, (string) $post->post_name);
         $meta_description = self::build_category_page_meta_description($category_term, $brand);
 
-        // ── v5.9.0: Try CategoryTemplatePool before legacy builder ──────────
         $manual_pool_allowed = ! empty($keyword_pack['_manual_cat_generate']);
+
+        // ── v5.9.7: Universal category pipeline (Stages 1-10) ───────────────
+        // One reusable pipeline for every category: context → intent →
+        // keyword plan → content plan → draft → quality guard → factual
+        // safety → differentiation → final validation. Replaces the
+        // fixed-section TemplatePool as the primary generator. On a hard
+        // pipeline failure the payload is marked failed and the save path
+        // skips the write — weak content is never published silently.
+        if ($manual_pool_allowed && class_exists('\\TMWSEO\\Engine\\Content\\CategoryPipeline\\CategoryGenerationPipeline')) {
+            $pipeline_result = \TMWSEO\Engine\Content\CategoryPipeline\CategoryGenerationPipeline::generate_for_post($post, $keyword_pack, [
+                'provider' => 'template',
+            ]);
+            $pipeline_html = trim((string) ($pipeline_result['html'] ?? ''));
+
+            if (! empty($pipeline_result['ok']) && $pipeline_html !== '') {
+                error_log(sprintf(
+                    '[TMW-CAT-PIPE] universal pipeline ok post_id=%d intent=%s attempts=%d words=%d similarity=%s',
+                    $post_id,
+                    (string) ($pipeline_result['report']['intent'] ?? ''),
+                    (int) ($pipeline_result['report']['attempt_count'] ?? 0),
+                    (int) ($pipeline_result['report']['metrics']['word_count'] ?? 0),
+                    (string) ($pipeline_result['report']['similarity']['max_body'] ?? 'n/a')
+                ));
+
+                return [
+                    'seo_title'        => $seo_title,
+                    'meta_description' => $meta_description,
+                    'content_html'     => $pipeline_html,
+                    'outline'          => self::extract_outline_from_html($pipeline_html),
+                    '_source'          => 'category_universal_pipeline',
+                ];
+            }
+
+            $failure_reasons = (array) ($pipeline_result['report']['failure_reasons'] ?? ['unknown']);
+            error_log(sprintf(
+                '[TMW-CAT-PIPE] universal pipeline FAILED post_id=%d attempts=%d reasons=%s',
+                $post_id,
+                (int) ($pipeline_result['report']['attempt_count'] ?? 0),
+                implode('; ', array_slice($failure_reasons, 0, 5))
+            ));
+            Logs::warn('content', '[TMW-CAT-PIPE] category pipeline failed — save will be skipped', [
+                'post_id' => $post_id,
+                'reasons' => $failure_reasons,
+            ]);
+
+            return [
+                'seo_title'        => $seo_title,
+                'meta_description' => $meta_description,
+                'content_html'     => '',
+                'outline'          => '',
+                '_source'          => 'category_generation_failed',
+                '_failure_reasons' => $failure_reasons,
+            ];
+        }
+        // ── END universal pipeline — pool/legacy below run only when the
+        //    pipeline classes are unavailable or generation is not manual. ──
+
+        // ── v5.9.0: Try CategoryTemplatePool before legacy builder ──────────
         if ($manual_pool_allowed && class_exists('\\TMWSEO\\Engine\\Content\\CategoryTemplatePool')) {
             $category_data = self::build_category_template_data($post, $keyword_pack, $focus_kw);
             $gate          = self::evaluate_category_template_pool_gate($post, $category_data, $keyword_pack);
@@ -1569,6 +1629,15 @@ class ContentEngine {
             return $html;
         }
 
+        // v5.9.7 FIX: coverage runs at build AND at save, and the density
+        // reducer used to remove keywords between the two passes — so the
+        // injector saw them as "missing" again and added a second batch of
+        // fallback sentences (duplicated visibly on live pages). Injected
+        // sentences now carry the tmw-cat-kwcov marker class and are stripped
+        // before recomputing coverage, which makes the whole pass idempotent:
+        // repeated runs converge on one bounded set of fallback sentences.
+        $html = (string) preg_replace('/<p class="tmw-cat-kwcov">.*?<\/p>/isu', '', $html);
+
         $visible = html_entity_decode(wp_strip_all_tags($html), ENT_QUOTES, 'UTF-8');
         $visible_lc = function_exists('mb_strtolower') ? mb_strtolower($visible, 'UTF-8') : strtolower($visible);
         $missing = [];
@@ -1583,7 +1652,18 @@ class ContentEngine {
         $fallback_used = false;
         if (!empty($missing)) {
             $fallback_used = true;
-            $html = self::inject_category_keyword_fallback_sentences($html, $missing);
+            $html = self::inject_category_keyword_fallback_sentences($html, $missing, $post);
+        }
+
+        // v5.9.7: tracking-only keywords are intentionally absent from body
+        // copy (they stay in the Rank Math CSV). Log them once so a missing
+        // exact variant is visibly a decision, not a coverage bug.
+        $intentionally_unused = (array) ($keyword_set['unused_keywords'] ?? []);
+        if (!empty($intentionally_unused)) {
+            Logs::info('content', '[TMW-CAT-SEO-KW] tracking-only keywords intentionally not in body', [
+                'post_id' => (int) $post->ID,
+                'unused'  => $intentionally_unused,
+            ]);
         }
 
         // v5.9.x: supporting keyword coverage from the plugin extra keyword pool.
@@ -1678,14 +1758,37 @@ class ContentEngine {
 
         $parts = preg_split('/(<[^>]+>)/', $html, -1, PREG_SPLIT_DELIM_CAPTURE);
         if (!is_array($parts)) { return $html; }
-        $replaced = 0;
-        $alts = ['similar public cam-room searches', 'related room-browsing intent', 'nearby cam-room queries'];
+
+        // v5.9.7 FIX: the previous implementation substituted excess keyword
+        // occurrences with literal analysis-vocabulary placeholders ("related
+        // room-browsing intent", "similar public cam-room searches", "nearby
+        // cam-room queries") — the exact broken phrases that reached live
+        // category pages. Excess occurrences are now replaced with neutral
+        // page references, and ONLY in grammar-safe positions: the match must
+        // be followed by end-of-node, punctuation, or a common connector, so
+        // attributive uses ("<keyword> performers") are never mangled. The
+        // first occurrence of each term is always kept so a later coverage
+        // pass never re-injects the term (the coverage/density ping-pong that
+        // duplicated fallback sentences). Anything this conservative pass
+        // cannot safely reduce is left for the pipeline quality guard.
+        $replaced   = 0;
+        $kept_first = [];
+        $alts       = ['this category', 'this archive', 'these listings'];
+        $safe_tail  = '(?=\s*$|\s*[.,;:!?)]|\s+(?:and|or|is|are|was|were|can|could|will|would|has|have|had|also|too|as|when|while|because|so|but|which|that|here|there|now|today)\b)';
         foreach ($parts as $i => $part) {
             if ($part === '' || ($part[0] ?? '') === '<') { continue; }
             foreach ($replace_terms as $term) {
-                $replacement = $alts[$replaced % count($alts)];
-                $parts[$i] = (string) preg_replace('/(?<![\p{L}\p{N}])' . preg_quote((string) $term, '/') . '(?![\p{L}\p{N}])/iu', $replacement, $parts[$i], -1, $count);
-                $replaced += (int) $count;
+                $term_key = strtolower(trim((string) $term));
+                $pattern  = '/(?<![\p{L}\p{N}])' . preg_quote((string) $term, '/') . '(?![\p{L}\p{N}])' . $safe_tail . '/iu';
+                $parts[$i] = (string) preg_replace_callback($pattern, static function ($m) use (&$replaced, &$kept_first, $term_key, $alts) {
+                    if (empty($kept_first[$term_key])) {
+                        $kept_first[$term_key] = true;
+                        return $m[0];
+                    }
+                    $replacement = $alts[$replaced % count($alts)];
+                    $replaced++;
+                    return $replacement;
+                }, $parts[$i]);
             }
         }
         if ($replaced > 0) {
@@ -1883,16 +1986,19 @@ class ContentEngine {
      * Guarantee every saved Rank Math keyword appears in the visible copy.
      *
      * v5.9.5: rewritten to DISTRIBUTE the missing keywords across the page
-     * instead of dumping them into one comma-separated sentence. Rules:
+     * instead of dumping them into one comma-separated sentence.
+     * v5.9.7: hardened for the universal pipeline era. Rules:
      *  - never more than TWO exact keyword phrases in any single sentence;
-     *  - each pair lands at a different anchor point (after the intro
-     *    paragraph, mid-page before a later <h2>, and before the FAQ block);
-     *  - sentence templates rotate so pages don't repeat one formula;
-     *  - at most 8 keywords are injected (Rank Math CSV cap).
+     *  - at most TWO fallback sentences per page (four keywords) — anything
+     *    beyond that stays tracking-only and is logged by the caller;
+     *  - every injected sentence carries the tmw-cat-kwcov marker class so
+     *    the coverage pass is idempotent across build + save runs;
+     *  - the template rotation is seeded per category slug so different
+     *    categories don't share one fallback formula.
      *
      * @param string[] $missing_keywords
      */
-    private static function inject_category_keyword_fallback_sentences(string $html, array $missing_keywords): string {
+    private static function inject_category_keyword_fallback_sentences(string $html, array $missing_keywords, \WP_Post $post): string {
         $missing = array_values(array_filter(array_map(static function ($kw): string {
             return trim((string) $kw);
         }, $missing_keywords), 'strlen'));
@@ -1901,20 +2007,24 @@ class ContentEngine {
             return $html;
         }
 
-        $missing = array_slice($missing, 0, 8);
-        $pairs   = array_chunk($missing, 2);
+        $missing = array_slice($missing, 0, 4);
+        $pairs   = array_slice(array_chunk($missing, 2), 0, 2);
 
         $templates = [
-            '<p>Visitors comparing %s can use this page to look for active public cam rooms, then open individual listings to check whether a performer, clip, or platform fit is relevant.</p>',
-            '<p>Search intent around %s is best handled with practical checks: public-room access, private or paid feature labels, and whether a listing clearly matches the category before you click.</p>',
-            '<p>If you arrived looking for %s, compare the visible performer and video details first, and avoid assuming that every feature on a linked platform is fully free.</p>',
-            '<p>People exploring %s should review room activity, privacy expectations, and platform prompts before sharing information or moving into private features.</p>',
+            '<p class="tmw-cat-kwcov">Visitors comparing %s can use this page to look for active public cam rooms, then open individual listings to check whether a performer, clip, or platform fit is relevant.</p>',
+            '<p class="tmw-cat-kwcov">Search intent around %s is best handled with practical checks: public-room access, private or paid feature labels, and whether a listing clearly matches the category before you click.</p>',
+            '<p class="tmw-cat-kwcov">If you arrived looking for %s, compare the visible performer and video details first, and avoid assuming that every feature on a linked platform is fully free.</p>',
+            '<p class="tmw-cat-kwcov">People exploring %s should review room activity, privacy expectations, and platform prompts before sharing information or moving into private features.</p>',
         ];
 
-        // Anchor points, computed fresh after every insertion.
+        // Per-category rotation offset so pages don't all open their fallback
+        // coverage with the same formula.
+        $seed_source = (string) $post->post_name !== '' ? (string) $post->post_name : (string) $post->ID;
+        $offset      = abs(crc32($seed_source . '|kwcov')) % count($templates);
+
         $sentences = [];
         foreach ($pairs as $i => $pair) {
-            $sentences[] = sprintf($templates[$i % count($templates)], self::format_category_keyword_list($pair));
+            $sentences[] = sprintf($templates[($offset + $i) % count($templates)], self::format_category_keyword_list($pair));
         }
 
         // 1) First sentence after the opening paragraph.
@@ -2785,7 +2895,7 @@ class ContentEngine {
                 $generated_content = (string)($cat_preview['content_html'] ?? '');
                 $seo_title         = TitleFixer::shorten((string)($cat_preview['seo_title'] ?? ''), 70);
                 $meta_desc         = TitleFixer::shorten((string)($cat_preview['meta_description'] ?? ''), 160);
-                if ($generated_content === '') {
+                if ($generated_content === '' && (string)($cat_preview['_source'] ?? '') !== 'category_generation_failed') {
                     // Absolute fallback — should never be reached.
                     $seo_title = TitleFixer::shorten(TitleFixer::fix((string)$post->post_title), 70);
                     $meta_desc = TitleFixer::shorten('Browse ' . $post->post_title . ' webcam models on ' . get_bloginfo('name') . '.', 160);
@@ -2798,14 +2908,39 @@ class ContentEngine {
                 $generated_content = '<h2>' . esc_html($post->post_title) . '</h2><p>Content template is not configured for this post type yet.</p>';
             }
 
+            // ── v5.9.7: hard-stop for failed category generation. The
+            // pipeline recorded _tmwseo_category_generation_failure with the
+            // reasons; nothing is written to post_content or preview meta.
+            if ($post->post_type === 'tmw_category_page'
+                && (string)($cat_preview['_source'] ?? '') === 'category_generation_failed') {
+                delete_post_meta($post_id, '_tmwseo_optimize_enqueued');
+                update_post_meta($post_id, '_tmwseo_optimize_done', 'category_generation_failed');
+                error_log(sprintf(
+                    '[TMW-CAT-PIPE] save skipped post_id=%d reason=pipeline_validation_failed details=%s',
+                    $post_id,
+                    implode('; ', array_slice((array)($cat_preview['_failure_reasons'] ?? []), 0, 5))
+                ));
+                Logs::warn('content', '[TMW-CAT-PIPE] category save skipped — generation failed validation', [
+                    'post_id' => $post_id,
+                    'reasons' => (array)($cat_preview['_failure_reasons'] ?? []),
+                ]);
+                return;
+            }
+
             $final_content = $insert_block ? self::upsert_ai_block((string)$post->post_content, $generated_content) : $generated_content;
             if ($post->post_type === 'tmw_category_page') {
+                $cat_source_for_save = (string)(isset($cat_preview['_source']) ? $cat_preview['_source'] : 'legacy');
                 // Final guard immediately before the real save/preview write.
                 // This protects the live admin Generate path from any later
                 // transformation that may have removed fallback keyword text.
+                // v5.9.7: pipeline output is exempt — its keyword coverage is
+                // planned (body-use only) and re-injecting tracked keywords
+                // here was a root cause of duplicated fallback sentences.
                 $cat_keyword_set_for_save = self::normalize_category_content_keyword_set($post, $focus_kw, $keyword_pack);
-                $final_content = self::ensure_category_keyword_coverage($final_content, $cat_keyword_set_for_save, $post);
-                $generated_content = self::ensure_category_keyword_coverage($generated_content, $cat_keyword_set_for_save, $post);
+                if ($cat_source_for_save !== 'category_universal_pipeline') {
+                    $final_content = self::ensure_category_keyword_coverage($final_content, $cat_keyword_set_for_save, $post);
+                    $generated_content = self::ensure_category_keyword_coverage($generated_content, $cat_keyword_set_for_save, $post);
+                }
                 if ($insert_block) {
                     $final_content = self::upsert_ai_block((string)$post->post_content, $generated_content);
                     $final_content = self::append_category_affiliate_cta_html($final_content, $post);
@@ -3067,6 +3202,29 @@ class ContentEngine {
             }
         }
 
+        // v5.9.7 FIX: the shared system prompt above requests MODEL-page JSON
+        // keys (intro_paragraphs, watch_section_paragraphs, ...), so category
+        // jobs got responses without content_html and saved empty/weak pages.
+        // Categories now get their own strict contract.
+        if ($post->post_type === 'tmw_category_page') {
+            $system['content'] =
+                "You are a professional SEO copywriter for the adult webcam directory top-models.webcam.\n" .
+                "Write informative, human-readable category-page copy about adult webcam / live video chat browsing.\n" .
+                "Keep language non-explicit and safe: do NOT describe graphic sexual acts.\n" .
+                "Output STRICT JSON with keys: seo_title, meta_description, focus_keyword, content_html.\n" .
+                "seo_title <= 65 characters. meta_description 145-160 characters.\n" .
+                "content_html rules (non-negotiable):\n" .
+                "- Clean HTML using <h2>, <h3>, <p>, <a> only — no <h1>, no lists of keywords, no inline styles.\n" .
+                "- 4-6 sections with headings specific to THIS category's search intent; never boilerplate headings that fit any category.\n" .
+                "- Write for the visitor's decision (what to open first), never about the page, the archive, or the site's structure.\n" .
+                "- Invent NOTHING about site features: no claims about filters, schedules, live status, counts, or account requirements.\n" .
+                "- 'Free' claims must be qualified: public viewing is typically free; private/paid features are set per performer and platform.\n" .
+                "- Use the primary keyword naturally 2-4 times; each secondary keyword at most once, never as a comma-separated list.\n" .
+                "- Finish with 3-5 FAQ items as <h3> question + <p> answer.\n" .
+                "- 500-800 words of visible text.\n";
+            $user_content .= "\nCATEGORY PAGE: return the full page body in content_html following the system rules exactly.\n";
+        }
+
         $user = [
             'role' => 'user',
             'content' => $user_content,
@@ -3075,13 +3233,50 @@ class ContentEngine {
         $debug = (bool) Settings::get('debug_mode', false);
         if ($debug) { error_log('TMW run_optimize_job GENERATING CONTENT'); }
         $max_tokens = $is_model_page ? 4096 : 2200;
-        $res = OpenAI::chat_json([$system, $user], $model, [
-            'temperature' => 0.6,
-            'max_tokens' => $max_tokens,
-        ]);
+
+        // v5.9.7 FIX: a category job with strategy 'claude' used to fall
+        // through here and silently run on OpenAI (the Claude branch above is
+        // model-only). Claude category jobs now call Anthropic with the same
+        // strict JSON contract; when Claude is unavailable the fallback is
+        // logged visibly instead of happening in silence.
+        $ai_provider = 'openai';
+        if ($post->post_type === 'tmw_category_page' && $strategy === 'claude') {
+            if (class_exists(Anthropic::class) && Anthropic::is_configured()) {
+                $ai_provider = 'claude';
+            } else {
+                error_log(sprintf(
+                    '[TMW-CAT-PROVIDER] claude requested for category post_id=%d but Anthropic is not configured — falling back to openai',
+                    $post_id
+                ));
+            }
+        }
+
+        if ($ai_provider === 'claude') {
+            $res = Anthropic::chat_json([$system, $user], [
+                'temperature' => 0.6,
+                'max_tokens'  => $max_tokens,
+            ]);
+            if (!$res['ok']) {
+                error_log(sprintf(
+                    '[TMW-CAT-PROVIDER] claude category generation failed post_id=%d error=%s — falling back to openai',
+                    $post_id,
+                    (string) ($res['error'] ?? 'unknown')
+                ));
+                $ai_provider = 'openai';
+                $res = OpenAI::chat_json([$system, $user], $model, [
+                    'temperature' => 0.6,
+                    'max_tokens' => $max_tokens,
+                ]);
+            }
+        } else {
+            $res = OpenAI::chat_json([$system, $user], $model, [
+                'temperature' => 0.6,
+                'max_tokens' => $max_tokens,
+            ]);
+        }
 
         if (!$res['ok']) {
-            Logs::error('content', 'OpenAI generation failed', ['post_id' => $post_id, 'error' => $res['error'] ?? '']);
+            Logs::error('content', 'AI generation failed', ['post_id' => $post_id, 'provider' => $ai_provider, 'error' => $res['error'] ?? '']);
             delete_post_meta($post_id, '_tmwseo_optimize_enqueued');
             if ($debug) { error_log('TMW run_optimize_job EARLY RETURN'); }
             return;
@@ -3131,8 +3326,68 @@ class ContentEngine {
             }
         }
 
+        // ── v5.9.7: category provider output goes through the universal
+        // pipeline in provider mode. The raw output is preserved to
+        // _tmwseo_category_raw_provider_output BEFORE any post-processing;
+        // the pipeline validates/repairs the provider draft and falls back
+        // to its own deterministic composer when the draft is unusable. A
+        // hard failure skips the save entirely — no empty and no weak page.
+        $category_pipeline_used = false;
+        if ($post->post_type === 'tmw_category_page') {
+            if (class_exists('\\TMWSEO\\Engine\\Content\\CategoryPipeline\\CategoryGenerationPipeline')) {
+                $pipe = \TMWSEO\Engine\Content\CategoryPipeline\CategoryGenerationPipeline::generate_for_post($post, $keyword_pack, [
+                    'provider'      => (string) $ai_provider,
+                    'provider_html' => $html,
+                ]);
+                if (!empty($pipe['ok']) && trim((string) $pipe['html']) !== '') {
+                    $html = (string) $pipe['html'];
+                    $category_pipeline_used = true;
+                    error_log(sprintf(
+                        '[TMW-CAT-PIPE] provider draft normalized post_id=%d provider=%s provider_html_used=%s intent=%s words=%d',
+                        $post_id,
+                        (string) $ai_provider,
+                        trim((string) ($pipe['report']['attempt_log'][0]['provider'] ?? 'template')) !== 'template' ? 'yes' : 'no(fallback)',
+                        (string) ($pipe['report']['intent'] ?? ''),
+                        (int) ($pipe['report']['metrics']['word_count'] ?? 0)
+                    ));
+                } else {
+                    error_log(sprintf(
+                        '[TMW-CAT-PIPE] provider path FAILED post_id=%d provider=%s reasons=%s — save skipped',
+                        $post_id,
+                        (string) $ai_provider,
+                        implode('; ', array_slice((array) ($pipe['report']['failure_reasons'] ?? []), 0, 5))
+                    ));
+                    Logs::warn('content', '[TMW-CAT-PIPE] category AI generation failed validation — save skipped', [
+                        'post_id'  => $post_id,
+                        'provider' => (string) $ai_provider,
+                        'reasons'  => (array) ($pipe['report']['failure_reasons'] ?? []),
+                    ]);
+                    update_post_meta($post_id, '_tmwseo_optimize_done', 'category_generation_failed');
+                    delete_post_meta($post_id, '_tmwseo_optimize_enqueued');
+                    return;
+                }
+            } elseif ($html === '') {
+                // Pipeline classes unavailable AND the provider returned no
+                // category body: never save an empty page.
+                error_log(sprintf(
+                    '[TMW-CAT-PROVIDER] empty content_html from provider post_id=%d provider=%s — save skipped',
+                    $post_id,
+                    (string) $ai_provider
+                ));
+                Logs::warn('content', '[TMW-CAT-PROVIDER] provider returned no category content_html — save skipped', [
+                    'post_id'  => $post_id,
+                    'provider' => (string) $ai_provider,
+                ]);
+                update_post_meta($post_id, '_tmwseo_optimize_done', 'category_provider_empty');
+                delete_post_meta($post_id, '_tmwseo_optimize_enqueued');
+                return;
+            }
+        }
+
         $html      = wp_kses_post(trim($html));
-        $html      = self::prepare_category_ai_html_for_save($html, $focus_kw, $keyword_pack, $post);
+        if (!$category_pipeline_used) {
+            $html = self::prepare_category_ai_html_for_save($html, $focus_kw, $keyword_pack, $post);
+        }
         $generated_content = $html;
         if ($debug) { error_log('TMW run_optimize_job CONTENT_LENGTH=' . strlen($generated_content)); }
 

@@ -143,6 +143,24 @@ class CategoryCopyGuard {
 			'using the same site model and video listings',
 			'related to this collection',
 			'directory structure here narrows the listings',
+			// v5.9.7: placeholder/analysis vocabulary documented on live pages
+			// (previously emitted by the density reducer) plus generic archive
+			// filler from the audit — verification must flag these on any
+			// page, whichever code path produced it.
+			'related room-browsing intent',
+			'similar public cam-room searches',
+			'nearby cam-room queries',
+			'room-browsing intent',
+			'cam-room queries',
+			'cam-room searches',
+			'neutral directory archive',
+			'same browsing structure',
+			'designed to reduce browsing friction',
+			'category archive layer',
+			'move between listings efficiently',
+			'practical overview before they click through',
+			'one consistent theme',
+			'this archive page indexes',
 		];
 		$found = [];
 		$lc    = function_exists( 'mb_strtolower' ) ? mb_strtolower( $visible, 'UTF-8' ) : strtolower( $visible );

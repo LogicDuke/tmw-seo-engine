@@ -139,6 +139,45 @@ class CategorySeoVerification {
 			$all_passed = false;
 		}
 
+		// v5.9.7: attach the universal-pipeline debug report so one meta key
+		// answers "what was planned, which provider ran, how similar is the
+		// page to its neighbours, and what did the guards repair".
+		// v5.9.8: the debug report is built from the immutable
+		// CategoryGenerationResult, so generation_id/input_hash/intent here
+		// are provably the sample's own values — and verification FAILS when
+		// the saved content no longer matches the recorded final hash.
+		$pipeline = [];
+		$pipeline_debug_raw = (string) get_post_meta( $post_id, '_tmwseo_category_pipeline_debug', true );
+		if ( $pipeline_debug_raw !== '' ) {
+			$decoded = json_decode( $pipeline_debug_raw, true );
+			if ( is_array( $decoded ) ) {
+				$pipeline = [
+					'generation_id'     => (string) ( $decoded['generation_id'] ?? '' ),
+					'input_hash'        => (string) ( $decoded['input_hash'] ?? '' ),
+					'final_output_hash' => (string) ( $decoded['final_output_hash'] ?? '' ),
+					'intent'            => (string) ( $decoded['intent'] ?? '' ),
+					'provider'          => (string) ( $decoded['provider'] ?? '' ),
+					'raw_output_stored' => ! empty( $decoded['raw_output_stored'] ),
+					'content_plan'      => (array) ( $decoded['content_plan'] ?? [] ),
+					'attempt_count'     => (int) ( $decoded['attempt_count'] ?? 0 ),
+					'similarity'        => (array) ( $decoded['similarity'] ?? [] ),
+					'repair_actions'    => (array) ( $decoded['repair_actions'] ?? [] ),
+					'keyword_plan'      => (array) ( $decoded['keyword_plan'] ?? [] ),
+					'final_pass'        => ! empty( $decoded['final_pass'] ),
+					'failure_reasons'   => (array) ( $decoded['failure_reasons'] ?? [] ),
+				];
+				$recorded_hash = (string) ( $decoded['final_output_hash'] ?? '' );
+				if ( $recorded_hash !== ''
+					&& class_exists( '\\TMWSEO\\Engine\\Content\\CategoryPipeline\\CategoryGenerationResult' ) ) {
+					$actual_hash = \TMWSEO\Engine\Content\CategoryPipeline\CategoryGenerationResult::hash_output( $content );
+					$pipeline['content_matches_generation'] = ( $actual_hash === $recorded_hash );
+					if ( ! $pipeline['content_matches_generation'] ) {
+						$all_passed = false;
+					}
+				}
+			}
+		}
+
 		return [
 			'post_id'        => $post_id,
 			'verified_at'    => function_exists( 'current_time' ) ? current_time( 'mysql' ) : gmdate( 'Y-m-d H:i:s' ),
@@ -149,6 +188,7 @@ class CategorySeoVerification {
 			'keywords'       => $rows,
 			'dump_detection' => $dump_report,
 			'banned_phrases' => $banned,
+			'pipeline'       => $pipeline,
 			'all_passed'     => $all_passed,
 		];
 	}
