@@ -374,6 +374,28 @@ check('26. closing paragraph after FAQ is not an FAQ answer', count((array) $ufp
 $trim = CategoryQualityGuard::repair('<p>beta appears first, alpha appears second, gamma appears third.</p>', ['alpha', 'beta', 'gamma']);
 check('26. keyword dump trimming keeps left-to-right first matches', strpos($trim['html'], 'beta') !== false && strpos($trim['html'], 'alpha') !== false && strpos($trim['html'], 'gamma') === false, $trim['html']);
 
+if (!class_exists('WP_Query')) {
+    class WP_Query {
+        public int $found_posts = 0;
+        public static array $last_args = [];
+        public static int $next_found_posts = 0;
+        public function __construct(array $args = []) {
+            self::$last_args = $args;
+            $this->found_posts = self::$next_found_posts;
+        }
+    }
+}
+$GLOBALS['wp_query'] = (object) ['found_posts' => 1];
+WP_Query::$next_found_posts = 17;
+$ctx_ref = new ReflectionClass(CategoryContextBuilder::class);
+$count_method = $ctx_ref->getMethod('count_videos_for_term');
+$count_method->setAccessible(true);
+$video_count = $count_method->invoke(null, (object) ['term_id' => 123, 'taxonomy' => 'category']);
+check('26. video_count uses local WP_Query found_posts, not global query', $video_count === 17);
+check('26. video_count query preserves requested args', WP_Query::$last_args['post_type'] === ['tmw_video', 'video'] && WP_Query::$last_args['post_status'] === 'publish' && WP_Query::$last_args['fields'] === 'ids' && WP_Query::$last_args['posts_per_page'] === 1 && WP_Query::$last_args['no_found_rows'] === false && (WP_Query::$last_args['tax_query'][0]['terms'][0] ?? null) === 123);
+check('26. invalid video_count term returns null safely', $count_method->invoke(null, (object) ['term_id' => 0]) === null);
+
+
 echo "\n" . str_repeat('=', 60) . "\n";
 echo 'PASS: ' . $pass . '  FAIL: ' . $fail . "\n";
 if ($fail > 0) {

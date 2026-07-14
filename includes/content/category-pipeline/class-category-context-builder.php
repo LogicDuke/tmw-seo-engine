@@ -191,25 +191,21 @@ class CategoryContextBuilder {
 
 	/** Count video posts linked to the resolved term when WP query helpers are available. */
 	private static function count_videos_for_term( $term ): ?int {
-		if ( ! isset( $term->term_id, $term->taxonomy ) ) { return null; }
-		if ( function_exists( 'get_posts' ) ) {
-			$posts = get_posts( [
-				'post_type'      => [ 'tmw_video', 'video' ],
-				'post_status'    => 'publish',
-				'fields'         => 'ids',
-				'posts_per_page' => 1,
-				'no_found_rows'  => false,
-				'tax_query'      => [ [
-					'taxonomy' => (string) $term->taxonomy,
-					'field'    => 'term_id',
-					'terms'    => [ (int) $term->term_id ],
-				] ],
-			] );
-			global $wp_query;
-			if ( isset( $wp_query->found_posts ) && is_numeric( $wp_query->found_posts ) ) {
-				return max( 0, (int) $wp_query->found_posts );
-			}
-			if ( is_array( $posts ) ) { return count( $posts ); }
+		if ( ! isset( $term->term_id, $term->taxonomy ) || ! class_exists( '\WP_Query' ) ) { return null; }
+		$query = new \WP_Query( [
+			'post_type'      => [ 'tmw_video', 'video' ],
+			'post_status'    => 'publish',
+			'fields'         => 'ids',
+			'posts_per_page' => 1,
+			'no_found_rows'  => false,
+			'tax_query'      => [ [
+				'taxonomy' => (string) $term->taxonomy,
+				'field'    => 'term_id',
+				'terms'    => [ (int) $term->term_id ],
+			] ],
+		] );
+		if ( isset( $query->found_posts ) && is_numeric( $query->found_posts ) ) {
+			return max( 0, (int) $query->found_posts );
 		}
 		return null;
 	}
