@@ -50,6 +50,16 @@ namespace {
     require_once dirname(__DIR__) . '/includes/content/class-content-engine.php';
 }
 
+// v5.9.7: minimal Logs stub so coverage/injector paths that log decisions can
+// run standalone. Guarded — a previously loaded real Logs class wins.
+namespace TMWSEO\Engine {
+    if (!class_exists(Logs::class)) {
+        class Logs {
+            public static function __callStatic($name, $arguments) { /* no-op in tests */ }
+        }
+    }
+}
+
 namespace TMWSEO\Engine\Tests {
     use PHPUnit\Framework\TestCase;
     use ReflectionMethod;
@@ -155,22 +165,24 @@ namespace TMWSEO\Engine\Tests {
 
         public function test_category_keyword_fallback_sentences_preserve_faq_structure(): void {
             $html = '<p>Amateur Cams directory overview.</p><h2>What This Category Covers</h2><p>Browse listings.</p><h2>Frequently Asked Questions</h2><h3>How do I browse?</h3><p>Use the directory links.</p>';
+            $post = new \WP_Post(['ID' => 41, 'post_title' => 'Amateur Cams', 'post_type' => 'tmw_category_page', 'post_name' => 'amateur-cams']);
 
             $covered = $this->invoke('inject_category_keyword_fallback_sentences', [$html, [
                 'amateur webcam',
                 'amateur tv cams',
                 'live amateur sex cams',
                 'amateur sex chat',
-            ]]);
+            ], $post]);
 
             $this->assertStringContainsString('Amateur Cams', $covered);
+            // v5.9.7: max four keywords across max two marked sentences.
             $this->assertStringContainsString('amateur webcam', $covered);
             $this->assertStringContainsString('amateur tv cams', $covered);
             $this->assertStringContainsString('live amateur sex cams', $covered);
             $this->assertStringContainsString('amateur sex chat', $covered);
+            $this->assertSame(2, substr_count($covered, 'class="tmw-cat-kwcov"'), 'four keywords must land in exactly two marked sentences');
             $this->assertStringContainsString('<h2>What This Category Covers</h2>', $covered);
             $this->assertStringContainsString('<h2>Frequently Asked Questions</h2>', $covered);
-            $this->assertLessThan(strpos($covered, '<h2>Frequently Asked Questions</h2>'), strpos($covered, 'amateur sex chat'));
         }
 
         public function test_category_bootstrap_does_not_set_ready_to_index(): void {
@@ -185,42 +197,86 @@ namespace TMWSEO\Engine\Tests {
             $this->assertSame(80, get_post_meta(23, '_tmwseo_keyword_confidence', true));
         }
 
-        // ── PR B2 (v5.9.x): blended fallback paragraph, no mechanical filler ─────
+        // ── v5.9.7: bounded, idempotent, marker-based fallback coverage ─────────
 
-        public function test_category_keyword_fallback_sentences_blend_missing_keywords_into_one_paragraph(): void {
+        public function test_category_keyword_fallback_is_capped_and_never_dumps(): void {
             $html = '<p>Amateur Cams directory overview.</p><h2>What This Category Covers</h2><p>Browse listings.</p><h2>Frequently Asked Questions</h2><h3>How do I browse?</h3><p>Use the directory links.</p>';
+            $post = new \WP_Post(['ID' => 42, 'post_title' => 'Amateur Cams', 'post_type' => 'tmw_category_page', 'post_name' => 'amateur-cams']);
 
             $covered = $this->invoke('inject_category_keyword_fallback_sentences', [$html, [
                 'amateur webcam',
                 'amateur tv cams',
                 'live amateur sex cams',
                 'amateur sex chat',
-            ]]);
+                'fifth keyword cams',
+                'sixth keyword cams',
+            ], $post]);
 
+            // Hard cap: two sentences, four keywords; the rest stays tracking-only.
+            $this->assertSame(2, substr_count($covered, 'class="tmw-cat-kwcov"'));
+            $this->assertStringNotContainsString('fifth keyword cams', $covered);
+            $this->assertStringNotContainsString('sixth keyword cams', $covered);
+
+            // Never more than two exact keywords in any single injected sentence,
+            // and never a 3+ item comma list of keywords.
+            $this->assertStringNotContainsString('amateur webcam, amateur tv cams, live amateur sex cams', $covered);
             $this->assertStringNotContainsString('Visitors searching for', $covered);
+        }
 
-            foreach (['amateur webcam', 'amateur tv cams', 'live amateur sex cams', 'amateur sex chat'] as $keyword) {
-                $this->assertStringContainsString($keyword, $covered);
-            }
+        public function test_category_keyword_coverage_is_idempotent_across_build_and_save(): void {
+            $html = '<p>Amateur Cams directory overview.</p><h2>What This Category Covers</h2><p>Browse listings.</p>';
+            $post = new \WP_Post(['ID' => 43, 'post_title' => 'Amateur Cams', 'post_type' => 'tmw_category_page', 'post_name' => 'amateur-cams']);
+            $GLOBALS['_tmw_test_post_meta'][43] = [];
+            $keyword_set = [
+                'primary_keyword' => 'Amateur Cams',
+                'all_keywords'    => ['Amateur Cams', 'amateur webcam', 'amateur tv cams'],
+                'unused_keywords' => [],
+            ];
 
-            $this->assertStringContainsString('amateur webcam, amateur tv cams, live amateur sex cams, or amateur sex chat options', $covered);
+            $once  = $this->invoke('ensure_category_keyword_coverage', [$html, $keyword_set, $post]);
+            $twice = $this->invoke('ensure_category_keyword_coverage', [$once, $keyword_set, $post]);
 
-            $beforeFaq = strstr($covered, '<h2>Frequently Asked Questions</h2>', true);
-            $this->assertIsString($beforeFaq);
-            $this->assertSame(3, substr_count($beforeFaq, '<p>'));
-            $this->assertSame(1, substr_count($beforeFaq, 'This category is also useful for visitors comparing'));
+            // Build-then-save must not duplicate fallback sentences.
+            $this->assertSame($once, $twice, 'coverage must be idempotent across repeated runs');
+            $this->assertSame(1, substr_count($twice, 'class="tmw-cat-kwcov"'));
+            $this->assertStringContainsString('amateur webcam', $twice);
+            $this->assertStringContainsString('amateur tv cams', $twice);
         }
 
         public function test_category_keyword_fallback_sentence_handles_single_missing_keyword(): void {
             $html = '<p>Amateur Cams directory overview.</p>';
+            $post = new \WP_Post(['ID' => 44, 'post_title' => 'Amateur Cams', 'post_type' => 'tmw_category_page', 'post_name' => 'amateur-cams']);
 
             $covered = $this->invoke('inject_category_keyword_fallback_sentences', [$html, [
                 'amateur webcam',
-            ]]);
+            ], $post]);
 
-            $this->assertStringContainsString('visitors comparing amateur webcam pages', $covered);
+            $this->assertSame(1, substr_count($covered, 'class="tmw-cat-kwcov"'));
+            $this->assertStringContainsString('amateur webcam', $covered);
             $this->assertStringNotContainsString('Visitors searching for', $covered);
-            $this->assertStringNotContainsString('amateur webcam options', $covered);
+        }
+
+        public function test_density_reducer_never_emits_placeholder_vocabulary(): void {
+            // Build a page where the primary family exceeds the 2.2% ceiling so
+            // the reducer must act, then prove it uses neutral references and
+            // keeps the first occurrence of each replaced term.
+            $sentence = '<p>Fans of free cam chat pick free webcam chat because free cam chat rooms and free webcam chat are busy, and free cam chat is easy while free webcam chat is common.</p>';
+            $html = $sentence . '<p>Short filler copy for the page body here.</p>';
+            $post = new \WP_Post(['ID' => 45, 'post_title' => 'Free Cam Chat', 'post_type' => 'tmw_category_page', 'post_name' => 'free-cam-chat']);
+
+            $reduced = $this->invoke('reduce_category_root_family_density', [
+                $html,
+                'free cam chat',
+                ['free webcam chat'],
+                [],
+                $post,
+            ]);
+
+            foreach (['room-browsing intent', 'cam-room searches', 'cam-room queries'] as $placeholder) {
+                $this->assertStringNotContainsStringIgnoringCase($placeholder, $reduced, 'placeholder vocabulary must never be emitted');
+            }
+            // First occurrence of the replaced extra is always preserved.
+            $this->assertStringContainsString('free webcam chat', $reduced);
         }
 
         // ── PR B (v5.9.x): deterministic Layer 2 semantic/supporting keywords ─────

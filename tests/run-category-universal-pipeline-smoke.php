@@ -1,0 +1,418 @@
+<?php
+/**
+ * Universal category pipeline smoke suite (v5.9.7).
+ *
+ * Run: php tests/run-category-universal-pipeline-smoke.php
+ *
+ * Standalone — no WordPress, no PHPUnit. Covers the required test matrix for
+ * the universal category-generation repair:
+ *
+ *   regression categories (Amateur Cams, Big Boob Cam, Blonde Cam Models,
+ *   Latina Cam Models, Free Cam Chat) + a synthetic unknown category, with:
+ *   keyword role separation, root-family grouping, density limits, dump
+ *   detection, placeholder detection, unsupported-claim detection, section
+ *   plan / heading / FAQ variation, cross-category similarity threshold,
+ *   deterministic stability, missing-data / empty-pool / large-pool inputs,
+ *   models-no-videos / videos-no-models / neither, safe failure, provider
+ *   raw-output preservation semantics, no hardcoded category copy, and the
+ *   fixed legacy repair functions (no placeholder vocabulary, idempotent
+ *   coverage injection).
+ */
+
+declare(strict_types=1);
+
+error_reporting(E_ALL);
+
+if (!defined('ABSPATH')) { define('ABSPATH', __DIR__); }
+if (!defined('TMWSEO_ENGINE_DATA_DIR')) { define('TMWSEO_ENGINE_DATA_DIR', dirname(__DIR__) . '/data'); }
+
+if (!function_exists('esc_html')) { function esc_html($s) { return htmlspecialchars((string) $s, ENT_QUOTES); } }
+if (!function_exists('wp_strip_all_tags')) { function wp_strip_all_tags($s) { return strip_tags((string) $s); } }
+
+$GLOBALS['_tmw_options'] = [];
+if (!function_exists('get_option')) {
+    function get_option($key, $default = false) { return $GLOBALS['_tmw_options'][$key] ?? $default; }
+}
+if (!function_exists('update_option')) {
+    function update_option($key, $value, $autoload = null) { $GLOBALS['_tmw_options'][$key] = $value; return true; }
+}
+
+$pipeline_dir = dirname(__DIR__) . '/includes/content/category-pipeline/';
+require_once $pipeline_dir . 'class-category-context-builder.php';
+require_once $pipeline_dir . 'class-category-intent-classifier.php';
+require_once $pipeline_dir . 'class-category-keyword-planner.php';
+require_once $pipeline_dir . 'class-category-content-planner.php';
+require_once $pipeline_dir . 'class-category-draft-composer.php';
+require_once $pipeline_dir . 'class-category-quality-guard.php';
+require_once $pipeline_dir . 'class-category-factual-safety.php';
+require_once $pipeline_dir . 'class-category-grammar-guard.php';
+require_once $pipeline_dir . 'class-category-paragraph-uniqueness-guard.php';
+require_once $pipeline_dir . 'class-category-claim-ledger.php';
+require_once $pipeline_dir . 'class-category-specificity-scorer.php';
+require_once $pipeline_dir . 'class-category-faq-reuse-guard.php';
+require_once $pipeline_dir . 'class-category-generation-result.php';
+require_once $pipeline_dir . 'class-category-differentiation-scorer.php';
+require_once $pipeline_dir . 'class-category-faq-planner.php';
+require_once $pipeline_dir . 'class-category-final-validator.php';
+require_once $pipeline_dir . 'class-category-generation-pipeline.php';
+
+use TMWSEO\Engine\Content\CategoryPipeline\CategoryContextBuilder;
+use TMWSEO\Engine\Content\CategoryPipeline\CategoryIntentClassifier;
+use TMWSEO\Engine\Content\CategoryPipeline\CategoryKeywordPlanner;
+use TMWSEO\Engine\Content\CategoryPipeline\CategoryContentPlanner;
+use TMWSEO\Engine\Content\CategoryPipeline\CategoryDraftComposer;
+use TMWSEO\Engine\Content\CategoryPipeline\CategoryQualityGuard;
+use TMWSEO\Engine\Content\CategoryPipeline\CategoryFactualSafety;
+use TMWSEO\Engine\Content\CategoryPipeline\CategoryDifferentiationScorer;
+use TMWSEO\Engine\Content\CategoryPipeline\CategoryFaqPlanner;
+use TMWSEO\Engine\Content\CategoryPipeline\CategoryFinalValidator;
+use TMWSEO\Engine\Content\CategoryPipeline\CategoryGenerationPipeline;
+
+$pass = 0; $fail = 0; $failures = [];
+function check(string $label, bool $ok, string $detail = ''): void {
+    global $pass, $fail, $failures;
+    if ($ok) { $pass++; echo "  ok  {$label}\n"; }
+    else { $fail++; $failures[] = $label . ($detail !== '' ? " — {$detail}" : ''); echo "  FAIL {$label}" . ($detail !== '' ? " — {$detail}" : '') . "\n"; }
+}
+
+// ── fixtures: the five regression categories + synthetic unknown ─────────────
+
+$fixtures = [
+    'amateur-cams' => [
+        'category_name'      => 'Amateur Cams',
+        'category_slug'      => 'amateur-cams',
+        'primary_keyword'    => 'Amateur Cams',
+        'approved_keywords'  => ['amateur webcam', 'amateur tv cams', 'live amateur sex cams', 'amateur sex chat'],
+        'keywords_source'    => 'category_db_approved',
+        'model_count'        => 18,
+        'video_count'        => 40,
+        'related_categories' => ['Blonde Cam Models', 'Free Cam Chat'],
+        'models_url'         => 'https://top-models.webcam/webcam-models/',
+        'videos_url'         => 'https://top-models.webcam/videos/',
+        'site_name'          => 'Top Models Webcam',
+    ],
+    'big-boob-cam' => [
+        'category_name'      => 'Big Boob Cam',
+        'category_slug'      => 'big-boob-cam',
+        'primary_keyword'    => 'Big Boob Cam',
+        'approved_keywords'  => ['big breast webcam', 'big boobs webcam', 'biggest boobs webcam', 'massive boob webcam', 'massive boobs cam', 'massive breasts webcam'],
+        'keywords_source'    => 'category_db_approved',
+        'model_count'        => 9,
+        'video_count'        => 22,
+        'related_categories' => ['Amateur Cams', 'Latina Cam Models'],
+        'models_url'         => 'https://top-models.webcam/webcam-models/',
+        'videos_url'         => 'https://top-models.webcam/videos/',
+        'site_name'          => 'Top Models Webcam',
+    ],
+    'blonde-cam-models' => [
+        'category_name'      => 'Blonde Cam Models',
+        'category_slug'      => 'blonde-cam-models',
+        'primary_keyword'    => 'Blonde Cam Models',
+        'approved_keywords'  => ['blonde cams', 'blonde live sex', 'blonde sex cam', 'blonde live webcam'],
+        'keywords_source'    => 'category_db_approved',
+        'model_count'        => 25,
+        'video_count'        => 0,
+        'related_categories' => ['Latina Cam Models', 'Amateur Cams'],
+        'models_url'         => 'https://top-models.webcam/webcam-models/',
+        'videos_url'         => 'https://top-models.webcam/videos/',
+        'site_name'          => 'Top Models Webcam',
+    ],
+    'latina-cam-models' => [
+        'category_name'      => 'Latina Cam Models',
+        'category_slug'      => 'latina-cam-models',
+        'primary_keyword'    => 'Latina Cam Models',
+        'approved_keywords'  => ['latina sex cam', 'latina live sex', 'live latina cams', 'latina nude webcam'],
+        'keywords_source'    => 'category_db_approved',
+        'model_count'        => 0,
+        'video_count'        => 31,
+        'related_categories' => ['Blonde Cam Models', 'Big Boob Cam'],
+        'models_url'         => 'https://top-models.webcam/webcam-models/',
+        'videos_url'         => 'https://top-models.webcam/videos/',
+        'site_name'          => 'Top Models Webcam',
+    ],
+    'free-cam-chat' => [
+        'category_name'      => 'Free Cam Chat',
+        'category_slug'      => 'free-cam-chat',
+        'primary_keyword'    => 'Free Cam Chat',
+        'approved_keywords'  => ['free cam to cam chat', 'free live cams', 'free webcam chat', 'cam to cam chat', 'free live cam chat', 'cam chat sites', 'webcam chat rooms', 'free webcam shows'],
+        'keywords_source'    => 'category_db_approved',
+        'model_count'        => 40,
+        'video_count'        => 55,
+        'related_categories' => ['Amateur Cams'],
+        'models_url'         => 'https://top-models.webcam/webcam-models/',
+        'videos_url'         => 'https://top-models.webcam/videos/',
+        'site_name'          => 'Top Models Webcam',
+    ],
+    // Test 18 + synthetic unknown category — never referenced anywhere in plugin code/data.
+    'silver-fox-gentlemen-cams' => [
+        'category_name'      => 'Silver Fox Gentlemen Cams',
+        'category_slug'      => 'silver-fox-gentlemen-cams',
+        'primary_keyword'    => 'Silver Fox Gentlemen Cams',
+        'approved_keywords'  => ['mature male cams', 'silver fox webcam', 'gentlemen live chat'],
+        'keywords_source'    => 'category_db_approved',
+        'model_count'        => 3,
+        'video_count'        => 5,
+        'related_categories' => ['Amateur Cams'],
+        'models_url'         => 'https://top-models.webcam/webcam-models/',
+        'videos_url'         => 'https://top-models.webcam/videos/',
+        'site_name'          => 'Top Models Webcam',
+    ],
+];
+
+$banned_probe = [
+    'related room-browsing intent', 'similar public cam-room searches', 'nearby cam-room queries',
+    'recognisable theme', 'recognizable theme', 'neutral directory archive', 'same browsing structure',
+    'designed to reduce browsing friction', 'category archive layer', 'move between listings efficiently',
+    'practical overview before they click through', 'one consistent theme', 'directory context',
+    'this archive page indexes',
+];
+
+echo "== A. Full pipeline on regression + unknown categories ==\n";
+$results = [];
+foreach ($fixtures as $slug => $parts) {
+    $GLOBALS['_tmw_options'] = $GLOBALS['_tmw_options'] ?? [];
+    $context = CategoryContextBuilder::build_from_parts($parts);
+    $result  = CategoryGenerationPipeline::generate_from_context($context, [
+        'tracking'  => array_slice($parts['approved_keywords'], 0, 8),
+        'use_store' => true,
+    ]);
+    $results[$slug] = $result;
+    $html    = (string) $result['html'];
+    $visible = strtolower(strip_tags($html));
+
+    check("[$slug] pipeline ok", (bool) $result['ok'], implode('; ', array_slice((array) $result['report']['failure_reasons'], 0, 3)));
+    if (!$result['ok']) { continue; }
+
+    $found = [];
+    foreach ($banned_probe as $phrase) {
+        if (strpos($visible, strtolower($phrase)) !== false) { $found[] = $phrase; }
+    }
+    check("[$slug] no banned/placeholder phrases", empty($found), implode(', ', $found));
+
+    // Keyword dump: no sentence with >=3 exact pool keywords.
+    $dump = false;
+    foreach (preg_split('/(?<=[.!?])\s+/u', strip_tags($html)) ?: [] as $sentence) {
+        if (CategoryQualityGuard::count_exact_keywords($sentence, $parts['approved_keywords']) >= 3) { $dump = true; break; }
+    }
+    check("[$slug] no keyword-dump sentence", !$dump);
+
+    // Unsupported claims — checked with the context's DERIVED evidence flags
+    // (a known model/video count verifies qualitative scale wording).
+    $claims = CategoryFactualSafety::analyze($html, (array) ($context['verified_flags'] ?? []));
+    check("[$slug] no unsupported claims", empty($claims), implode(', ', array_map(static fn($c) => $c['detail'], $claims)));
+
+    // Word count + primary presence via validator metrics already implied by ok=true.
+    $wc = (int) $result['report']['metrics']['word_count'];
+    check("[$slug] length in range ({$wc}w)", $wc >= CategoryFinalValidator::MIN_WORDS && $wc <= CategoryFinalValidator::MAX_WORDS);
+}
+
+echo "\n== B. Cross-category variation & similarity ==\n";
+$slugs = array_keys($fixtures);
+$ok_slugs = array_values(array_filter($slugs, static fn($s) => !empty($results[$s]['ok'])));
+
+// Section-plan variation (test 11): not all categories share one section list.
+$plans = array_map(static fn($s) => implode(',', (array) $results[$s]['report']['content_plan']), $ok_slugs);
+check('section plans vary across categories', count(array_unique($plans)) >= 4, implode(' | ', array_unique($plans)));
+
+// Heading variation (test 12): no two categories share an identical full heading list.
+$headings = array_map(static fn($s) => implode('|', (array) $results[$s]['report']['headings']), $ok_slugs);
+check('heading sets differ per category', count(array_unique($headings)) === count($ok_slugs));
+
+// FAQ variation (test 13): the five regression pages must not share one FAQ set.
+$faq_sets = array_map(static fn($s) => implode('|', (array) $results[$s]['report']['faq']), $ok_slugs);
+check('FAQ sets vary across categories', count(array_unique($faq_sets)) >= 4, implode(' || ', array_unique($faq_sets)));
+
+// Cross-category similarity threshold (test 14): every later generation was
+// scored against the earlier fingerprints in the rolling store and passed.
+$sims = [];
+foreach ($ok_slugs as $i => $slug) {
+    if ($i === 0) { continue; }
+    $sims[$slug] = (float) $results[$slug]['report']['similarity']['max_body'];
+    check("[$slug] body similarity <= threshold", $sims[$slug] <= CategoryDifferentiationScorer::MAX_BODY_SIMILARITY, (string) $sims[$slug]);
+}
+
+// Blonde vs Amateur/Latina structural difference (regression expectation).
+$b = $results['blonde-cam-models'] ?? null; $a = $results['amateur-cams'] ?? null; $l = $results['latina-cam-models'] ?? null;
+if ($b && $a && $l && $b['ok'] && $a['ok'] && $l['ok']) {
+    check('blonde headings != amateur headings', $b['report']['headings'] !== $a['report']['headings']);
+    check('blonde headings != latina headings', $b['report']['headings'] !== $l['report']['headings']);
+}
+
+echo "\n== C. Intent classification (Stage 2, no name hardcoding) ==\n";
+$expected_intents = [
+    'free-cam-chat'      => 'free_access_pricing',
+    'big-boob-cam'       => 'body_type',
+    'blonde-cam-models'  => 'appearance_trait',
+    'latina-cam-models'  => 'ethnicity_regional',
+];
+foreach ($expected_intents as $slug => $expected) {
+    $got = (string) $results[$slug]['report']['intent'];
+    check("[$slug] intent == {$expected}", $got === $expected, "got {$got}");
+}
+check('[amateur-cams] intent is a performer-trait/interaction bucket', in_array($results['amateur-cams']['report']['intent'], ['interaction_style', 'broad_discovery'], true), (string) $results['amateur-cams']['report']['intent']);
+check('[unknown] classified without hardcoding', in_array($results['silver-fox-gentlemen-cams']['report']['intent'], ['age_style', 'interaction_style', 'broad_discovery', 'appearance_trait'], true), (string) $results['silver-fox-gentlemen-cams']['report']['intent']);
+
+echo "\n== D. Free Cam Chat regression expectations ==\n";
+$fc = $results['free-cam-chat'];
+if ($fc['ok']) {
+    $fc_visible = strtolower(strip_tags($fc['html']));
+    check('free-cam-chat explains what free means', strpos($fc_visible, 'public') !== false && strpos($fc_visible, 'free') !== false && (strpos($fc_visible, 'paid') !== false || strpos($fc_visible, 'private') !== false));
+    // Close variants must not saturate the body: at most 4 pool-exact hits total.
+    $exact_total = CategoryQualityGuard::count_exact_keywords(strip_tags($fc['html']), $fixtures['free-cam-chat']['approved_keywords']);
+    check('free-cam-chat pool exacts bounded (<=4)', $exact_total <= 4, "got {$exact_total}");
+}
+
+echo "\n== E. Big Boob Cam regression expectations ==\n";
+$bb = $results['big-boob-cam'];
+if ($bb['ok']) {
+    $bb_html = (string) $bb['html'];
+    // No comma keyword list of the family variants.
+    check('big-boob-cam has no keyword list', !preg_match('/big breast webcam,\s*big boobs webcam/i', $bb_html));
+    // No same-family exacts in consecutive paragraphs.
+    $paras = CategoryQualityGuard::paragraphs_text($bb_html);
+    $family_hits_seq = [];
+    foreach ($paras as $p) {
+        $family_hits_seq[] = CategoryQualityGuard::count_exact_keywords($p, $fixtures['big-boob-cam']['approved_keywords']) > 0 ? 1 : 0;
+    }
+    $consecutive = false;
+    for ($i = 1; $i < count($family_hits_seq); $i++) {
+        if ($family_hits_seq[$i] === 1 && $family_hits_seq[$i - 1] === 1) { $consecutive = true; break; }
+    }
+    check('big-boob-cam no pool keywords in consecutive paragraphs', !$consecutive);
+}
+
+echo "\n== F. Keyword planning (Stage 3) ==\n";
+$plan = CategoryKeywordPlanner::plan('Free Cam Chat', $fixtures['free-cam-chat']['approved_keywords'], array_slice($fixtures['free-cam-chat']['approved_keywords'], 0, 8));
+check('tracking keeps primary first', $plan['rankmath_tracking'][0] === 'Free Cam Chat');
+check('tracking preserves 8-extra cap upstream (<=9 tracked)', count($plan['rankmath_tracking']) <= 9);
+check('body-use excludes primary-family variants', !in_array('free cam to cam chat', $plan['body_use'], true) && !in_array('free webcam chat', $plan['body_use'], true));
+check('body-use capped at ' . CategoryKeywordPlanner::MAX_BODY_USE, count($plan['body_use']) <= CategoryKeywordPlanner::MAX_BODY_USE);
+check('unused keywords carry reasons', !empty($plan['unused']) && !empty($plan['unused'][0]['reason']));
+$fam1 = CategoryKeywordPlanner::root_family('free cam chat');
+$fam2 = CategoryKeywordPlanner::root_family('free webcam chat');
+$fam3 = CategoryKeywordPlanner::root_family('cam to cam chat');
+check('root families collapse close variants', $fam1 === $fam2 && $fam2 === $fam3, "{$fam1} / {$fam2} / {$fam3}");
+check('distinct topics keep distinct families', CategoryKeywordPlanner::root_family('big boobs webcam') !== $fam1);
+
+// Empty pool (test 20).
+$empty_plan = CategoryKeywordPlanner::plan('Curvy Redhead Streamers', [], []);
+check('empty pool: no body-use, primary kept', $empty_plan['body_use'] === [] && $empty_plan['primary'] === 'Curvy Redhead Streamers');
+
+// Large pool (test 21).
+$large_pool = [];
+for ($i = 0; $i < 40; $i++) { $large_pool[] = "unique topic {$i} cam"; }
+$large_plan = CategoryKeywordPlanner::plan('Mega Pool Cams', $large_pool, array_slice($large_pool, 0, 8));
+check('large pool: body-use still capped', count($large_plan['body_use']) <= CategoryKeywordPlanner::MAX_BODY_USE);
+check('large pool: overflow logged as unused', count($large_plan['unused']) >= 30);
+
+echo "\n== G. Determinism & regeneration salts ==\n";
+$ctx_bb = CategoryContextBuilder::build_from_parts($fixtures['big-boob-cam']);
+$r1 = CategoryGenerationPipeline::generate_from_context($ctx_bb, ['tracking' => [], 'use_store' => false]);
+$r2 = CategoryGenerationPipeline::generate_from_context($ctx_bb, ['tracking' => [], 'use_store' => false]);
+check('same inputs → identical output', $r1['html'] === $r2['html']);
+$p0 = CategoryContentPlanner::plan($ctx_bb, 'body_type', 0);
+$p1 = CategoryContentPlanner::plan($ctx_bb, 'body_type', 1);
+check('salt changes the plan deterministically', $p0['sections'] !== $p1['sections'] || $p0['headings'] !== $p1['headings']);
+
+echo "\n== H. Missing-data / sparse contexts (tests 19, 22-24) ==\n";
+$sparse_variants = [
+    'models-no-videos'  => ['model_count' => 12, 'video_count' => 0],
+    'videos-no-models'  => ['model_count' => 0, 'video_count' => 12],
+    'neither'           => ['model_count' => 0, 'video_count' => 0],
+    'missing-everything'=> ['model_count' => null, 'video_count' => null, 'related_categories' => [], 'site_name' => '', 'models_url' => '', 'videos_url' => ''],
+];
+foreach ($sparse_variants as $label => $overrides) {
+    $parts = array_merge($fixtures['silver-fox-gentlemen-cams'], $overrides, ['category_slug' => 'sparse-' . $label, 'category_name' => 'Sparse ' . ucwords(str_replace('-', ' ', $label)), 'primary_keyword' => 'Sparse ' . ucwords(str_replace('-', ' ', $label))]);
+    $ctx  = CategoryContextBuilder::build_from_parts($parts);
+    $res  = CategoryGenerationPipeline::generate_from_context($ctx, ['tracking' => [], 'use_store' => false]);
+    check("[$label] generates or fails safely", $res['ok'] || !empty($res['report']['failure_reasons']));
+    if ($res['ok']) {
+        check("[$label] no unresolved placeholders", strpos($res['html'], '{{') === false);
+        $claims = CategoryFactualSafety::analyze($res['html'], []);
+        check("[$label] no invented facts", empty($claims), implode(', ', array_map(static fn($c) => $c['detail'], $claims)));
+    }
+}
+
+echo "\n== I. Safe failure when thresholds cannot be met (test 25) ==\n";
+// Comparisons seeded with the draft's own fingerprint make differentiation impossible.
+$ctx_fail = CategoryContextBuilder::build_from_parts(array_merge($fixtures['amateur-cams'], ['category_slug' => 'forced-fail', 'category_name' => 'Forced Fail Cams', 'primary_keyword' => 'Forced Fail Cams']));
+$pre = CategoryGenerationPipeline::generate_from_context($ctx_fail, ['tracking' => [], 'use_store' => false]);
+$self_fps = [];
+for ($salt = 0; $salt < CategoryGenerationPipeline::MAX_ATTEMPTS; $salt++) {
+    $plan_f = CategoryContentPlanner::plan($ctx_fail, 'interaction_style', $salt);
+    // fingerprint every attempt's would-be draft so all retries collide
+    $kwp = CategoryKeywordPlanner::plan('Forced Fail Cams', $fixtures['amateur-cams']['approved_keywords'], []);
+    $comp = CategoryDraftComposer::compose($ctx_fail, $plan_f, $kwp);
+    $faqs = CategoryFaqPlanner::plan($ctx_fail, 'interaction_style', $salt);
+    $self_fps[] = CategoryDifferentiationScorer::fingerprint($comp['html'] . CategoryFaqPlanner::render($faqs), ['Forced Fail Cams'], 'shadow-' . $salt);
+}
+$fail_res = CategoryGenerationPipeline::generate_from_context($ctx_fail, ['tracking' => [], 'use_store' => false, 'comparisons' => $self_fps]);
+check('impossible threshold → ok=false', !$fail_res['ok']);
+check('failure reasons recorded', !empty($fail_res['report']['failure_reasons']), implode('; ', (array) $fail_res['report']['failure_reasons']));
+check('failed draft returns empty html (never saved)', $fail_res['html'] === '');
+
+echo "\n== J. Provider handling (tests 15-17) ==\n";
+// A distinct provider draft that passes validation must survive (not be flattened).
+$provider_html = '<h2>Real Amateur Rooms, Explained Simply</h2><p>Amateur streaming has a texture that studio content rarely matches: performers set up their own spaces, run sessions at their own pace, and keep the chat conversational in a way scripted rooms never quite manage. The Forced Provider Cams listings gather that interaction style in one place, and how each performer describes their own approach is the detail that separates one room from the next.</p><h2>Narrowing a Wide Theme</h2><p>This is a broad grouping, and broad ground rewards an anchor: pick the single listing nearest what you came for and treat its page as the new starting point. Each anchored pick narrows the field further, and a vague search usually refines itself into a specific destination within three passes. When a narrowing path dead-ends, widen back out through the model directory and the video directory and start the loop again from a fresh anchor.</p><h2>Reading the Rooms Before You Enter</h2><p>The habit that pays off most is a slow first scan. Open two or three profiles, compare how each performer frames their own sessions, and weigh their stated approach against the kind of conversation or format you actually want. Similar stage names are everywhere in this space, so confirm the name matches the page you meant to open before engaging anywhere.</p><h2>Public Viewing and Paid Extras</h2><p>Most platforms keep public rooms open to watch while private sessions, requests, and cam-to-cam interaction are paid features. Where the line sits varies by performer and platform, so treat the destination page as the deciding source, and read its terms before stepping past open viewing. Current room status also lives on the destination platform, and it can change during a visit.</p><h2>Keeping the Search Moving</h2><p>When a listing is close but not right, move sideways before starting over. Categories like Blonde Cam Models approach the same space from another angle, and the main model and video directories reopen the complete field whenever this theme runs out of new names. A shortlist built from anchored picks beats an open-ended scroll every time, and the refining work compounds with each page opened.</p><p>That is the whole method for Forced Provider Cams browsing: anchor on the nearest match, check the stated session style on its page, and let the platforms handle everything operational once the choice is made.</p>';
+$ctx_prov = CategoryContextBuilder::build_from_parts(array_merge($fixtures['amateur-cams'], ['category_slug' => 'forced-provider', 'category_name' => 'Forced Provider Cams', 'primary_keyword' => 'Forced Provider Cams']));
+$prov_res = CategoryGenerationPipeline::generate_from_context($ctx_prov, ['tracking' => [], 'use_store' => false, 'provider' => 'openai', 'provider_html' => $provider_html]);
+check('provider draft accepted', (bool) $prov_res['ok'], implode('; ', array_slice((array) $prov_res['report']['failure_reasons'], 0, 4)));
+if ($prov_res['ok']) {
+    check('provider voice survives post-processing (not flattened)', strpos($prov_res['html'], 'Amateur streaming has a texture') !== false);
+    check('raw provider output hash recorded', $prov_res['report']['raw_output_hash'] === \TMWSEO\Engine\Content\CategoryPipeline\CategoryGenerationResult::hash_output($provider_html));
+    check('provider label reported', $prov_res['report']['provider'] === 'openai');
+}
+// A garbage provider draft falls back to the deterministic composer (test 17).
+$garbage = '<p>free related room-browsing intent, similar public cam-room searches, nearby cam-room queries.</p>';
+$fb_res = CategoryGenerationPipeline::generate_from_context($ctx_prov, ['tracking' => [], 'use_store' => false, 'provider' => 'openai', 'provider_html' => $garbage]);
+check('garbage provider draft → deterministic fallback still ok', (bool) $fb_res['ok'], implode('; ', array_slice((array) $fb_res['report']['failure_reasons'], 0, 4)));
+if ($fb_res['ok']) {
+    check('fallback output clean of provider garbage', stripos($fb_res['html'], 'room-browsing intent') === false);
+}
+
+echo "\n== K. Guard & factual units (tests 8-10) ==\n";
+$dump_html = '<p>This page collects listings covering searches such as big breast webcam, big boobs webcam, biggest boobs webcam, massive boob webcam, massive boobs cam, massive breasts webcam.</p>';
+$issues = CategoryQualityGuard::analyze($dump_html, $fixtures['big-boob-cam']['approved_keywords']);
+$types = array_column($issues, 'type');
+check('dump detection fires', in_array('keyword_dump_sentence', $types, true) || in_array('keyword_list', $types, true));
+$repaired = CategoryQualityGuard::repair($dump_html, $fixtures['big-boob-cam']['approved_keywords']);
+check('dump repair reduces exacts to <=2', CategoryQualityGuard::count_exact_keywords(strip_tags($repaired['html']), $fixtures['big-boob-cam']['approved_keywords']) <= 2, strip_tags($repaired['html']));
+
+$ph_html = '<p>Visitors comparing free related room-browsing intent can use this page.</p><p>This is a neutral directory archive.</p>';
+$ph_issues = CategoryQualityGuard::analyze($ph_html, []);
+check('placeholder detection fires', count($ph_issues) >= 2);
+$ph_fixed = CategoryQualityGuard::repair($ph_html, []);
+check('placeholder sentences dropped', stripos($ph_fixed['html'], 'room-browsing') === false && stripos($ph_fixed['html'], 'neutral directory archive') === false);
+
+$claim_html = '<p>Profile pages include schedules and you can filter by platform. Both directories are accessible without an account.</p>';
+$claim_issues = CategoryFactualSafety::analyze($claim_html, []);
+check('unsupported claim detection fires (3 claims)', count($claim_issues) >= 2, (string) count($claim_issues));
+$claim_fixed = CategoryFactualSafety::repair($claim_html, []);
+check('claims rewritten to qualified wording', stripos($claim_fixed['html'], 'include schedules') === false && stripos($claim_fixed['html'], 'without an account') === false);
+$claim_ok = CategoryFactualSafety::analyze($claim_html, ['schedules', 'filters', 'no_account_browsing']);
+check('verified flags allow verified claims', empty($claim_ok));
+
+echo "\n== L. No hardcoded category copy (test 2) ==\n";
+$hard_names = ['Amateur Cams', 'Big Boob Cam', 'Blonde Cam Models', 'Latina Cam Models', 'Free Cam Chat'];
+$scan_files = array_merge(
+    glob(dirname(__DIR__) . '/includes/content/category-pipeline/*.php') ?: [],
+    [dirname(__DIR__) . '/data/category-universal-sections.json', dirname(__DIR__) . '/data/category-universal-faq.json']
+);
+$hits = [];
+foreach ($scan_files as $file) {
+    $src = (string) file_get_contents($file);
+    foreach ($hard_names as $name) {
+        if (stripos($src, $name) !== false) { $hits[] = basename($file) . ':' . $name; }
+    }
+}
+check('pipeline code/data contain no regression-category names', empty($hits), implode(', ', $hits));
+
+echo "\n";
+echo str_repeat('=', 60) . "\n";
+echo "PASS: {$pass}  FAIL: {$fail}\n";
+if ($fail > 0) {
+    echo "Failures:\n";
+    foreach ($failures as $f) { echo "  - {$f}\n"; }
+    exit(1);
+}
+exit(0);

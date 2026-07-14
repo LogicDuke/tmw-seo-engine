@@ -1,0 +1,2744 @@
+{
+ "version": "2.0.0",
+ "purposes": {
+  "intro": {
+   "variants": {
+    "default": [
+     {
+      "id": "in_d1",
+      "sentences": [
+       [
+        "{{category_name}} narrows the site to performers and clips that match one specific search, so the browsing starts inside the theme instead of around it.",
+        "{{category_name}} collects the performers and clips that fit one specific search, which keeps the browsing inside the theme from the first click.",
+        "The listings under {{category_name}} all match one specific search, so nothing here needs to be filtered out before you start comparing."
+       ],
+       [
+        "{{intent_clarity}}"
+       ],
+       [
+        "The individual model and video pages carry the detail that decides a pick; use the listings here to choose which of those pages to open first.",
+        "Each listing leads to its own model or video page, and that page is where the deciding details live — start here, decide there.",
+        "Pick two or three listings that look right, open their pages, and compare the specifics side by side before settling on one."
+       ]
+      ]
+     },
+     {
+      "id": "in_d2",
+      "sentences": [
+       [
+        "If {{primary_keyword}} is the search that brought you here, the matching is already done — what remains is choosing between the listings below.",
+        "For anyone searching {{primary_keyword}}, the sorting work is finished: everything below fits the theme, and the choice comes down to individual fit.",
+        "{{primary_keyword}} is a specific request, and this page answers it with listings that already match — the remaining question is which one suits you."
+       ],
+       [
+        "{{intent_clarity}}"
+       ],
+       [
+        "A short first scan beats an immediate click: note what each listing emphasises, then open the strongest matches.",
+        "Scan the listings once before opening anything; the differences between them are easier to see side by side than one page at a time.",
+        "Two unhurried minutes with the listings usually points to a better first click than opening whatever appears at the top."
+       ]
+      ]
+     },
+     {
+      "id": "in_d3",
+      "sentences": [
+       [
+        "The quickest way to use {{category_name}} is as a shortlist: everything below fits the theme, so the work left is matching individual listings to what you had in mind.",
+        "{{category_name}} does the gathering; the visitor does the choosing — every listing below fits the theme, and the individual pages settle which fits best.",
+        "On {{site_name}}, {{category_name}} is the direct route to this theme: matching performers and clips in one place, with their own pages one click away."
+       ],
+       [
+        "{{intent_clarity}}"
+       ],
+       [
+        "When a listing turns out close but not right, come back and try the next one — the alternatives stay one step away.",
+        "Keep this page open while you compare; returning here is faster than re-running the search.",
+        "If the first pick misses, the second is a single step back — that loop is the whole method."
+       ]
+      ]
+     },
+     {
+      "id": "in_d4",
+      "sentences": [
+       [
+        "{{category_name}} exists for visitors who already know the style they want; the listings below match it, and the pages behind them carry the deciding detail.",
+        "Arriving at {{category_name}} means the broad choice is already made — the style is set, and what's left is picking between performers and clips that share it.",
+        "The style behind {{category_name}} is fixed; the variety lives in how each performer and clip carries it, which is what the individual pages show."
+       ],
+       [
+        "{{intent_clarity}}"
+       ],
+       [
+        "Weigh listings against what brought you here rather than against each other; the search you arrived with is the better yardstick.",
+        "Judge each listing against your original search first — fit with what you wanted matters more than how listings rank against each other.",
+        "The useful comparison is listing versus intent, not listing versus listing; keep the original search in mind while you scan."
+       ]
+      ]
+     },
+     {
+      "id": "in_d5",
+      "sentences": [
+       [
+        "{{category_name}} answers a specific search with a specific set: performers and clips that fit the theme, gathered so the choosing can start immediately.",
+        "The point of {{category_name}} is a head start — the theme-matching is done, the set is gathered, and the visit begins at the choosing stage."
+       ],
+       [
+        "{{intent_clarity}}"
+       ],
+       [
+        "Work the set with a light shortlist — two or three flagged candidates — and let their own pages settle the order.",
+        "Flag a few candidates on the first pass and let the pages rank them; that division of labour suits this page."
+       ]
+      ]
+     },
+     {
+      "id": "in_d6",
+      "sentences": [
+       [
+        "What {{category_name}} promises is focus: everything below belongs to the theme, so attention goes to differences between listings rather than to filtering out noise.",
+        "Focus is the offer of {{category_name}} — with off-theme noise already gone, the whole visit runs on the differences between qualifying listings."
+       ],
+       [
+        "{{intent_clarity}}"
+       ],
+       [
+        "Differences show best in small batches: open the likeliest two together and the contrast does half the deciding.",
+        "Batch the opens in pairs; contrast between two live candidates decides faster than solo evaluation ever does."
+       ]
+      ]
+     }
+    ],
+    "free_access_pricing": [
+     {
+      "id": "in_free1",
+      "sentences": [
+       [
+        "{{category_name}} gathers listings around free viewing, and the honest first step is knowing where free ends: public rooms are typically open to watch, while private and personalised features are paid on most platforms.",
+        "Free is the theme of {{category_name}}, and it has real limits worth knowing up front: public viewing is typically open, while private sessions and requests are paid features on most platforms."
+       ],
+       [
+        "Each destination platform draws its own line between open viewing and paid features, so the labels on the room itself are the final word.",
+        "Where the free/paid line sits differs by platform and performer, so treat the destination page's own labels as the deciding source."
+       ],
+       [
+        "Use the listings below to pick a performer or clip, and confirm the access terms on the platform before investing time in a room.",
+        "Pick from the listings below first, then check the platform's own terms before settling into a room."
+       ]
+      ]
+     },
+     {
+      "id": "in_free2",
+      "sentences": [
+       [
+        "The practical promise of {{category_name}} is watchability without immediate commitment — public rooms on most platforms can be viewed openly, and everything beyond that is the platform's paid territory.",
+        "{{category_name}} is built around open viewing: on most platforms the public side of a room costs nothing to watch, while interaction and privacy sit behind paid features."
+       ],
+       [
+        "Each platform decides where its open tier ends and its paid tier begins, and performers arrange their rooms within that structure.",
+        "The open and paid tiers sit in different places on different platforms, which is why a room's own labels matter more than any general rule."
+       ],
+       [
+        "Start with the listings that match your taste, and let the platform's own pricing labels settle the rest.",
+        "Choose by style first and confirm cost second — the platform page always states its own terms."
+       ]
+      ]
+     }
+    ],
+    "body_type": [
+     {
+      "id": "in_body1",
+      "sentences": [
+       [
+        "{{category_name}} groups performers around one physical theme, and the label is deliberately broad — the listings share the trait, while everything else about presentation and style differs performer by performer.",
+        "The common thread in {{category_name}} is a physical trait; how each performer presents it is entirely their own, so expect real variety inside the shared label."
+       ],
+       [
+        "{{intent_clarity}}"
+       ],
+       [
+        "Let the individual pages show how each performer carries the theme rather than assuming one look from the category name.",
+        "The category name sets the trait; the model pages show the range — open a few before deciding what the theme means here."
+       ]
+      ]
+     },
+     {
+      "id": "in_body2",
+      "sentences": [
+       [
+        "A body-type search like {{primary_keyword}} has a clear picture behind it, and the fair warning is that the listings will interpret that picture in more ways than one.",
+        "Searches for {{primary_keyword}} start from a specific image, and the listings below will both confirm and stretch it — the trait is shared, the presentation is not."
+       ],
+       [
+        "{{intent_clarity}}"
+       ],
+       [
+        "Compare a few model pages before settling; the differences inside this theme are usually bigger than the label suggests.",
+        "Open two or three model pages side by side — inside a body-type theme, the individual differences do most of the deciding."
+       ]
+      ]
+     }
+    ],
+    "appearance_trait": [
+     {
+      "id": "in_app1",
+      "sentences": [
+       [
+        "{{category_name}} sorts performers by one visible trait, which makes the first scan fast — the trait is settled, so attention goes straight to style, presentation, and format.",
+        "With {{category_name}}, the visible trait is the given; what the listings actually decide between is presentation and style, which is where the model pages earn their keep."
+       ],
+       [
+        "{{intent_clarity}}"
+       ],
+       [
+        "Use the listings to shortlist and the model pages to confirm; a trait-based theme rewards checking the page over trusting the label.",
+        "Shortlist here, confirm on the model pages — appearance labels are a starting filter, not the whole story."
+       ]
+      ]
+     },
+     {
+      "id": "in_app2",
+      "sentences": [
+       [
+        "An appearance search such as {{primary_keyword}} settles one question and leaves the rest open: the trait is guaranteed by the grouping, while everything else varies listing to listing.",
+        "{{primary_keyword}} as a search fixes a single visual detail; the listings below share it and differ on nearly everything else, which is the interesting part."
+       ],
+       [
+        "{{intent_clarity}}"
+       ],
+       [
+        "Move from the strongest visual match to its model page and let the specifics there make the call.",
+        "Pick by first impression, then verify on the model page — the specifics there settle what the thumbnail can't."
+       ]
+      ]
+     },
+     {
+      "id": "in_app3",
+      "sentences": [
+       [
+        "{{category_name}} settles the look up front, which frees the whole visit for the questions the look can't answer: style, format, and how each performer actually presents.",
+        "With the visual question pre-answered, {{category_name}} turns the visit toward what varies — presentation, format, and the individual style behind the shared trait."
+       ],
+       [
+        "{{intent_clarity}}"
+       ],
+       [
+        "Give the wording a real read while scanning; inside a shared look, titles and stated details do the differentiating.",
+        "Scan with the text in focus — where the images agree, the wording disagrees usefully."
+       ]
+      ]
+     }
+    ],
+    "ethnicity_regional": [
+     {
+      "id": "in_eth1",
+      "sentences": [
+       [
+        "{{category_name}} groups performers by how they present within a regional or heritage theme — the label describes presentation, not verified nationality, residence, or language.",
+        "The grouping behind {{category_name}} is presentational: performers appear here because their profiles and clips fit the theme, not because anything about origin or location has been verified."
+       ],
+       [
+        "{{intent_clarity}}"
+       ],
+       [
+        "Whatever details matter to you — language, style, format — take them from what each performer states rather than from the category label.",
+        "Let performer-provided details carry the weight; the category name is a browsing theme, not a biography."
+       ]
+      ]
+     },
+     {
+      "id": "in_eth2",
+      "sentences": [
+       [
+        "A search like {{primary_keyword}} usually means a preference for a particular presentation and vibe, and that is exactly what this grouping offers — with the caveat that labels here never stand in for personal facts.",
+        "{{primary_keyword}} points at a presentation style, and the listings deliver on that; anything about a performer's actual background belongs to what they choose to share themselves."
+       ],
+       [
+        "{{intent_clarity}}"
+       ],
+       [
+        "Browse for the style, and treat specifics like language or background as things each performer states for themselves.",
+        "The respectful read is simple: the theme guides the browsing, and the performer's own words carry the facts."
+       ]
+      ]
+     }
+    ],
+    "interaction_style": [
+     {
+      "id": "in_int1",
+      "sentences": [
+       [
+        "{{category_name}} is organised around how a session feels rather than how a performer looks — pace, conversation, and format are the traits the listings share.",
+        "The theme of {{category_name}} is interaction: the listings are grouped by session style and format rather than by appearance, which changes what's worth comparing."
+       ],
+       [
+        "{{intent_clarity}}"
+       ],
+       [
+        "When style is the theme, the model and video pages matter double — the way a performer describes their own sessions is the best available signal.",
+        "Read how performers frame their own rooms; with an interaction theme, their own descriptions beat any thumbnail."
+       ]
+      ]
+     },
+     {
+      "id": "in_int2",
+      "sentences": [
+       [
+        "Searching {{primary_keyword}} usually means the how matters more than the who — the listings below are grouped by that session style, and the individual pages show how each performer does it.",
+        "{{primary_keyword}} is a style-of-session search, and this grouping answers it: performers and clips that share the format, differing in everything personal."
+       ],
+       [
+        "{{intent_clarity}}"
+       ],
+       [
+        "Compare how each listing describes the experience it offers; format themes reward reading over glancing.",
+        "Give descriptions more weight than images here — in a format-driven theme, wording carries the real signal."
+       ]
+      ]
+     }
+    ],
+    "content_format": [
+     {
+      "id": "in_fmt1",
+      "sentences": [
+       [
+        "{{category_name}} is grouped by content format, so the first decision is already framed: live rooms and recorded clips serve different visits, and this page holds the format you searched for.",
+        "Format is the organising idea behind {{category_name}} — the listings share how the content is delivered, which makes the live-versus-recorded question the one worth settling first."
+       ],
+       [
+        "{{intent_clarity}}"
+       ],
+       [
+        "Decide what today's visit is for — watching on demand or being present live — and let that pick the first listing.",
+        "Match the format to the visit: on-demand suits browsing moods, live suits being-there moods."
+       ]
+      ]
+     },
+     {
+      "id": "in_fmt2",
+      "sentences": [
+       [
+        "Delivery is the deciding trait in {{category_name}}: everything here shares how the content reaches you, which turns format into the page's real organising question.",
+        "What binds {{category_name}} together is delivery — the listings share a format, and that single fixed trait shapes how the whole page is best used."
+       ],
+       [
+        "{{intent_clarity}}"
+       ],
+       [
+        "Settle the format question first — present or on-demand — and the rest of the browsing falls into order behind it.",
+        "Answer the when-question before the who-question; format themes reward that order."
+       ]
+      ]
+     }
+    ],
+    "age_style": [
+     {
+      "id": "in_age1",
+      "sentences": [
+       [
+        "{{category_name}} groups performers around an age-styled presentation — the theme describes the style a performer presents, and every platform behind these listings requires all performers to be adults.",
+        "The theme of {{category_name}} is presentation style associated with an age bracket; it describes how performers style themselves, and the platforms behind the listings admit adults only."
+       ],
+       [
+        "{{intent_clarity}}"
+       ],
+       [
+        "Style themes are broad by nature, so let each model page show its own version rather than expecting one uniform look.",
+        "Expect range inside the style: the label sets a direction, and the model pages show how differently performers take it."
+       ]
+      ]
+     },
+     {
+      "id": "in_age2",
+      "sentences": [
+       [
+        "A style search like {{primary_keyword}} is about presentation and energy, and the listings deliver a spread of takes on it rather than one fixed type.",
+        "{{primary_keyword}} names a presentation style, and the grouping honours it loosely — the shared theme is real, the individual takes on it differ."
+       ],
+       [
+        "{{intent_clarity}}"
+       ],
+       [
+        "Open the model pages that read closest to what you pictured; style themes are settled by specifics, not labels.",
+        "The label narrows the field; the model pages finish the job — go by their specifics."
+       ]
+      ]
+     }
+    ],
+    "language_location": [
+     {
+      "id": "in_lang1",
+      "sentences": [
+       [
+        "{{category_name}} groups performers around a language or regional presentation, and the practical point is communication — the theme suggests it, and each performer's own page is where to confirm it.",
+        "For {{category_name}}, the draw is usually communication: the theme groups performers by language or regional presentation, and what a performer actually speaks is theirs to state."
+       ],
+       [
+        "{{intent_clarity}}"
+       ],
+       [
+        "If language is the point of the visit, look for what each performer states about it rather than relying on the grouping alone.",
+        "Treat the theme as a pointer and the performer's own statements as the confirmation, especially where language matters."
+       ]
+      ]
+     },
+     {
+      "id": "in_lang2",
+      "sentences": [
+       [
+        "Communication is usually what brings visitors to {{category_name}}: the theme gathers performers around a language or regional presentation, and the confirmable detail sits on each performer's own page.",
+        "{{category_name}} answers a communication-shaped search — performers grouped by language or regional presentation, with the specifics living in what each one states."
+       ],
+       [
+        "{{intent_clarity}}"
+       ],
+       [
+        "Shortlist on the theme and verify stated languages before committing; that two-step keeps the visit honest.",
+        "Let the grouping suggest and the performer pages confirm — especially where being understood is the point."
+       ]
+      ]
+     }
+    ],
+    "activity_fetish": [
+     {
+      "id": "in_act1",
+      "sentences": [
+       [
+        "{{category_name}} groups listings around a specific activity or interest, which makes fit the whole game — the theme guarantees relevance, and the individual pages show whether the specifics line up.",
+        "The listings in {{category_name}} share a specific interest, so the browsing question is precision: which performer or clip matches the particular version of it you have in mind."
+       ],
+       [
+        "{{intent_clarity}}"
+       ],
+       [
+        "Specific interests reward specific checks: open the closest matches and confirm the details on their own pages before committing.",
+        "With a niche theme, the model and video pages are the real filter — the grouping gets you close, the pages get you exact."
+       ]
+      ]
+     },
+     {
+      "id": "in_act2",
+      "sentences": [
+       [
+        "Precision searches deserve precise pages, and {{category_name}} is one: the listings share a specific interest, so relevance is settled and fit is the open question.",
+        "{{category_name}} serves a specific interest, which changes the browsing math — everything here is relevant, and the work is matching particulars."
+       ],
+       [
+        "{{intent_clarity}}"
+       ],
+       [
+        "Check the closest matches at page level; a niche theme is decided in the details, never in the label.",
+        "Details decide niche themes — open the near matches and let the specifics separate them."
+       ]
+      ]
+     }
+    ],
+    "broad_discovery": [
+     {
+      "id": "in_broad1",
+      "sentences": [
+       [
+        "{{category_name}} is a wide theme, and wide themes are best used with a narrowing plan: pick the closest-looking listings first, then use their pages to move toward exactly what you want.",
+        "A broad grouping like {{category_name}} covers a lot of ground, so the useful move is to narrow early — choose the nearest matches here, then refine from their individual pages."
+       ],
+       [
+        "{{intent_clarity}}"
+       ],
+       [
+        "The model and video directories can widen the field again whenever this theme runs short; between them and this page, the whole site is reachable.",
+        "When this theme runs out of good candidates, the main model and video directories reopen the full field."
+       ]
+      ]
+     },
+     {
+      "id": "in_broad2",
+      "sentences": [
+       [
+        "{{category_name}} covers wide ground on purpose, and wide ground rewards an anchor: find the one listing nearest your intent and refine outward from its page.",
+        "Breadth is the feature of {{category_name}}, not the bug — the theme casts wide, and the visitor supplies the narrowing, one anchored pick at a time."
+       ],
+       [
+        "{{intent_clarity}}"
+       ],
+       [
+        "Three anchored picks usually turn a vague search into a specific destination; the theme just needs a starting point.",
+        "Start anywhere close, learn from the page, and pick again — broad themes converge fast under that loop."
+       ]
+      ]
+     }
+    ]
+   }
+  },
+  "expectations": {
+   "variants": {
+    "default": [
+     {
+      "id": "ex_d1",
+      "sentences": [
+       [
+        "The grouping tells you what the listings have in common; it says nothing about how any individual performer streams, chats, or prices their features.",
+        "What the listings share is the theme — how each performer actually runs their room, and what their platform charges for, stays individual."
+       ],
+       [
+        "Public and private access differ by platform, and pricing sits entirely with the destination platform and the performer.",
+        "Access and pricing are platform matters: what is open to watch and what costs money is decided on the destination platform, not here."
+       ],
+       [
+        "Reviewing the destination page before starting a session keeps the room you open aligned with what the listing suggested.",
+        "A quick look at the destination platform's own labels before engaging saves the mismatch between expectation and room."
+       ]
+      ]
+     },
+     {
+      "id": "ex_d2",
+      "sentences": [
+       [
+        "Expect the theme to hold and the details to vary: performers within one grouping differ in format, pacing, and what their platforms offer.",
+        "The reliable part is the theme; the variable part is everything else — format, style, and platform features all differ listing to listing."
+       ],
+       [
+        "How much information a profile carries also varies; some pages are detailed and some are minimal, and neither depth predicts the room itself.",
+        "Profile detail availability varies between performers, so a sparse page is not a verdict — it just moves the checking to the room or the clips."
+       ],
+       [
+        "Anchor decisions in what a performer's own page states, and let the destination platform's terms answer questions about features and cost.",
+        "The performer's own page plus the platform's own terms together answer nearly every practical question; the category can't and shouldn't."
+       ]
+      ]
+     },
+     {
+      "id": "ex_d3",
+      "sentences": [
+       [
+        "A category label is a filter, and filters are honest about only one thing: membership — every judgement beyond membership belongs to the individual pages.",
+        "Membership in the theme is the only guarantee this grouping makes; quality, style, and fit are judged one page at a time."
+       ],
+       [
+        "Platform features vary too, so identical-looking listings can lead to quite different rooms depending on where each performer streams.",
+        "Because platform features vary, two similar listings can behave differently once opened — the destination shapes the experience as much as the performer."
+       ],
+       [
+        "Treat the first click as reconnaissance rather than commitment; the second click, made after comparing, is usually the better one.",
+        "Make the first open a scouting visit; commit on the second, once at least one comparison exists."
+       ]
+      ]
+     },
+     {
+      "id": "ex_d4",
+      "sentences": [
+       [
+        "Set expectations at the level the page can honour: the theme is guaranteed, the individual experiences are not, and the gap between those is where the pages earn their place.",
+        "This page can honour exactly one promise — the theme — and everything past it is individual, which is precisely what the listing pages exist to sort."
+       ],
+       [
+        "Platform variation adds a second layer: identical-looking listings can behave differently at their destinations, since features and pricing are platform matters.",
+        "Beneath performer variation sits platform variation — destination features and pricing differ, and both layers shape what a listing becomes."
+       ],
+       [
+        "Held that way, the page delivers what it should: a strong starting field and honest uncertainty about the rest.",
+        "The honest reading gets the most from this page — a reliable field to choose from, with the specifics left to the sources that hold them."
+       ]
+      ]
+     },
+     {
+      "id": "ex_d5",
+      "sentences": [
+       [
+        "Two facts hold everywhere here: profile detail availability varies, and live status can change — neither says anything about quality, and both reward checking over assuming.",
+        "Carry two constants through the listings — detail depth varies and status moves — and let neither pass judgement on quality."
+       ],
+       [
+        "A quiet page or a closed room is a timing-and-depth fact, not a verdict; the clips and a later hour respectively answer both.",
+        "Quiet pages and closed rooms both have workarounds — content for the first, another hour for the second — and neither is a reason to strike a candidate."
+       ],
+       [
+        "The destination platform completes whatever picture the listing starts, which is the healthy division of labour to expect.",
+        "Expect the listing to start the picture and the platform to finish it; that split is how the path is built."
+       ]
+      ]
+     }
+    ],
+    "free_access_pricing": [
+     {
+      "id": "ex_free1",
+      "sentences": [
+       [
+        "The single most useful expectation to set here is what free covers: public viewing is typically open, while private sessions, requests, and personalised features are typically paid.",
+        "Set one expectation before anything else: free generally means public viewing, and the private or personalised side of a room is generally paid."
+       ],
+       [
+        "No listing on this page can promise that a specific feature costs nothing — that call belongs to the destination platform and the performer, and their labels are the source of truth.",
+        "Whether a specific room or feature is actually free is decided by the platform and the performer; check their own labels rather than assuming."
+       ],
+       [
+        "If cost is a deciding factor, read the destination page's terms before engaging beyond open viewing.",
+        "When budget matters, the platform's own pricing labels are the read that pays for itself."
+       ]
+      ]
+     },
+     {
+      "id": "ex_free2",
+      "sentences": [
+       [
+        "Free-themed browsing works best with a two-tier mental model: the open tier you can watch, and the paid tier where interaction and privacy live.",
+        "Think in two tiers here: an open tier for watching and a paid tier for interaction and privacy — most platforms are built exactly that way."
+       ],
+       [
+        "Each platform draws the line between the tiers in its own place, and performers configure their own rooms within it.",
+        "The tier boundary moves platform to platform and room to room, which is why the destination page is the only reliable map."
+       ],
+       [
+        "Enjoy the open tier freely, and treat any step past it as a decision worth a look at the platform's terms.",
+        "The open tier costs attention only; anything beyond it deserves a glance at the terms first."
+       ]
+      ]
+     }
+    ],
+    "body_type": [
+     {
+      "id": "ex_body1",
+      "sentences": [
+       [
+        "A body-type label is broad on purpose: it names the shared trait and stays silent on styling, format, and how each performer chooses to present.",
+        "The label here names one trait and nothing more — styling, energy, and format are individual choices the grouping doesn't touch."
+       ],
+       [
+        "Comparing visible profile details beats assuming from the category name; performers interpret the same theme in genuinely different ways.",
+        "Whatever details each profile provides do more work than the label; the same theme wears very differently across performers."
+       ],
+       [
+        "The theme belongs in the search, not on repeat in the judging — once inside the category, look at performers as individuals.",
+        "Once the trait has done its filtering job, retire it: the deciding differences between these listings are individual ones."
+       ]
+      ]
+     },
+     {
+      "id": "ex_body2",
+      "sentences": [
+       [
+        "Expect the trait, not a type: the grouping guarantees the former, and the latter simply doesn't exist inside a broad physical theme.",
+        "The guarantee is the trait; the variety is everything else, and inside a physical theme that variety is the actual selection."
+       ],
+       [
+        "Presentation ranges widely here, so a listing that undersells itself in a thumbnail may read entirely differently on its own page.",
+        "Thumbnails flatten a physical theme; the model pages restore the differences, which is where the choosing should happen."
+       ],
+       [
+        "Give two or three model pages a real look before deciding what this theme has to offer.",
+        "Reserve judgement until a few model pages are open; the theme's real range only shows at that level."
+       ]
+      ]
+     }
+    ],
+    "appearance_trait": [
+     {
+      "id": "ex_app1",
+      "sentences": [
+       [
+        "An appearance grouping promises the trait and nothing else — energy, style, and format remain individual, and they are what actually separates the listings.",
+        "The visible trait is settled by the grouping; what still varies — and what decides the pick — is style, energy, and format."
+       ],
+       [
+        "Profile detail availability varies, so where a page is thin, the clips or the room itself carry the introduction instead.",
+        "Some profiles explain a lot and some almost nothing; when the page is quiet, let the content do the introducing."
+       ],
+       [
+        "Match on the trait, choose on the rest — that split keeps appearance browsing quick and fair.",
+        "The trait qualified the listing; the rest of the page qualifies the pick."
+       ]
+      ]
+     },
+     {
+      "id": "ex_app2",
+      "sentences": [
+       [
+        "Expect the trait to be present and the rest to be open: an appearance grouping fixes exactly one visual detail and leaves style, energy, and format to each performer.",
+        "One visual detail is guaranteed across these listings; everything that actually distinguishes them — style, energy, format — stays individual."
+       ],
+       [
+        "Inside a shared look, small stated differences carry the weight, which makes reading a listing more useful than re-checking its image.",
+        "When the look is shared, wording separates: what performers state about themselves distinguishes what images can't."
+       ],
+       [
+        "Shortlist visually, decide textually — that division of labour suits appearance themes best.",
+        "Let images build the shortlist and pages make the choice; each does its half well."
+       ]
+      ]
+     },
+     {
+      "id": "ex_app3",
+      "sentences": [
+       [
+        "The dependable part of this theme is visual and the interesting part is not: expect the trait everywhere and the style nowhere twice.",
+        "Count on the trait and count against uniformity — the look repeats across these listings while the style refuses to."
+       ],
+       [
+        "Detail depth varies page to page as it does anywhere, and thin pages simply pass the introduction to the clips or the room.",
+        "Some pages introduce their performers thoroughly and some barely at all; the content stands in wherever the text stands down."
+       ],
+       [
+        "A pick made on style rather than on the shared trait is the pick that tends to hold.",
+        "Choose on what varies — style — rather than on what repeats, and the choice survives contact with the room."
+       ]
+      ]
+     }
+    ],
+    "ethnicity_regional": [
+     {
+      "id": "ex_eth1",
+      "sentences": [
+       [
+        "Treat the regional theme as presentation, full stop: it does not verify residence, nationality, or language, and assuming otherwise misreads what the grouping is.",
+        "The regional flavour here is presentational — it verifies nothing about where a performer lives, what passport they hold, or what languages they speak."
+       ],
+       [
+        "Details that actually matter, like language, are worth taking from what performers state about themselves rather than inferring from a label.",
+        "Where language or background matters to the visit, performer-stated details are the only fair source; the label was never built for that job."
+       ],
+       [
+        "Respectful browsing inside a heritage theme is mostly this: enjoy the presentation, and let performers define their own specifics.",
+        "The workable rule is simple — the theme guides taste, the performer's own words carry facts."
+       ]
+      ]
+     },
+     {
+      "id": "ex_eth2",
+      "sentences": [
+       [
+        "Expect a shared presentation rather than a shared biography; performers land in this grouping through how their profiles and clips read, not through documentation.",
+        "What unites these listings is a presentational theme — the grouping reads profiles and clips, it does not check papers."
+       ],
+       [
+        "That framing keeps the browsing honest: the theme is real as a style, and silent as a fact-claim about any individual.",
+        "Held that way, the label works well: true about the style, mute about personal facts."
+       ],
+       [
+        "Judge each room on the performer's actual presence rather than on expectations imported from the category name.",
+        "Let the performer in front of you outrank the label above them."
+       ]
+      ]
+     }
+    ],
+    "interaction_style": [
+     {
+      "id": "ex_int1",
+      "sentences": [
+       [
+        "With a session-style theme, the fair expectation is a shared format, not a shared personality — how any individual performer fills the format is theirs alone.",
+        "The grouping promises a style of session; it cannot and does not promise how a given performer will carry it on a given day."
+       ],
+       [
+        "What visitors can compare without guessing is how each performer describes their own sessions and which formats their platform supports.",
+        "The comparable facts are the stated ones: session descriptions and platform-supported formats — everything about personality stays a discovery."
+       ],
+       [
+        "Live rooms and recorded clips answer different questions here: clips show the style on demand, while the live side is where the interaction itself happens.",
+        "Recorded clips preview the style; the live room is the style — knowing which you want makes the picks easier."
+       ]
+      ]
+     },
+     {
+      "id": "ex_int2",
+      "sentences": [
+       [
+        "Format themes reward reading: the differences between these listings live in wording and stated approach more than in images.",
+        "In an interaction-led grouping, descriptions outweigh thumbnails — the substance of the theme is in how sessions are framed."
+       ],
+       [
+        "Where a performer says little about their approach, the recorded clips stand in as the demonstration.",
+        "Silence on a profile isn't a dead end; clips, where present on the video side, demonstrate what descriptions skip."
+       ],
+       [
+        "Pick the listing whose stated approach reads closest to the session you actually want.",
+        "The best first click is the listing whose own framing matches the session in your head."
+       ]
+      ]
+     }
+    ],
+    "content_format": [
+     {
+      "id": "ex_fmt1",
+      "sentences": [
+       [
+        "Format themes make one expectation explicit: how the content arrives — live or recorded — and everything else stays as varied as anywhere on the site.",
+        "The shared trait here is delivery — live or recorded — and beyond that single fixed point, the listings vary as widely as any others."
+       ],
+       [
+        "Live and recorded serve different visits: recorded rewards browsing and skipping, live rewards presence and timing.",
+        "On-demand content suits exploration; live content suits showing up — the same theme, two different visit shapes."
+       ],
+       [
+        "Decide which visit this one is, and half the browsing decisions make themselves.",
+        "Name the visit — watching or attending — and the listings sort themselves accordingly."
+       ]
+      ]
+     },
+     {
+      "id": "ex_fmt2",
+      "sentences": [
+       [
+        "The dependable expectation here is delivery: every listing shares its format, and beyond that single trait the range is as wide as the site itself.",
+        "Format is fixed across these listings and nothing else is — expect the delivery to match and the content to vary."
+       ],
+       [
+        "Live content answers to its own timing while recorded content answers to yours; the trade is convenience against presence.",
+        "The formats trade presence for convenience — rooms offer the first, clips the second, and the visit decides which matters."
+       ],
+       [
+        "Knowing which trade suits today makes every subsequent pick on this page simpler.",
+        "Name the trade you want and the listings sort themselves around it."
+       ]
+      ]
+     }
+    ],
+    "age_style": [
+     {
+      "id": "ex_age1",
+      "sentences": [
+       [
+        "A style theme tied to an age flavour is still a style theme: it describes presentation and energy, with every platform behind these listings restricted to adult performers.",
+        "Expect a styling direction rather than a birthdate: the theme is presentational, and the platforms involved admit adults only."
+       ],
+       [
+        "Inside the style, range is the norm — performers take the same direction to very different places, which the model pages make visible.",
+        "The direction is shared; the destinations differ — that spread is what the individual pages exist to show."
+       ],
+       [
+        "Let the model pages define the style in practice rather than holding them to one imagined version of it.",
+        "Hold the label loosely and the pages closely; that order gets the style right."
+       ]
+      ]
+     },
+     {
+      "id": "ex_age2",
+      "sentences": [
+       [
+        "Hold the style loosely: the theme names a presentation direction, performers take it to different places, and the platforms behind every listing admit adults only.",
+        "The label points at a styling direction rather than a fixed type — interpretations vary widely, and all performers on the platforms involved are adults."
+       ],
+       [
+        "Two takes on the same style can read completely differently, which is why the model pages, not the label, define what this theme offers.",
+        "The distance between interpretations is the real selection here; model pages map it, the label can't."
+       ],
+       [
+        "Sample a contrasting pair before settling — the style's range shows fastest in comparison.",
+        "Open two different takes side by side; the comparison teaches the theme quicker than any single page."
+       ]
+      ]
+     }
+    ],
+    "language_location": [
+     {
+      "id": "ex_lang1",
+      "sentences": [
+       [
+        "Where a language theme is the draw, expectation-setting is short: the grouping suggests, and each performer's own page confirms or corrects.",
+        "The theme gestures at language and region; confirmation belongs to what performers state on their own pages."
+       ],
+       [
+        "Communication is usually the real question here, and it is answered by performer-provided details, not by the category label.",
+        "If being understood is the point, look for stated languages — the label alone was never designed to carry that promise."
+       ],
+       [
+        "Check before committing, and the language question stops being a gamble.",
+        "One glance at what a performer says about language turns a guess into a plan."
+       ]
+      ]
+     },
+     {
+      "id": "ex_lang2",
+      "sentences": [
+       [
+        "Set the expectation where it belongs: the theme suggests a language or regional flavour, and each performer's own statements carry the confirmable part.",
+        "Expect suggestion from the grouping and confirmation from the performers — the theme gestures at language and region, their pages state the facts."
+       ],
+       [
+        "Where live conversation matters, stated languages are the detail worth finding before anything else.",
+        "Stated languages are the load-bearing detail for conversation-led visits; look for them first."
+       ],
+       [
+        "For watching rather than talking, the language question mostly dissolves — clips carry the theme without requiring a shared word.",
+        "Recorded content sidesteps language entirely, which keeps the video side open whatever you speak."
+       ]
+      ]
+     }
+    ],
+    "activity_fetish": [
+     {
+      "id": "ex_act1",
+      "sentences": [
+       [
+        "A specific-interest theme promises relevance, not exactness — the listings share the interest, and whether the particulars match yours is a page-level question.",
+        "Relevance is guaranteed by the grouping; exactness is not — the specific version of the interest varies listing to listing."
+       ],
+       [
+        "Where the details matter, the individual model and video pages carry them; the category level was never meant to hold that precision.",
+        "Precision lives one level down: open the pages, read the specifics, and the near-misses filter themselves out."
+       ],
+       [
+        "Platforms also differ in what they support and allow, so the destination page's own rules are part of the fit question.",
+        "What a platform permits and supports shapes the experience too — the destination's own rules complete the picture."
+       ]
+      ]
+     },
+     {
+      "id": "ex_act2",
+      "sentences": [
+       [
+        "Expect shared interest, not identical execution: the grouping guarantees the theme, while each listing represents its own particular version of it.",
+        "The theme is collective and the versions are individual — every listing here shares the interest and interprets it differently."
+       ],
+       [
+        "Whether a particular version fits is a page-level question, settled by what each performer or clip actually specifies.",
+        "Fit gets decided in the specifics, which live on the individual pages rather than at category level."
+       ],
+       [
+        "Destination platforms also set their own rules for what they host, and those rules are part of the practical picture.",
+        "Platform rules shape what's possible on the other end, so the destination's own terms belong in the assessment."
+       ]
+      ]
+     }
+    ],
+    "broad_discovery": [
+     {
+      "id": "ex_broad1",
+      "sentences": [
+       [
+        "A wide theme sets loose expectations by design: the listings share a general direction, and precision is something the visitor adds through narrowing.",
+        "Breadth is the point here, which means the expectations are directional — the sharpening happens as you narrow through individual pages."
+       ],
+       [
+        "The efficient pattern is choose-then-refine: pick the nearest matches, open their pages, and let each page suggest the next, tighter step.",
+        "Work coarse-to-fine: nearest matches first, their pages second, and progressively tighter picks from there."
+       ],
+       [
+        "The main model and video directories stay available for widening whenever a narrowing path dead-ends.",
+        "Dead ends aren't final — the model and video directories reopen the field in one step."
+       ]
+      ]
+     },
+     {
+      "id": "ex_broad2",
+      "sentences": [
+       [
+        "Expect direction rather than precision: a wide theme points at a general area, and the sharpening is work the visitor does through individual pages.",
+        "A broad grouping promises orientation, not exactness — it aims the browsing, and the refining happens page by page."
+       ],
+       [
+        "Every opened page teaches something about the real preference, which is why contact beats deliberation inside wide themes.",
+        "Wide themes are learned by opening things: each page sharpens what the search was actually for."
+       ],
+       [
+        "The main model and video directories back the whole process up whenever a narrowing path needs a restart.",
+        "A restart is always one step away through the model and video directories, so no narrowing path is a commitment."
+       ]
+      ]
+     }
+    ]
+   },
+   "headings": [
+    "What to Expect From These Listings",
+    "What {{category_name}} Actually Includes",
+    "Before You Start Clicking",
+    "A Realistic Look at This Category",
+    "What You Will and Won't Find Here"
+   ]
+  },
+  "browse_listings": {
+   "variants": {
+    "default": [
+     {
+      "id": "br_d1",
+      "sentences": [
+       [
+        "There is {{model_scale}} on the model side of this theme and {{video_scale}} on the video side, which sets the shape of the visit before the first click.",
+        "This theme currently spans {{model_scale}} and {{video_scale}}, and that balance is worth registering before diving in."
+       ],
+       [
+        "Start on whichever side matches the visit — profiles for choosing a performer, video pages for watching on demand — and let the other side fill gaps.",
+        "Lead with the side that fits today's purpose, profiles or videos, and treat the other as the backup plan."
+       ],
+       [
+        "Order of appearance carries no ranking here, so browse by genuine interest rather than by position on the page.",
+        "Nothing about listing order is a recommendation; interest, not position, should drive the opening clicks."
+       ]
+      ]
+     },
+     {
+      "id": "br_d2",
+      "sentences": [
+       [
+        "The model side of this theme offers {{model_scale}}, so a shortlist-first approach beats opening the first thing that appears.",
+        "With {{model_scale}} to work through on the performer side, shortlisting before opening keeps the visit efficient."
+       ],
+       [
+        "Note two or three candidates on a first pass, then open their pages together — differences show more clearly side by side.",
+        "A single scanning pass to collect candidates, then a comparing pass through their pages, is the fastest honest method."
+       ],
+       [
+        "The full directories at {{models_url}} and {{videos_url}} stay one step away if this theme turns out narrower than the visit needs.",
+        "If the theme runs thin, the complete model directory and video directory reopen the field without a new search."
+       ]
+      ]
+     },
+     {
+      "id": "br_d3",
+      "sentences": [
+       [
+        "On the video side this theme holds {{video_scale}}, which makes recorded browsing a real option alongside the live rooms.",
+        "The recorded side is genuinely stocked here — {{video_scale}} — so on-demand visits have material to work with."
+       ],
+       [
+        "Clips answer the style question without timing pressure; a performer whose clips land is a stronger live candidate later.",
+        "Recorded content doubles as scouting: what works in clips usually signals what a live visit will feel like."
+       ],
+       [
+        "Move between the two sides freely — a video page and a model page about the same performer complete each other.",
+        "The sides cross-reference: video pages point toward performers, model pages point toward their clips."
+       ]
+      ]
+     },
+     {
+      "id": "br_d4",
+      "sentences": [
+       [
+        "Give the listings one unhurried pass before committing anywhere; the differences that matter are visible at scanning speed once you know to look.",
+        "A deliberate first pass through the listings pays off — most of the deciding signal is visible without opening anything."
+       ],
+       [
+        "Wording in listing titles often signals focus better than images do, especially inside one visual theme.",
+        "Where images blur together within a theme, titles differentiate — read a few before choosing."
+       ],
+       [
+        "Then open the strongest two or three rather than the first one; comparison is cheap here and it sharpens the pick.",
+        "Open in small batches and compare; single-file browsing hides exactly the differences worth seeing."
+       ]
+      ]
+     },
+     {
+      "id": "br_d5",
+      "sentences": [
+       [
+        "The two sides of this theme divide the work: performer listings for choosing who, video pages for choosing what — and there is {{model_scale}} to choose among on the first side.",
+        "Who and what are separate questions here, answered by the performer side and the video side respectively; the performer side currently offers {{model_scale}}."
+       ],
+       [
+        "Answering the who-question first suits visitors with a person in mind; the what-question first suits visitors with a mood in mind.",
+        "Lead with whichever question is sharper today — a person in mind points at profiles, a mood in mind points at videos."
+       ],
+       [
+        "Neither route locks you in; the sides link back and forth, and switching costs a single click.",
+        "Routes here are reversible — the sides reference each other, so a wrong first turn costs one click."
+       ]
+      ]
+     },
+     {
+      "id": "br_d6",
+      "sentences": [
+       [
+        "A first pass through these listings is worth doing at reading speed rather than scrolling speed — the distinguishing details sit in the wording more than the images.",
+        "Slow the first pass to reading speed; inside a single theme, wording separates listings that images render nearly identical."
+       ],
+       [
+        "Collect candidates as you go instead of deciding as you go: a flagged shortlist compared at the end beats serial verdicts.",
+        "Defer the verdicts — flag candidates during the pass and compare them together at the end, where differences are visible."
+       ],
+       [
+        "The video side at {{videos_url}} runs on the same method whenever the visit is about watching rather than choosing.",
+        "The same method transfers to the video side whenever watching, not choosing, is the point of the visit."
+       ]
+      ]
+     }
+    ]
+   },
+   "headings": [
+    "Finding Your Way Through the Listings",
+    "A Practical Way to Work Through This Page",
+    "Browsing {{category_name}} Without Wasting Clicks",
+    "Where to Start on This Page",
+    "Working Through the Listings"
+   ]
+  },
+  "public_vs_private": {
+   "variants": {
+    "default": [
+     {
+      "id": "pp_d1",
+      "sentences": [
+       [
+        "Most platforms behind these listings separate open public viewing from private, paid interaction, and the boundary sits in a different place on each one.",
+        "The platforms these listings lead to typically split rooms into an open public side and a paid private side, with each platform drawing its own line."
+       ],
+       [
+        "Where exactly viewing ends and paying begins is stated on the destination page, and that statement outranks any assumption imported from a category.",
+        "The destination page's own labels are the authority on what is open and what is paid — assumptions don't survive contact with platform differences."
+       ],
+       [
+        "Knowing the split before settling in saves the common frustration of building interest in a feature that turns out to be gated.",
+        "A moment spent locating the free/paid boundary prevents the standard disappointment of hitting it mid-session."
+       ]
+      ]
+     },
+     {
+      "id": "pp_d2",
+      "sentences": [
+       [
+        "Watching and interacting are usually priced differently: public viewing tends to be the open end, while direct requests, private time, and personalised attention are typically paid.",
+        "The general pattern across platforms is open watching and paid interacting — requests, privacy, and personal attention sit on the paid side."
+       ],
+       [
+        "Performers configure their own rooms within their platform's rules, so even two rooms on the same platform can gate features differently.",
+        "Room setups vary within a single platform because performers configure their own — the platform sets the menu, the performer sets the table."
+       ],
+       [
+        "Treat each room's own labels as the final word on its features, and the browsing stays friction-free.",
+        "Room-level labels settle room-level questions; reading them is faster than guessing wrong."
+       ]
+      ]
+     },
+     {
+      "id": "pp_d3",
+      "sentences": [
+       [
+        "Private sessions can also make a performer temporarily unavailable to everyone else, which is worth knowing when a listed room appears closed.",
+        "A room that looks closed may simply be in a private session — platforms typically pull performers out of public view for those."
+       ],
+       [
+        "Live status can change through a visit, so a closed door now says nothing about ten minutes from now.",
+        "Status shifts during normal browsing; what's private this minute can be public the next."
+       ],
+       [
+        "When the live side is uncooperative, the video pages on this theme offer the no-timing alternative.",
+        "The recorded side ignores timing entirely — a useful fallback whenever live status refuses to cooperate."
+       ]
+      ]
+     },
+     {
+      "id": "pp_d4",
+      "sentences": [
+       [
+        "The open/paid split is the one structural fact worth carrying into every room: platforms typically keep public viewing open and gate interaction behind paid features.",
+        "One structural fact travels across all these listings — public watching tends to be open, and interaction tends to be paid, with each platform drawing its own line."
+       ],
+       [
+        "Performers arrange their own rooms inside that structure, so the split lands differently room to room even on a single platform.",
+        "Within the structure, rooms differ: performers configure their own, which moves the practical boundary around."
+       ],
+       [
+        "Reading a room's own labels before settling in turns the split from a surprise into a plan.",
+        "The room's own labels state where its line sits — reading them first keeps the visit on plan."
+       ]
+      ]
+     },
+     {
+      "id": "pp_d5",
+      "sentences": [
+       [
+        "Every room these listings lead to sits inside some platform's access structure, and the structures rhyme: an open side for watching, a paid side for interaction and privacy.",
+        "Access structures rhyme across platforms — open watching on one side, paid interaction and privacy on the other — even though the details never quite match."
+       ],
+       [
+        "The rhyme is useful and the details are decisive, which is why the destination page's own labels settle every practical question.",
+        "Useful as the pattern is, the specifics rule: the destination's own labels are where every practical question ends."
+       ],
+       [
+        "Visitors who read the labels first spend the visit on the content instead of on surprises.",
+        "Label-readers get the content; label-skippers get the surprises — the trade is that direct."
+       ]
+      ]
+     },
+     {
+      "id": "pp_d6",
+      "sentences": [
+       [
+        "Watching costs attention and interacting typically costs money — that single distinction organises almost every room behind these listings.",
+        "One distinction organises the rooms here: attention buys the watching, and money typically buys the interacting."
+       ],
+       [
+        "Where a specific feature falls is the platform's call, executed through the performer's own room setup.",
+        "Feature placement is decided platform by platform and configured room by room — twice removed from any directory page."
+       ],
+       [
+        "Taking ten seconds to locate the boundary in a new room converts it from an obstacle into a plan.",
+        "Locate the boundary early and it becomes a plan; discover it late and it becomes a disappointment."
+       ]
+      ]
+     }
+    ]
+   },
+   "headings": [
+    "Public Rooms vs Private Features",
+    "What Happens in Public and What Doesn't",
+    "Understanding Public and Private Access",
+    "The Line Between Watching and Interacting",
+    "Public Viewing, Private Sessions"
+   ]
+  },
+  "compare_profiles": {
+   "variants": {
+    "default": [
+     {
+      "id": "cp_d1",
+      "sentences": [
+       [
+        "When two listings look equally promising, their pages break the tie: whatever each performer states about themselves and their sessions is the comparable material.",
+        "Ties between listings are settled at page level — performer-stated details are the honest basis for choosing between similar candidates."
+       ],
+       [
+        "Similar stage names are common in this space, so confirming you are on the intended performer's page before engaging anywhere is a habit worth keeping.",
+        "Name collisions happen here; a quick identity check against the page you meant to open prevents the classic wrong-performer detour."
+       ],
+       [
+        "Where one page states more than another, weigh the difference without treating silence as a fault — detail availability simply varies.",
+        "A quieter page isn't a worse performer; profile detail varies, and thin pages just shift the evaluating to the content itself."
+       ]
+      ]
+     },
+     {
+      "id": "cp_d2",
+      "sentences": [
+       [
+        "Comparison works best in pairs: two candidate pages open together expose differences that sequential browsing smooths over.",
+        "Put two candidates side by side rather than in sequence — simultaneous comparison catches what one-at-a-time browsing misses."
+       ],
+       [
+        "The deciding details are usually small and stated: format, approach, and whatever each performer chooses to highlight.",
+        "Small stated differences — format, emphasis, approach — do most of the deciding once the theme has done its filtering."
+       ],
+       [
+        "Let the clearer, more specific page win close calls; specificity on a page tends to reflect care behind it.",
+        "In a dead heat, pick the page that tells you more — specificity is a reasonable proxy for effort."
+       ]
+      ]
+     },
+     {
+      "id": "cp_d3",
+      "sentences": [
+       [
+        "Before any outbound click, three things are worth a glance: the performer's name, what they state about their sessions, and which platform the listing points to.",
+        "Name, stated approach, and destination platform — a three-second check on those keeps outbound clicks landing where intended."
+       ],
+       [
+        "Platform matters because features differ: the same performer can offer a different experience depending on where they stream.",
+        "The destination shapes the session — platform feature differences are real, and they ride along with every outbound click."
+       ],
+       [
+        "That small ritual keeps the shortlist honest and the arrivals unsurprising.",
+        "Thirty seconds of page-checking buys arrivals that match expectations."
+       ]
+      ]
+     },
+     {
+      "id": "cp_d4",
+      "sentences": [
+       [
+        "Vague pages deserve a different strategy rather than a rejection: where the profile says little, the clips or the room itself carry the introduction.",
+        "A minimal profile just relocates the evaluation — the content introduces performers that their pages don't."
+       ],
+       [
+        "Judge the match against your original search, not against the other listings; the search you arrived with is the standard that matters.",
+        "The yardstick is the search that brought you here — listings compete against your intent, not against each other."
+       ],
+       [
+        "A shortlist of two survivors from that filter is nearly always enough to end the visit well.",
+        "Two intent-filtered finalists usually settle a visit; more than that is collecting, not choosing."
+       ]
+      ]
+     },
+     {
+      "id": "cp_d5",
+      "sentences": [
+       [
+        "Choosing between similar listings gets easier when the comparison has a axis: pick one dimension that matters — format, stated approach, energy — and rank the shortlist on it alone.",
+        "Give close comparisons a single axis — format, approach, or energy — and rank on that alone; multi-dimensional dithering is where shortlists go to stall."
+       ],
+       [
+        "One clear axis produces a decision; five vague ones produce another hour of browsing.",
+        "Decisions come from one sharp criterion; more criteria mostly buy more indecision."
+       ],
+       [
+        "Whatever the axis, the performer pages supply the data for it — that is what they are for.",
+        "The pages carry the data for any axis you pick; the choosing framework is yours, the details are theirs."
+       ]
+      ]
+     },
+     {
+      "id": "cp_d6",
+      "sentences": [
+       [
+        "Profiles reward a second read: the first pass registers the obvious, and the second catches the stated specifics that actually differentiate.",
+        "Read twice — the obvious surfaces on the first pass, and the differentiating specifics tend to hide until the second."
+       ],
+       [
+        "Two candidates surviving a second read is a finished search in everything but the final click.",
+        "When two candidates survive the second read, the search is effectively over; what remains is a preference call."
+       ],
+       [
+        "Make that final call against the original search rather than against each other — intent is the fairer judge.",
+        "Judge the finalists against what brought you here; head-to-head comparisons flatter the wrong qualities."
+       ]
+      ]
+     }
+    ]
+   },
+   "headings": [
+    "Comparing Performer Profiles",
+    "How to Tell Listings Apart",
+    "Choosing Between Similar Profiles",
+    "Reading a Profile Before You Commit",
+    "Picking the Right Profile From This Theme"
+   ]
+  },
+  "live_vs_recorded": {
+   "variants": {
+    "default": [
+     {
+      "id": "lr_d1",
+      "sentences": [
+       [
+        "Live rooms and recorded clips answer different needs: the live side offers presence and real-time interaction, while clips offer the style on demand without timing.",
+        "The live/recorded split is really a presence/convenience split — rooms give the real-time element, clips give the anytime element."
+       ],
+       [
+        "Clips also work as previews: a performer whose recorded material lands is a stronger candidate for a live visit later.",
+        "Recorded content scouts for the live side — clips that work usually predict rooms that will."
+       ],
+       [
+        "Neither side is the lesser option; they suit different visits, and this theme supports both.",
+        "Both formats earn their place here — the right one depends on the visit, not on any ranking between them."
+       ]
+      ]
+     },
+     {
+      "id": "lr_d2",
+      "sentences": [
+       [
+        "Choosing between the formats is mostly choosing what today's visit is for: watching something now, or being present while it happens.",
+        "The format question reduces to the visit question — on-demand watching or live presence — and answers itself once the visit is named."
+       ],
+       [
+        "Timing only constrains the live side; the recorded side is indifferent to when you arrive.",
+        "Only live content cares what time it is; clips wait."
+       ],
+       [
+        "Mixing works too: clips to shortlist performers, live rooms to meet the shortlist.",
+        "A blended visit — shortlist on clips, follow through live — uses each format for what it does best."
+       ]
+      ]
+     },
+     {
+      "id": "lr_d3",
+      "sentences": [
+       [
+        "What clips can't carry is the interactive element: chat, responsiveness, and requests exist only in the rooms themselves.",
+        "Interaction is the live side's monopoly — no clip reproduces the chat, the responsiveness, or the request-and-response of a room."
+       ],
+       [
+        "What rooms can't guarantee is availability on your schedule, which is exactly the gap the recorded side fills.",
+        "Rooms answer to their own timing; the recorded side answers to yours — together they cover the clock."
+       ],
+       [
+        "Knowing which element matters for this visit points directly at the right side of the theme.",
+        "Pick the element the visit needs — interaction or convenience — and the format picks itself."
+       ]
+      ]
+     },
+     {
+      "id": "lr_d4",
+      "sentences": [
+       [
+        "The formats answer different questions: rooms answer who is present and responsive right now, clips answer what the style looks like whenever you ask.",
+        "Rooms and clips split the theme's questions between them — presence and responsiveness live in rooms, on-demand style lives in clips."
+       ],
+       [
+        "Neither answer replaces the other, which is why moving between the sides mid-visit is a feature rather than indecision.",
+        "Switching sides mid-visit is using the theme correctly — the formats complement rather than compete."
+       ],
+       [
+        "Start on the side today's question lives on, and keep the other in reserve.",
+        "Lead with the side that answers today's question; the reserve side isn't going anywhere."
+       ]
+      ]
+     },
+     {
+      "id": "lr_d5",
+      "sentences": [
+       [
+        "The clock is the real difference between the formats: live rooms happen on their schedule, recorded clips happen on yours.",
+        "Strip the formats to their core difference and it's the clock — rooms run on their time, clips run on yours."
+       ],
+       [
+        "That difference decides more visits than taste does; the format that fits the hour usually wins the session.",
+        "Hour beats taste surprisingly often here — the format that fits the moment tends to take the visit."
+       ],
+       [
+        "Both formats live inside this theme, so the choice never costs the theme itself.",
+        "Whichever format wins, the theme holds — both sides carry it in full."
+       ]
+      ]
+     },
+     {
+      "id": "lr_d6",
+      "sentences": [
+       [
+        "Recorded content is the theme's memory and live content is its present tense; browsing both gives the fullest read on any performer.",
+        "Clips are the record and rooms are the moment — a performer read through both is a performer actually known."
+       ],
+       [
+        "A clip that holds attention is the best predictor available for a room that will.",
+        "Attention held by a clip predicts attention held by a room; the recorded side is the live side's best scout."
+       ],
+       [
+        "Order the visit accordingly: sample recorded, shortlist, then go live on the survivors.",
+        "Sample, shortlist, attend — recorded first, live second, and the shortlist earns its name."
+       ]
+      ]
+     }
+    ]
+   },
+   "headings": [
+    "Live Rooms and Recorded Clips",
+    "When to Choose Live, When to Choose Video",
+    "Two Ways Into the Same Theme",
+    "Live Streams vs Video Pages",
+    "Deciding Between Live and Recorded"
+   ]
+  },
+  "discovery_advice": {
+   "variants": {
+    "default": [
+     {
+      "id": "da_d1",
+      "sentences": [
+       [
+        "When a listing is close but not exact, note what was off — style, format, or platform — and let that observation steer the next pick.",
+        "Near-misses are data: registering what didn't fit about a close listing sharpens every pick that follows."
+       ],
+       [
+        "Two or three deliberate picks made that way usually beat a long unstructured scroll through everything.",
+        "A handful of informed picks outperforms an exhaustive scroll — precision compounds faster than volume."
+       ],
+       [
+        "The directories at {{models_url}} and {{videos_url}} reset the field whenever this theme stops producing candidates.",
+        "When the theme runs dry, the full model and video directories restart the search from the widest possible field."
+       ]
+      ]
+     },
+     {
+      "id": "da_d2",
+      "sentences": [
+       [
+        "Refining works in both directions from here: the individual pages narrow toward specifics, and the main directories widen back out.",
+        "This page sits between two useful moves — down into individual pages for precision, out to the directories for range."
+       ],
+       [
+        "Related themes such as {{related_1}} approach similar ground from a different angle when this one only partly fits.",
+        "A partial fit here often means a full fit nearby — {{related_1}} covers adjacent ground with a different emphasis."
+       ],
+       [
+        "Choosing the direction deliberately — narrower or wider — keeps a browsing session from circling.",
+        "Sessions stall when the direction is accidental; naming it, tighter or broader, keeps momentum."
+       ]
+      ]
+     },
+     {
+      "id": "da_d3",
+      "sentences": [
+       [
+        "A workable rule for any theme: open the closest match first, extract what it teaches about your actual preference, and apply that to pick two.",
+        "Let the first open teach the second: the closest match, even when imperfect, clarifies what the real preference is."
+       ],
+       [
+        "Preferences sharpen quickly with contact — most visitors know noticeably more about what they want after one page than before it.",
+        "One opened page recalibrates a search better than ten scanned thumbnails; contact beats speculation."
+       ],
+       [
+        "Three iterations of that loop typically lands somewhere worth staying.",
+        "The open-learn-repick loop converges fast — usually within three passes."
+       ]
+      ]
+     }
+    ],
+    "free_access_pricing": [
+     {
+      "id": "da_free1",
+      "sentences": [
+       [
+        "For free-focused browsing, the efficient check is early: confirm what a room's platform keeps open before investing attention in the room itself.",
+        "Front-load the access check when free viewing is the goal — knowing the platform's open/paid split first keeps the attention spend honest."
+       ],
+       [
+        "Rooms differ in how much happens publicly, so sampling a few candidates briefly beats settling into the first one blind.",
+        "Brief sampling across candidates reveals which rooms keep their public side lively — worth knowing before choosing where to stay."
+       ],
+       [
+        "The recorded side of the theme also carries no timing cost, which makes clips the low-commitment complement to room browsing.",
+        "Clips cost nothing but attention, making the video side a natural companion to free-focused room browsing."
+       ]
+      ]
+     },
+     {
+      "id": "da_free2",
+      "sentences": [
+       [
+        "A free-led visit stays efficient when the access check comes first: know what each candidate room's platform keeps open before spending attention on the room.",
+        "Order matters in free-focused browsing — verify the open/paid split early, then let taste take over from there."
+       ],
+       [
+        "The open sides of rooms differ in liveliness, so a quick sample of two or three candidates outperforms committing to the first.",
+        "Sampling breadth beats early commitment here; the public sides of rooms vary more than their thumbnails suggest."
+       ],
+       [
+        "Clips complete the free toolkit: the video side asks nothing but attention, whatever the hour.",
+        "The recorded side rounds out a free-led visit — no timing, no terms to check, just the theme on demand."
+       ]
+      ]
+     }
+    ],
+    "body_type": [
+     {
+      "id": "da_body1",
+      "sentences": [
+       [
+        "Within a physical theme, discovery means moving past the shared trait quickly — the trait qualified everyone here, so the differentiators are elsewhere.",
+        "The shared trait stops being useful the moment you arrive; discovery inside this theme runs on the other differences."
+       ],
+       [
+        "Presentation, format, and stated approach separate these listings far more than the category name suggests.",
+        "What separates the listings is presentation and approach — dimensions the physical label doesn't touch."
+       ],
+       [
+        "Resist re-filtering by the trait itself; that only reproduces the category and stalls the narrowing.",
+        "Filtering by the trait again just rebuilds this page — narrow on anything else and progress resumes."
+       ]
+      ]
+     },
+     {
+      "id": "da_body2",
+      "sentences": [
+       [
+        "Once inside a physical theme, retire the trait as a filter — it already did its work, and every remaining difference lives elsewhere.",
+        "The trait's filtering job ended when this page loaded; discovery from here runs on presentation, format, and stated approach."
+       ],
+       [
+        "Stated approach and format separate these listings far better than another pass over the shared feature.",
+        "Look past the common feature to what each listing states and offers — that's where the actual choices are."
+       ],
+       [
+        "A shortlist chosen on those other axes is what this page is for; the trait guaranteed relevance, the rest decides fit.",
+        "Relevance came free with the category; fit is chosen on everything the category name doesn't mention."
+       ]
+      ]
+     }
+    ],
+    "appearance_trait": [
+     {
+      "id": "da_app1",
+      "sentences": [
+       [
+        "Appearance themes narrow best through format and style: with the visual trait fixed, those are the axes with actual variance left.",
+        "With the look settled by the grouping, format and style hold the remaining variance — narrow along those."
+       ],
+       [
+        "Listings whose titles state an approach are giving away free signal; inside a visual theme, wording differentiates.",
+        "Stated approach in a title is high-value inside an appearance theme — it differentiates where images can't."
+       ],
+       [
+        "A same-trait, different-style shortlist is the natural output of this page used well.",
+        "Done right, this page yields a shortlist united by trait and separated by style — exactly the useful shape."
+       ]
+      ]
+     },
+     {
+      "id": "da_app2",
+      "sentences": [
+       [
+        "Appearance themes reward reading over looking: with the visual trait shared page-wide, titles and stated details carry the distinguishing signal.",
+        "When every listing shares the look, words differentiate — titles and stated approaches split a visually uniform field quickly."
+       ],
+       [
+        "Format is the other live axis: live rooms and recorded clips serve the same trait to different visits.",
+        "The format split still applies inside the trait — rooms for presence, clips for convenience, same look either way."
+       ],
+       [
+        "Shortlists built on wording plus format tend to survive contact with the actual pages.",
+        "Choose on wording and format, confirm on the page — that route through an appearance theme rarely backtracks."
+       ]
+      ]
+     },
+     {
+      "id": "da_app3",
+      "sentences": [
+       [
+        "Inside a shared look, discovery runs on contrast: pull two listings whose wording reads differently and let the difference teach what the theme contains.",
+        "Contrast is the discovery engine here — two differently-worded listings opened together map the theme faster than any solo deep-dive."
+       ],
+       [
+        "Format adds a second axis whenever the first stalls: the same trait reads differently live than recorded.",
+        "When style comparisons stall, pivot to format — live and recorded carry the same trait to different effect."
+       ],
+       [
+        "Each contrast tried sharpens the next pick; three rounds of that usually finishes the search.",
+        "The contrast loop converges quickly — a few rounds turn a uniform-looking field into a clear order."
+       ]
+      ]
+     }
+    ],
+    "ethnicity_regional": [
+     {
+      "id": "da_eth1",
+      "sentences": [
+       [
+        "Discovery inside a heritage theme works best on performer-stated ground: language, format, and approach, as each performer describes them.",
+        "Narrow on what performers state — language, format, approach — and the heritage theme stays both useful and fair."
+       ],
+       [
+        "The presentation drew the visit; the individual details close it — and those details belong to each performer's own page.",
+        "Presentation opens the door, performer-provided specifics decide who walks through it."
+       ],
+       [
+        "Where the theme only partly fits, {{related_1}} approaches nearby ground with a different flavour.",
+        "Adjacent themes like {{related_1}} carry a different regional flavour when this one is close but not it."
+       ]
+      ]
+     },
+     {
+      "id": "da_eth2",
+      "sentences": [
+       [
+        "Keep discovery on stated ground inside a heritage theme: language, format, and approach as performers describe them are the axes that narrow fairly.",
+        "The fair narrowing axes here are performer-stated ones — language, format, approach — not inferences drawn from the label."
+       ],
+       [
+        "A presentation drew the visit; performer-provided specifics finish it, and they live on the individual pages.",
+        "Presentation opens the browsing and stated details close it; the pages hold the second half."
+       ],
+       [
+        "When the flavour is close but not it, the related themes linked above carry the nearest different takes.",
+        "Near-miss flavours point sideways — the neighbouring themes hold the adjacent versions."
+       ]
+      ]
+     }
+    ],
+    "interaction_style": [
+     {
+      "id": "da_int1",
+      "sentences": [
+       [
+        "For a session-style theme, the discovery currency is descriptions: how performers frame their own rooms is the best pre-click signal available.",
+        "Descriptions are the signal here — a performer's own framing of their sessions predicts the room better than anything visual."
+       ],
+       [
+        "Clips demonstrate the style where words are thin; a recorded session shows the format in motion.",
+        "Where framing is sparse, the video side demonstrates — recorded sessions show the style words would have described."
+       ],
+       [
+        "Match stated style to wanted session, and the shortlist mostly builds itself.",
+        "Stated style versus wanted session is the whole matching problem; solve it and the picks follow."
+       ]
+      ]
+     },
+     {
+      "id": "da_int2",
+      "sentences": [
+       [
+        "Session-style discovery runs on framing: how performers describe their own rooms predicts the experience better than anything visual on the page.",
+        "In a style-led theme, the descriptions are the data — a performer's own framing of their sessions is the strongest pre-click signal."
+       ],
+       [
+        "Where words run thin, recorded clips demonstrate: a session on video shows the style that a sparse profile skipped describing.",
+        "Clips back up quiet profiles — the recorded side demonstrates the style whenever the stated side goes quiet."
+       ],
+       [
+        "Match stated approach to the session you actually want and the shortlist assembles itself.",
+        "Approach-to-appetite matching is the whole method here; run it and the picks follow."
+       ]
+      ]
+     }
+    ],
+    "content_format": [
+     {
+      "id": "da_fmt1",
+      "sentences": [
+       [
+        "Format themes narrow naturally by visit type: on-demand visits work the video side, presence visits work the live side, and the split does the sorting.",
+        "Let the visit type route the browsing — recorded for on-demand moods, live for presence moods — and the theme organises itself."
+       ],
+       [
+        "Cross-referencing pays here: a clip that lands points at a performer, and that performer's page points back at more material.",
+        "The sides feed each other — clips surface performers, performer pages surface more clips."
+       ],
+       [
+        "The directories at {{models_url}} and {{videos_url}} hold the full field when the theme's own supply runs short.",
+        "Full-field browsing stays one step away via the model and video directories."
+       ]
+      ]
+     },
+     {
+      "id": "da_fmt2",
+      "sentences": [
+       [
+        "Route the browsing by visit type: on-demand moods work the video side, presence moods work the live side, and the theme's format split does the sorting.",
+        "Let today's visit choose the side — recorded for watching whenever, live for being there — and the format theme organises itself."
+       ],
+       [
+        "The sides trade candidates constantly: a clip that lands points at a performer, whose page points at more clips.",
+        "Cross-referencing pays double here; clips surface performers and performers surface clips, each side feeding the other."
+       ],
+       [
+        "The full model and video directories hold the wider field for whenever the theme's own supply runs short.",
+        "When this theme thins out, the two main directories reopen the complete field one step away."
+       ]
+      ]
+     }
+    ],
+    "age_style": [
+     {
+      "id": "da_age1",
+      "sentences": [
+       [
+        "Style themes narrow through interpretation: each performer's take on the shared direction is the real selection, so sample takes rather than hunting one imagined ideal.",
+        "The discovery unit here is the interpretation — sample how differently performers carry the style before fixing on one version of it."
+       ],
+       [
+        "A take that stretches the style often fits better than one that matches the mental image exactly; keep the net a little wide.",
+        "Slightly-off takes frequently outperform exact matches inside a style theme — a wider first net catches them."
+       ],
+       [
+        "Two contrasting interpretations opened together teach the style's range faster than anything else on the page.",
+        "Open two contrasting takes side by side — the comparison maps the style's range in one move."
+       ]
+      ]
+     },
+     {
+      "id": "da_age2",
+      "sentences": [
+       [
+        "Sample interpretations rather than hunting an ideal: the style is a shared direction, and each performer's take on it is the actual unit of choice.",
+        "The choosing unit in a style theme is the interpretation — collect a few contrasting takes before deciding what the style means here."
+       ],
+       [
+        "Keep the first net wide; takes that stretch the style often fit better than the ones that match the mental image exactly.",
+        "Slightly-off interpretations regularly beat exact matches, which argues for a generous first pass."
+       ],
+       [
+        "Two contrasting model pages opened together map the style's range faster than any amount of scrolling.",
+        "One side-by-side of two different takes teaches the theme's spread in a single move."
+       ]
+      ]
+     }
+    ],
+    "language_location": [
+     {
+      "id": "da_lang1",
+      "sentences": [
+       [
+        "Where language drives the visit, discovery is a verification loop: shortlist on the theme, then confirm stated languages page by page.",
+        "The loop for language-led browsing is shortlist-then-verify — the theme suggests, the performer pages confirm."
+       ],
+       [
+        "Performers who state their languages remove the guesswork; prioritising those pages keeps the loop short.",
+        "Stated languages are the shortcut — pages that declare them close the question immediately."
+       ],
+       [
+        "Format still matters alongside language: live rooms exercise communication in real time, clips don't require it at all.",
+        "Weigh format too — live rooms make language matter moment to moment, while clips sidestep it entirely."
+       ]
+      ]
+     },
+     {
+      "id": "da_lang2",
+      "sentences": [
+       [
+        "Language-led discovery is a two-step loop: shortlist on the theme, then confirm stated languages performer by performer before committing.",
+        "Run the loop — theme first, stated languages second — and the communication question stops being a gamble."
+       ],
+       [
+        "Pages that declare languages close the question instantly; prioritising them keeps the loop short.",
+        "Declared languages are the shortcut through this theme — pages that state them answer the visit's main question up front."
+       ],
+       [
+        "Format matters alongside: rooms exercise communication in real time, while clips never need it.",
+        "Weigh format with language — live rooms make it matter every minute, recorded clips make it optional."
+       ]
+      ]
+     }
+    ],
+    "activity_fetish": [
+     {
+      "id": "da_act1",
+      "sentences": [
+       [
+        "Niche themes narrow through specifics: the interest is shared page-wide, so the discovery question is whose version of it matches yours.",
+        "Everyone here shares the interest; discovery is about versions — the particular take each listing represents."
+       ],
+       [
+        "Platform rules shape what's possible too, so the destination's own terms belong in the fit assessment.",
+        "What a platform permits is part of the match — destination rules can include or exclude the specifics that matter."
+       ],
+       [
+        "When this theme is adjacent to the real target, {{related_1}} may hold the exact variant.",
+        "The exact variant sometimes lives one theme over — {{related_1}} is the nearest place to check."
+       ]
+      ]
+     },
+     {
+      "id": "da_act2",
+      "sentences": [
+       [
+        "Everyone on this page shares the interest, so discovery is version-hunting: the particular take each listing represents is what separates them.",
+        "With relevance guaranteed, the search becomes about versions — which listing carries the specific take you came for."
+       ],
+       [
+        "The destination's own rules belong in the assessment too, since platforms differ in what they support and allow.",
+        "Platform rules can include or exclude the specifics that matter, which makes the destination's terms part of the match."
+       ],
+       [
+        "When the exact variant lives one theme over, {{related_1}} is the nearest place to look.",
+        "The neighbouring theme {{related_1}} sometimes holds the precise variant this one approaches."
+       ]
+      ]
+     }
+    ],
+    "broad_discovery": [
+     {
+      "id": "da_broad1",
+      "sentences": [
+       [
+        "A wide theme needs a narrowing strategy, and the reliable one is anchoring: pick the single listing closest to the goal and treat its page as the new starting point.",
+        "Anchor-and-refine tames broad themes — one closest-match listing becomes the reference that every next pick improves on."
+       ],
+       [
+        "Each opened page sharpens the target; three anchors in, the search that started vague is usually specific.",
+        "Vague searches specify themselves through contact — a few anchored picks turn direction into destination."
+       ],
+       [
+        "The model directory at {{models_url}} and the video directory at {{videos_url}} bound the search space; everything reachable is reachable from those two and this page.",
+        "Between this theme and the two main directories, the whole field is coverable — no other map is needed."
+       ]
+      ]
+     },
+     {
+      "id": "da_broad2",
+      "sentences": [
+       [
+        "Tame the width with an anchor: the single closest-looking listing becomes the reference point, and every following pick improves on it.",
+        "Anchoring beats scrolling in wide themes — one nearest-match listing turns the whole page into a comparison exercise."
+       ],
+       [
+        "Vague intent specifies itself through contact; a few anchored opens turn a direction into a destination.",
+        "The search sharpens as pages open — three anchored picks usually get from vague to specific."
+       ],
+       [
+        "Between this theme and the directories at {{models_url}} and {{videos_url}}, the entire field stays coverable without a new search.",
+        "This page plus the two main directories cover everything reachable; no additional map is required."
+       ]
+      ]
+     }
+    ]
+   },
+   "headings": [
+    "Getting More Out of This Theme",
+    "Discovery Tips for {{category_name}}",
+    "Sharpening Your Search Within This Style",
+    "Making This Category Work Harder",
+    "Beyond the First Page of Listings"
+   ]
+  },
+  "privacy_safety": {
+   "variants": {
+    "default": [
+     {
+      "id": "ps_d1",
+      "sentences": [
+       [
+        "Whatever the platform, the sensible defaults hold: share personal information sparingly, and treat requests for it with the caution they deserve.",
+        "The privacy basics travel across platforms — personal details stay personal, and unusual requests for them deserve suspicion."
+       ],
+       [
+        "Each destination platform publishes its own terms and safety rules; a first visit is a fine time to skim them.",
+        "Platform terms differ, and they're worth a skim on arrival — the rules of the room are the platform's, not this site's."
+       ],
+       [
+        "Payment questions likewise belong on the platform's own pages, handled through its own systems.",
+        "Anything involving payment should live inside the platform's own flow — that boundary protects both sides."
+       ]
+      ]
+     },
+     {
+      "id": "ps_d2",
+      "sentences": [
+       [
+        "Confirm you're on the intended performer's page before engaging or paying anywhere; similar names are common enough to make the check routine.",
+        "The identity check — right performer, right page — is thirty seconds that prevents the most common mix-up in this space."
+       ],
+       [
+        "Review a platform's terms before using its paid features; the rules governing sessions are set there and nowhere else.",
+        "Paid features run on platform rules, so reading those rules before paying is the only informed way in."
+       ],
+       [
+        "Comfort matters as much as compliance: a room that pressures past your boundaries is a room to leave.",
+        "Boundaries outrank momentum — leaving a pushy room is always the right call."
+       ]
+      ]
+     },
+     {
+      "id": "ps_d3",
+      "sentences": [
+       [
+        "Interaction is a two-way street with rules on both sides: performers set their room's terms, platforms enforce them, and visitors choose their level of participation.",
+        "Rooms run on layered rules — the performer's, the platform's, and your own — and respecting all three keeps sessions comfortable."
+       ],
+       [
+        "Nothing about browsing this directory requires sharing anything; participation decisions all happen later, on the platforms.",
+        "Directory browsing is commitment-free by design — every sharing or paying decision waits until a platform is involved."
+       ],
+       [
+        "Keeping that separation in mind makes the whole path — listing to page to platform — easy to walk at your own pace.",
+        "The path from listing to platform has natural checkpoints; use them at whatever pace suits."
+       ]
+      ]
+     },
+     {
+      "id": "ps_d4",
+      "sentences": [
+       [
+        "The browsing itself asks nothing of you — no details, no commitments — and every real decision waits until a destination platform is involved.",
+        "Nothing on this side of the visit requires sharing anything; the decisions with weight all live on the platform side."
+       ],
+       [
+        "That separation is worth using deliberately: browse freely here, and switch to a more careful gear when a platform's forms and features appear.",
+        "Two gears suit the two stages — a free browsing gear here, a careful gear once a platform starts asking questions."
+       ],
+       [
+        "Platforms publish their own terms for that second stage, and a skim on arrival is the cheap version of informed.",
+        "The platform's terms cover the careful stage; skimming them on arrival buys informed participation cheaply."
+       ]
+      ]
+     },
+     {
+      "id": "ps_d5",
+      "sentences": [
+       [
+        "Comfort is a legitimate filter at every step: a room, a request, or a feature that sits wrong is reason enough to step back, no justification required.",
+        "Treat comfort as a first-class criterion — anything that sits wrong is worth leaving, and no further reason is owed."
+       ],
+       [
+        "Performers run their rooms by their rules and platforms enforce theirs; your rules govern your participation, and all three sets deserve respect.",
+        "Three rulebooks operate in every session — the performer's, the platform's, and yours — and the session works when all three hold."
+       ],
+       [
+        "Sessions entered at your own pace, on confirmed pages, under read terms, have very little left to go wrong.",
+        "Pace chosen, page confirmed, terms read — that combination removes nearly everything avoidable."
+       ]
+      ]
+     }
+    ]
+   },
+   "headings": [
+    "Privacy and Safety Basics",
+    "Browsing Safely",
+    "A Few Sensible Precautions",
+    "Protecting Yourself While You Browse",
+    "Safety Notes Worth Thirty Seconds"
+   ]
+  },
+  "platform_links": {
+   "variants": {
+    "default": [
+     {
+      "id": "pl_d1",
+      "sentences": [
+       [
+        "The listings here are the site's own model and video pages; the platforms where performers actually stream sit one step further out.",
+        "Structurally, this page leads to the site's model and video pages, and those lead outward to the platforms where the streaming happens."
+       ],
+       [
+        "Features, pricing, and availability are all controlled at that platform level — the destination decides what a session can be.",
+        "Everything operational — features, cost, availability — is a destination-platform matter, decided where the performer streams."
+       ],
+       [
+        "Treat the platform page as the operative source once you've chosen a performer; it holds the current, binding version of every practical detail.",
+        "After the choice is made, the platform page takes over as the source of record for every practical question."
+       ]
+      ]
+     },
+     {
+      "id": "pl_d2",
+      "sentences": [
+       [
+        "Different platforms offer genuinely different experiences: room mechanics, feature sets, and pricing models vary between them.",
+        "Platform choice shapes sessions — mechanics, features, and pricing differ enough between platforms to matter."
+       ],
+       [
+        "The same theme can therefore feel different room to room, purely from where each performer streams.",
+        "Two rooms in one theme can diverge sharply just on platform grounds — the venue is part of the experience."
+       ],
+       [
+        "Registering which platform a session would happen on, before committing to it, removes the last surprise from the path.",
+        "Knowing the venue before committing is the final check — after it, arrivals hold no surprises."
+       ]
+      ]
+     },
+     {
+      "id": "pl_d3",
+      "sentences": [
+       [
+        "Live status is a platform-level fact: whether a performer is streaming right now is answered where they stream, not on a directory page.",
+        "Only the destination platform knows who is live this minute — directory pages group by theme, not by current status."
+       ],
+       [
+        "Status also changes through the day, so a quiet moment now implies nothing about later.",
+        "Live status can change within a single visit; quiet now doesn't mean quiet in an hour."
+       ],
+       [
+        "When timing frustrates, the video side of this theme is the timing-proof alternative.",
+        "The recorded side ignores the clock — the standing alternative whenever timing is the obstacle."
+       ]
+      ]
+     },
+     {
+      "id": "pl_d4",
+      "sentences": [
+       [
+        "Structurally the path runs listing, page, platform — and each step knows things the previous one doesn't, ending at the platform that knows everything operational.",
+        "The path has three steps with rising authority: the listing knows the theme, the page knows the performer, and the platform knows the operations."
+       ],
+       [
+        "Asking each step only what it knows keeps the visit smooth: theme questions here, performer questions on the pages, feature and price questions at the destination.",
+        "Match questions to steps — theme here, performer at the page, price and features at the platform — and no step disappoints."
+       ],
+       [
+        "The platform's answers are also the only binding ones, which makes it the right place for every question that involves money.",
+        "Money questions belong exclusively to the platform step; its answers are the only ones that bind."
+       ]
+      ]
+     },
+     {
+      "id": "pl_d5",
+      "sentences": [
+       [
+        "Where a performer streams shapes what a session can be: platforms differ in mechanics, features, and pricing models, and those differences ride along with every listing.",
+        "The venue travels with the performer — platform mechanics, features, and pricing shape sessions as much as the person on camera does."
+       ],
+       [
+        "Two appealing listings can therefore lead to two very different experiences for reasons no directory page can show.",
+        "Similar listings can diverge sharply at the destination, and the divergence is invisible from here by design."
+       ],
+       [
+        "Registering the destination before committing is the last check with real leverage in the whole path.",
+        "The destination check is the final high-leverage move — after it, what you expect and what you get should match."
+       ]
+      ]
+     }
+    ]
+   },
+   "headings": [
+    "About the Destination Platforms",
+    "Where a Chosen Listing Leads",
+    "Platforms, Features, and Pricing",
+    "From This Page to the Platform",
+    "What the Destination Decides"
+   ]
+  },
+  "availability": {
+   "variants": {
+    "default": [
+     {
+      "id": "av_d1",
+      "sentences": [
+       [
+        "A listing here means theme membership, not live presence — the two are different facts, and only the destination platform holds the second one.",
+        "Being listed and being live are separate things; this page establishes the first, and the performer's platform reports the second."
+       ],
+       [
+        "Live status can change at any point, so it's a thing to check at the moment it matters rather than to assume in advance.",
+        "Status is a now-fact: check it when you need it, because it can shift between any two moments of a visit."
+       ],
+       [
+        "Building a shortlist first and checking status second keeps timing from dictating taste.",
+        "Shortlist by preference, then filter by status — that order keeps the timing tail from wagging the taste dog."
+       ]
+      ]
+     },
+     {
+      "id": "av_d2",
+      "sentences": [
+       [
+        "An offline room says nothing about a listing's quality; it says only that this moment and that performer didn't coincide.",
+        "Offline is a timing fact, not a quality verdict — the listing is as good as it was, just not live right now."
+       ],
+       [
+        "The recorded side of the theme exists exactly for those moments, offering the style without the schedule.",
+        "Moments like that are what the video pages are for — the theme's style, minus the timing problem."
+       ],
+       [
+        "A pick worth making is usually worth a second attempt at another hour.",
+        "Good candidates deserve a retry at a different hour before being dropped."
+       ]
+      ]
+     },
+     {
+      "id": "av_d3",
+      "sentences": [
+       [
+        "Treat listed and live as two separate questions with two separate sources: this page answers the first, and the performer's platform answers the second.",
+        "Listed answers to the theme; live answers to the moment — this page holds the first fact, the destination platform holds the second."
+       ],
+       [
+        "Because live status can change mid-visit, checking it at decision time beats assuming it at browsing time.",
+        "Status is worth checking exactly when it matters and not before — it can shift between any two clicks."
+       ],
+       [
+        "A preference-first shortlist filtered by status at the end keeps timing in its place.",
+        "Choose by taste, then filter by the clock — that order keeps timing from running the visit."
+       ]
+      ]
+     }
+    ]
+   },
+   "headings": [
+    "Understanding Availability",
+    "Why a Listed Performer Might Be Offline",
+    "Listed vs Live",
+    "When Rooms Are Actually Live",
+    "Availability, Honestly"
+   ]
+  },
+  "related_navigation": {
+   "variants": {
+    "default": [
+     {
+      "id": "rn_d1",
+      "sentences": [
+       [
+        "When this theme covers part of the target, {{related_1}} and {{related_2}} approach nearby ground from different angles.",
+        "Partial fits have neighbours: {{related_1}} and {{related_2}} overlap this theme while emphasising different things."
+       ],
+       [
+        "Sideways moves like that usually beat starting the search over — the overlap carries the useful context along.",
+        "Moving sideways preserves progress; a fresh search throws it away."
+       ],
+       [
+        "For a full reset instead, the model directory at {{models_url}} and the video directory at {{videos_url}} hold the complete field.",
+        "The complete field lives in the two main directories — models and videos — whenever a genuine restart makes sense."
+       ]
+      ]
+     },
+     {
+      "id": "rn_d2",
+      "sentences": [
+       [
+        "Two exits lead out of this theme: sideways into {{related_1}}, or wide into the full model and video directories.",
+        "Leaving this theme means going adjacent — {{related_1}} — or going wide, back to the main model and video directories."
+       ],
+       [
+        "Sideways suits near-misses; wide suits genuine changes of mind.",
+        "Pick the exit by the miss: near-misses go sideways, rethinks go wide."
+       ],
+       [
+        "Either way, the route back here is one step, so exploring costs nothing.",
+        "Exploration is reversible — this page stays one step behind any direction you try."
+       ]
+      ]
+     },
+     {
+      "id": "rn_d3",
+      "sentences": [
+       [
+        "{{related_1}} shares real ground with this theme and diverges in emphasis, which makes it the natural second stop for close-but-not-quite visits.",
+        "The nearest useful neighbour is {{related_1}} — overlapping enough to stay relevant, different enough to change the results."
+       ],
+       [
+        "Themes work best in small chains like that: two or three adjacent stops cover a preference more completely than any single label.",
+        "Chained browsing across two or three adjacent themes maps a preference better than any one theme can."
+       ],
+       [
+        "The full directories remain the fallback that never runs dry: {{models_url}} for performers, {{videos_url}} for clips.",
+        "And behind every chain sit the two directories — performers and clips — as the fallback with no bottom."
+       ]
+      ]
+     },
+     {
+      "id": "rn_d4",
+      "sentences": [
+       [
+        "Every theme has a neighbourhood, and this one's includes {{related_1}} — overlapping ground with a different emphasis for the visits this page almost serves.",
+        "The neighbourhood matters when the theme half-fits: {{related_1}} covers adjacent ground and often holds the version this page approaches."
+       ],
+       [
+        "Sideways beats starting over because the overlap carries context; a fresh search discards what the visit already learned.",
+        "Adjacent moves preserve momentum where fresh searches reset it — the overlap is doing real work."
+       ],
+       [
+        "For the full reset when one is genuinely wanted, the model directory and video directory hold the complete field.",
+        "And when a true restart is the right call, the two main directories reopen everything."
+       ]
+      ]
+     },
+     {
+      "id": "rn_d5",
+      "sentences": [
+       [
+        "Think in terms of distance when this theme half-fits: {{related_1}} is one step sideways, and the full model and video directories are one step up.",
+        "Half-fits have two exits at different distances — {{related_1}} one step sideways, the main directories one step up."
+       ],
+       [
+        "Sideways keeps the context and changes the emphasis; up discards the context and restores the full field.",
+        "The sideways move trades breadth for continuity; the upward move trades continuity for breadth — pick by which you need."
+       ],
+       [
+        "Both moves are cheap and reversible, which makes trying the nearer one first the sensible default.",
+        "With both moves reversible, near-first is the sensible order: sideways, then up only if sideways disappoints."
+       ]
+      ]
+     },
+     {
+      "id": "rn_d6",
+      "sentences": [
+       [
+        "No single theme is meant to end a search alone: adjacent themes like {{related_1}} and {{related_2}} exist precisely for the visits this page almost serves.",
+        "Themes are built to hand off to each other — {{related_1}} and {{related_2}} catch the visits this one nearly satisfies."
+       ],
+       [
+        "Working a small cluster of neighbouring themes covers a preference more completely than exhausting any one of them.",
+        "A preference maps better across two or three neighbouring themes than through the bottom of a single one."
+       ],
+       [
+        "And beneath every cluster, the model directory and the video directory hold the whole field in reserve.",
+        "The full reserve never moves: the two main directories keep everything reachable underneath the cluster."
+       ]
+      ]
+     }
+    ]
+   },
+   "headings": [
+    "Where to Go From Here",
+    "Nearby Themes and Wider Browsing",
+    "If This Category Is Close but Not Exact",
+    "Broaden or Narrow the Search",
+    "Related Ways to Keep Browsing"
+   ]
+  },
+  "first_time": {
+   "variants": {
+    "default": [
+     {
+      "id": "ft_d1",
+      "sentences": [
+       [
+        "For a first visit, the low-effort path works: pick the single most appealing listing, open its page, and let that page teach you what to look for in the rest.",
+        "First visits go smoothest anchored to one listing — open the most appealing page and use it as the reference for everything after."
+       ],
+       [
+        "Nothing about the first click is binding; browsing here is commitment-free, and every decision that costs anything happens later, on a platform.",
+        "The stakes on a first click are zero — commitments live on the platforms, not in the browsing."
+       ],
+       [
+        "One deliberate open beats ten hesitant scans; contact with an actual page is what turns a vague search specific.",
+        "Open something — the fastest way to learn what you're looking for is contact with one real page."
+       ]
+      ]
+     },
+     {
+      "id": "ft_d2",
+      "sentences": [
+       [
+        "New to this theme, expect a short calibration: the first page or two establish what the label means in practice, and picks improve immediately after.",
+        "The first two pages are calibration — after them, the theme's label has a practical meaning and the picks get sharper."
+       ],
+       [
+        "Treat early near-misses as information rather than failure; they define the preference by contrast.",
+        "Early misses are the map being drawn — each one marks where the preference isn't."
+       ],
+       [
+        "By the third pick most visitors are choosing with confidence that the first pick lacked.",
+        "Confidence arrives around pick three; the theme just needs a little contact first."
+       ]
+      ]
+     }
+    ]
+   },
+   "headings": [
+    "New to This Kind of Browsing?",
+    "If This Is Your First Visit",
+    "A Short Orientation for New Visitors",
+    "Starting From Zero",
+    "First-Timer Notes"
+   ]
+  },
+  "returning_visitors": {
+   "variants": {
+    "default": [
+     {
+      "id": "rv_d1",
+      "sentences": [
+       [
+        "Returning visitors can work from memory: pages that landed last time are the anchors, and this theme is where their nearest alternatives live.",
+        "A return visit starts ahead — known-good pages anchor it, and this theme supplies their closest alternatives."
+       ],
+       [
+        "Live status may differ from last time, which is normal; the recorded side holds steady regardless.",
+        "Status won't match last visit's — it rarely does — but the video side is exactly where it was left."
+       ],
+       [
+        "Alternating between a known favourite and one new candidate per visit keeps the rotation fresh without gambling the whole session.",
+        "The favourite-plus-one-newcomer pattern refreshes a rotation at zero risk to the visit."
+       ]
+      ]
+     },
+     {
+      "id": "rv_d2",
+      "sentences": [
+       [
+        "A repeat visit is a chance to test the shortlist against a different hour: candidates unavailable before may be present now, and vice versa.",
+        "Different hours produce different live pictures — a return visit re-rolls availability across the same shortlist."
+       ],
+       [
+        "Preferences also drift between visits, so re-scanning the listings occasionally catches matches the last pass skipped.",
+        "What was skipped last time may fit this time; tastes move, and an occasional re-scan honours that."
+       ],
+       [
+        "The theme itself is the stable part — the same starting point, however the session unfolds from it.",
+        "However sessions vary, the starting point holds still — that reliability is the theme's quiet value."
+       ]
+      ]
+     }
+    ]
+   },
+   "headings": [
+    "For Returning Visitors",
+    "If You've Browsed This Theme Before",
+    "Coming Back to This Category",
+    "Repeat Visits, Faster Results",
+    "Returning? Start Here"
+   ]
+  },
+  "closing": {
+   "variants": {
+    "default": [
+     {
+      "id": "cl_d1",
+      "sentences": [
+       [
+        "The next step from here is concrete: open the two or three listings that read closest to the search, compare their pages, and follow the strongest one out to its platform.",
+        "From this page the path is short — shortlist the best-matching listings, compare their pages, and take the winner through to its platform."
+       ],
+       [
+        "Every question the listings can't answer — status, features, cost — gets answered on the destination platform once the choice is made.",
+        "Whatever remains open after the pages — availability, features, price — resolves on the platform side, where those facts live."
+       ]
+      ]
+     },
+     {
+      "id": "cl_d2",
+      "sentences": [
+       [
+        "A good exit from this page is a shortlist of two: enough comparison to choose well, little enough to actually choose.",
+        "Leave this page with two candidates — comparison enough to decide, few enough to decide quickly."
+       ],
+       [
+        "The pages behind those two hold the deciding details, and the platforms behind the pages hold everything operational.",
+        "Details live on the pages, operations live on the platforms — two candidates deep, both layers are quick to check."
+       ]
+      ]
+     },
+     {
+      "id": "cl_d3",
+      "sentences": [
+       [
+        "What remains after this page is one decision made twice: pick the listing that fits, verify it on its own page, and let its platform handle the rest.",
+        "The route out is short — a fitting listing, a page-level check, and a platform that takes over from there."
+       ],
+       [
+        "The theme did the gathering; the pages and platforms do the particulars, in that order.",
+        "Gathering happened here; particulars happen on the pages and platforms — the sequence works best kept in order."
+       ]
+      ]
+     },
+     {
+      "id": "cl_d4",
+      "sentences": [
+       [
+        "The page has done its part once a shortlist exists; the pages behind the shortlist and the platforms behind the pages carry the visit from here.",
+        "With a shortlist in hand, this page's work is complete — pages refine it and platforms operate it, in that order."
+       ],
+       [
+        "Return whenever the theme calls again: the starting point holds still even as everything live around it moves.",
+        "The theme stays where you left it — a stable starting point however the live layer shifts between visits."
+       ]
+      ]
+     }
+    ],
+    "free_access_pricing": [
+     {
+      "id": "cl_free1",
+      "sentences": [
+       [
+        "The workable exit here: pick a room whose style fits, confirm on its platform what stays free to watch, and enjoy the open side on its own terms.",
+        "Close the visit in three moves — choose by style, verify the free boundary on the platform, and settle into the open side knowingly."
+       ],
+       [
+        "Anything past open viewing is a separate, informed decision made against the platform's own labels, never against assumptions.",
+        "Steps beyond free viewing deserve their own decision, made with the platform's labels in hand rather than guessed at."
+       ]
+      ]
+     },
+     {
+      "id": "cl_free2",
+      "sentences": [
+       [
+        "Free-focused browsing ends well when it ends informed: the room chosen for its style, the access terms read where they're written, and the visit shaped accordingly.",
+        "The strong finish is an informed one — style-led choice, platform-verified terms, and a visit built on both."
+       ],
+       [
+        "The recorded side stays available for the hours when live timing and free viewing refuse to line up.",
+        "When free viewing and live timing miss each other, the video pages hold the theme open regardless."
+       ]
+      ]
+     }
+    ],
+    "body_type": [
+     {
+      "id": "cl_body1",
+      "sentences": [
+       [
+        "The productive next step is two model pages opened side by side — inside a physical theme, that comparison reveals the individual differences the label hides.",
+        "Take two model pages as the next move; a side-by-side inside this theme shows exactly the differences that matter."
+       ],
+       [
+        "Choose on those individual differences, and the shared trait goes back to doing its proper job: the search, not the decision.",
+        "Let the trait stay in the search where it belongs — the decision runs on individual differences from here."
+       ]
+      ]
+     },
+     {
+      "id": "cl_body2",
+      "sentences": [
+       [
+        "Close the visit at page level: the shared trait qualified everyone here, so the finishing comparison runs on the individual differences the model pages show.",
+        "End where the differences live — on the model pages, comparing the individual variation a physical label deliberately hides."
+       ],
+       [
+        "A pick made on those specifics holds up; a pick made on the trait alone just re-selects the category.",
+        "Choosing on specifics finishes the search; choosing on the trait restarts it."
+       ]
+      ]
+     }
+    ],
+    "appearance_trait": [
+     {
+      "id": "cl_app1",
+      "sentences": [
+       [
+        "From here, the move is confirmation: the strongest visual matches, opened and checked against their own pages before any outbound click.",
+        "Finish by verifying — the best-looking matches earn a page-level check before the click that leaves the site."
+       ],
+       [
+        "The trait brought the shortlist together; the pages, and then the platforms, settle everything the trait can't.",
+        "What the trait assembled, the pages refine and the platforms finalise — that's the whole route."
+       ]
+      ]
+     },
+     {
+      "id": "cl_app2",
+      "sentences": [
+       [
+        "The finish is a verification pass: the strongest visual matches checked against their own pages, so the outbound click lands where the look suggested.",
+        "Close by confirming — best matches first, page details second, and only then the click that leaves the site."
+       ],
+       [
+        "What the shared trait assembled, the pages sort and the destination platforms operate; each layer has its job.",
+        "Trait assembles, pages sort, platforms operate — a clean finish respects that order."
+       ]
+      ]
+     },
+     {
+      "id": "cl_app3",
+      "sentences": [
+       [
+        "End the visit on confirmed specifics: the best visual matches read at page level, so the look that started the search is joined by the details that finish it.",
+        "Let the details finish what the look started — page-level confirmation on the strongest matches closes an appearance search properly."
+       ],
+       [
+        "From there the platforms take over the operational side, as they should; the choosing part is already done well.",
+        "With the choice made on look plus detail, the platforms inherit only logistics — the right division at the right moment."
+       ]
+      ]
+     }
+    ],
+    "ethnicity_regional": [
+     {
+      "id": "cl_eth1",
+      "sentences": [
+       [
+        "Close the visit on performer-stated ground: pick from the presentation that drew you here, then let each performer's own details — language included — settle the practical questions.",
+        "The strong finish is respectful and practical at once — chosen by presentation, confirmed by what performers state about themselves."
+       ],
+       [
+        "Where the theme was only part of the target, the related themes above hold the nearest alternatives.",
+        "A partial match here points sideways — the neighbouring themes carry the closest different takes."
+       ]
+      ]
+     },
+     {
+      "id": "cl_eth2",
+      "sentences": [
+       [
+        "Finish on the performers' own terms: chosen for the presentation that drew the visit, confirmed by whatever details they state themselves.",
+        "The right ending here is performer-defined — presentation guided the browsing, and their stated details settle the practical rest."
+       ],
+       [
+        "Where this flavour was only near the target, the related themes above carry the neighbouring takes.",
+        "A close-but-not-it feeling points at the neighbouring themes, which hold the adjacent versions of this ground."
+       ]
+      ]
+     }
+    ],
+    "interaction_style": [
+     {
+      "id": "cl_int1",
+      "sentences": [
+       [
+        "The next move for a style-led visit: match one performer's stated approach to the session you want, and test the match live or through their clips.",
+        "Finish by matching approach to appetite — one performer whose framing fits the wanted session, tested in a room or a clip."
+       ],
+       [
+        "Approach descriptions did the sorting; the room itself confirms it — and rooms, unlike labels, answer immediately.",
+        "Descriptions sort, rooms confirm — and the confirmation is one visit away."
+       ]
+      ]
+     },
+     {
+      "id": "cl_int2",
+      "sentences": [
+       [
+        "End with one match made deliberately: a performer whose stated approach fits the session in mind, confirmed in their room or through their clips.",
+        "Close on the approach match — the performer whose framing fits the wanted session, then the room or clip that proves it."
+       ],
+       [
+        "Descriptions sorted the field; the session itself is the confirmation, and it sits one click past the page.",
+        "The sorting was textual, the confirmation is live — and it waits a single click away."
+       ]
+      ]
+     }
+    ],
+    "content_format": [
+     {
+      "id": "cl_fmt1",
+      "sentences": [
+       [
+        "Exit by format: if today is an on-demand day, the video side finishes the visit; if it's a presence day, a live room does.",
+        "The visit type names its own ending — on-demand days close on the video side, presence days close in a room."
+       ],
+       [
+        "Either ending leaves the other side intact for next time; the theme serves both without preference.",
+        "Whichever side closes today, the other waits — the theme doesn't expire between visits."
+       ]
+      ]
+     },
+     {
+      "id": "cl_fmt2",
+      "sentences": [
+       [
+        "Let the visit type write the ending: on-demand visits close on the video side, presence visits close in a live room, and the theme serves both without preference.",
+        "The format answers the final question — clips end a watching visit, rooms end a being-there visit, and both endings suit this theme."
+       ],
+       [
+        "Whichever side finishes today, the other remains exactly where it was for the next visit.",
+        "Today's unused side keeps; the theme holds both formats open between visits."
+       ]
+      ]
+     }
+    ],
+    "age_style": [
+     {
+      "id": "cl_age1",
+      "sentences": [
+       [
+        "Finish by sampling interpretations: two contrasting takes on this style, opened and compared, define the theme better than any description of it.",
+        "The strong close is comparative — two different takes on the style, side by side, and the pick makes itself."
+       ],
+       [
+        "The style set the direction; individual model pages decide the destination, and the platforms handle everything after.",
+        "Direction from the style, destination from the pages, logistics from the platforms — the visit divides cleanly."
+       ]
+      ]
+     },
+     {
+      "id": "cl_age2",
+      "sentences": [
+       [
+        "Finish comparatively: two contrasting takes on the style, opened together, settle both what the theme offers and which version of it fits.",
+        "The strong ending is a comparison — two different interpretations side by side, with the pick emerging from the contrast."
+       ],
+       [
+        "Style set the direction and the model pages chose the destination; the platforms carry everything after that.",
+        "Direction from the theme, destination from the pages, logistics from the platforms — the ending divides that cleanly."
+       ]
+      ]
+     }
+    ],
+    "language_location": [
+     {
+      "id": "cl_lang1",
+      "sentences": [
+       [
+        "End with the verification that matters: the shortlisted performers checked for stated languages, and the pick made on confirmed communication rather than themed hope.",
+        "Close on certainty — shortlist by theme, confirm stated languages, and choose where communication is actually established."
+       ],
+       [
+        "If live conversation is the goal, the room is the test; if watching suffices, the clips need no shared language at all.",
+        "Conversation goals point at rooms; watching goals point at clips, where language never blocks the door."
+       ]
+      ]
+     },
+     {
+      "id": "cl_lang2",
+      "sentences": [
+       [
+        "Close on confirmed ground: shortlisted by theme, checked for stated languages, and chosen where communication is actually established rather than hoped for.",
+        "End with the verification done — theme-led shortlist, language check on each page, and a pick built on stated rather than assumed communication."
+       ],
+       [
+        "Conversation goals finish in rooms; watching goals finish in clips, where language never gates the door.",
+        "If talking is the point, a room ends the visit; if watching is, the clips do — and clips ask for no shared language at all."
+       ]
+      ]
+     }
+    ],
+    "activity_fetish": [
+     {
+      "id": "cl_act1",
+      "sentences": [
+       [
+        "The precise finish: the closest-matching listings checked at page level for the exact specifics, and the platform's own rules read before anything begins.",
+        "End with precision — specifics verified on the pages, platform rules read, and the session entered knowing both."
+       ],
+       [
+        "A niche well-matched is worth the extra check; a niche mismatched is exactly what the check prevents.",
+        "The extra verification is the niche tax — cheap to pay, expensive to skip."
+       ]
+      ]
+     },
+     {
+      "id": "cl_act2",
+      "sentences": [
+       [
+        "The precise ending: specifics verified on the closest-matching pages, platform rules read, and the session entered with both confirmed.",
+        "Finish exact — page-level specifics checked, destination rules read, and nothing about the niche left to assumption."
+       ],
+       [
+        "The verification is the niche's small tax; paying it is what separates a matched session from a near miss.",
+        "A minute of checking is what a well-matched niche costs — the mismatched version costs more."
+       ]
+      ]
+     }
+    ],
+    "broad_discovery": [
+     {
+      "id": "cl_broad1",
+      "sentences": [
+       [
+        "From a wide theme, the exit is a narrow one: the single best anchor found here, followed into its page, and refined from there toward exactly the right fit.",
+        "Leave broadly-entered, narrowly-focused — one anchor listing, one page, and a refining path from there."
+       ],
+       [
+        "The two main directories remain behind everything, holding the full field for whenever the narrowing wants a fresh start.",
+        "And underneath it all, the model and video directories keep the whole field open for the next fresh start."
+       ]
+      ]
+     },
+     {
+      "id": "cl_broad2",
+      "sentences": [
+       [
+        "Exit narrower than you entered: the best anchor found here, followed into its page, refined toward the fit the wide search was really after.",
+        "The wide theme ends narrow — one anchor, one page, and a refining path that finishes what the broad search started."
+       ],
+       [
+        "The model and video directories stay underneath it all, holding the complete field for the next fresh start.",
+        "Behind every narrowing run, the two directories keep the full field open for whenever a restart makes sense."
+       ]
+      ]
+     }
+    ]
+   }
+  }
+ },
+ "intent_clarity": {
+  "free_access_pricing": [
+   "Free in this context typically means open public viewing; private shows, requests, and personalised features are paid on most platforms, and each platform sets its own line.",
+   "The word free here usually covers watching public rooms; anything private or personalised is typically a paid feature, with the exact boundary set by each platform."
+  ],
+  "body_type": [
+   "Use the label once for the search, then compare performers on style, format, and stated approach — inside a physical theme, the deciding differences are personal ones.",
+   "The practical move is to spend the label quickly: it found the page, and everything from here gets chosen on presentation and stated detail."
+  ],
+  "appearance_trait": [
+   "In practice that means scanning with the text in focus: wording and stated details separate listings that share a look.",
+   "The workable method is visual shortlist, textual decision — let the look gather candidates and the stated details pick between them.",
+   "Reading beats re-looking here: once the shared look qualified a listing, its wording and stated details are what actually separate it from the rest."
+  ],
+  "ethnicity_regional": [
+   "For anything that matters practically — language above all — the performer's own stated details are the source to trust.",
+   "That keeps the browsing respectful and effective: the presentation guides taste, and specifics like language come from performers themselves."
+  ],
+  "interaction_style": [
+   "The grouping is about session style and format rather than looks, so descriptions and formats are the details worth comparing.",
+   "Style of interaction is the common thread; the useful comparisons here are about pace, format, and how sessions are described."
+  ],
+  "content_format": [
+   "The shared trait is the content format itself, which makes the live-versus-recorded choice the main fork in the browsing.",
+   "Format is what unites these listings, so the first real decision is between live rooms and recorded clips."
+  ],
+  "age_style": [
+   "The theme is a presentation style linked to an age bracket; it describes styling, and the platforms behind these listings admit adults only.",
+   "This is a style grouping tied to an age-flavoured presentation — a description of styling, on platforms restricted to adults."
+  ],
+  "language_location": [
+   "The theme suggests a language or regional presentation; what a performer actually speaks or shares about themselves is theirs to state.",
+   "Language and regional flavour define the grouping, while the confirmable specifics live in what each performer says about themselves."
+  ],
+  "activity_fetish": [
+   "The listings share a specific interest, so precision matters — the individual pages confirm whether the specifics match your version of it.",
+   "A particular interest unites these listings; whether the exact specifics fit is what the individual pages are for."
+  ],
+  "broad_discovery": [
+   "The theme is intentionally wide, so the practical skill is narrowing: start from the closest matches and refine from their pages.",
+   "This grouping casts a wide net; the fastest visits are the ones that narrow early and refine from individual pages."
+  ]
+ },
+ "scale_phrases": {
+  "models": {
+   "none": [],
+   "few": [
+    "a small set of performer listings",
+    "a handful of performer listings"
+   ],
+   "some": [
+    "a solid set of performer listings",
+    "a useful range of performer listings"
+   ],
+   "many": [
+    "a broad selection of performer listings",
+    "an extensive set of performer listings"
+   ]
+  },
+  "videos": {
+   "none": [],
+   "few": [
+    "a small group of video pages",
+    "a handful of video pages"
+   ],
+   "some": [
+    "a solid range of video pages",
+    "a useful set of video pages"
+   ],
+   "many": [
+    "a large collection of video pages",
+    "an extensive set of video pages"
+   ]
+  }
+ }
+}
