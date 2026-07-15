@@ -72,7 +72,7 @@ class CategoryFaqPlanner {
 		$seed = CategoryContentPlanner::seed( $slug . '|faq|' . $intent . '|' . $salt );
 
 		$bucket_keys = CategoryFaqReuseGuard::rank_buckets( $buckets, $intent, $seed );
-		$count       = 3 + ( $salt % 3 ); // full 3-5 range across salts
+		$count       = self::MIN_FAQ + ( $salt % 3 ); // full 3-5 range across salts
 
 		$values = [
 			'category_name'   => (string) ( $context['category_name'] ?? '' ),

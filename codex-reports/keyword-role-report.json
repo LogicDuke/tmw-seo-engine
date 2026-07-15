@@ -239,11 +239,11 @@
         "unused": [
             {
                 "keyword": "free cam to cam chat",
-                "reason": "body_use_cap_reached"
+                "reason": "near_duplicate_of_primary"
             },
             {
                 "keyword": "free webcam chat",
-                "reason": "body_use_cap_reached"
+                "reason": "near_duplicate_of_primary"
             },
             {
                 "keyword": "cam chat sites",

@@ -267,6 +267,7 @@ class CategoryDraftComposer {
 				];
 			}
 		}
+		$sentence = (string) preg_replace( '/(<\/a>)(?=[\p{L}\p{N}])/u', '$1 ', $sentence );
 
 		return $sentence;
 	}

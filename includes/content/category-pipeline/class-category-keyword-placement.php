@@ -122,7 +122,7 @@ class CategoryKeywordPlacement {
 			if ( $i === 0 ) { break; } // first paragraph occurrence is protected
 			[ $start, $len ] = $blocks[ $i ];
 			$inner = substr( $html, $start, $len );
-			$new   = self::replace_last_matches( $inner, $pattern, self::NEUTRAL_REFERENCES[ $i % count( self::NEUTRAL_REFERENCES ) ], $excess, $replaced );
+			$new   = self::replace_last_matches_outside_anchors( $inner, $pattern, self::NEUTRAL_REFERENCES[ $i % count( self::NEUTRAL_REFERENCES ) ], $excess, $replaced );
 			if ( $replaced > 0 ) {
 				$html    = substr_replace( $html, $new, $start, $len );
 				$excess -= $replaced;
@@ -132,6 +132,21 @@ class CategoryKeywordPlacement {
 			}
 		}
 		return $html;
+	}
+
+	private static function replace_last_matches_outside_anchors( string $html, string $pattern, string $replacement, int $limit, int &$replaced ): string {
+		$replaced = 0;
+		if ( $limit <= 0 ) { return $html; }
+		$parts = preg_split( '/(<a\b[^>]*>.*?<\/a>)/isu', $html, -1, PREG_SPLIT_DELIM_CAPTURE );
+		if ( ! is_array( $parts ) ) { return $html; }
+		for ( $i = count( $parts ) - 1; $i >= 0 && $replaced < $limit; $i-- ) {
+			$part = (string) $parts[ $i ];
+			if ( $part === '' || preg_match( '/^<a\b[^>]*>.*?<\/a>$/isu', $part ) === 1 ) { continue; }
+			$remaining = $limit - $replaced;
+			$parts[ $i ] = self::replace_last_matches( $part, $pattern, $replacement, $remaining, $part_replaced );
+			$replaced += $part_replaced;
+		}
+		return implode( '', $parts );
 	}
 
 	private static function promote_in_paragraphs( string $html, string $primary, int $needed, array &$actions ): string {

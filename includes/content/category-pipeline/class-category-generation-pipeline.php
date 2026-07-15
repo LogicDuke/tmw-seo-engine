@@ -180,9 +180,15 @@ class CategoryGenerationPipeline {
 			// first paragraph, one H2). Bounded swap-based repair only.
 			$placement_result = CategoryKeywordPlacement::repair( $draft, (string) $keyword_plan['primary'] );
 			$draft            = (string) $placement_result['html'];
+			$link_spaced      = (string) preg_replace( '/(<\/a>)(?=[\p{L}\p{N}])/u', '$1 ', $draft );
+			$link_actions     = [];
+			if ( $link_spaced !== $draft ) {
+				$draft          = $link_spaced;
+				$link_actions[] = 'restored_link_following_space';
+			}
 			$stage['repaired'] = $draft;
 
-			$attempt_repairs = array_merge( (array) $guard_result['actions'], (array) $factual_result['actions'], (array) $placement_result['actions'] );
+			$attempt_repairs = array_merge( (array) $guard_result['actions'], (array) $factual_result['actions'], (array) $placement_result['actions'], $link_actions );
 			$grammar_log     = array_merge( $grammar_log, (array) $grammar_result['repairs'] );
 
 			$fp         = CategoryDifferentiationScorer::fingerprint( $draft, $mask, (string) ( $context['category_slug'] ?? '' ) );
