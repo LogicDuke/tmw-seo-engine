@@ -1,0 +1,322 @@
+{
+    "big-boob-cam": {
+        "primary": "Big Boob Cam",
+        "tracking": [
+            "Big Boob Cam",
+            "big breast webcam",
+            "big boobs webcam",
+            "biggest boobs webcam",
+            "massive boob webcam",
+            "massive boobs cam",
+            "massive breasts webcam"
+        ],
+        "active": {
+            "biggest boobs webcam": {
+                "role": "heading_h2",
+                "count": 1
+            },
+            "massive boob webcam": {
+                "role": "heading_secondary",
+                "count": 1
+            }
+        },
+        "roles": {
+            "biggest boobs webcam": "heading_h2",
+            "massive boob webcam": "heading_secondary"
+        },
+        "heading_keyword_map": {
+            "expectations": {
+                "heading": "Big Boob Cam: What This Page Covers",
+                "keyword": "Big Boob Cam",
+                "role": "primary_h2"
+            },
+            "browse_listings": {
+                "heading": "Where Biggest Boobs Webcam Fits In",
+                "keyword": "biggest boobs webcam",
+                "role": "heading_h2"
+            },
+            "compare_profiles": {
+                "heading": "Massive Boob Webcam: What to Know",
+                "keyword": "massive boob webcam",
+                "role": "heading_secondary"
+            }
+        },
+        "unused": [
+            {
+                "keyword": "big breast webcam",
+                "reason": "near_duplicate_of_primary"
+            },
+            {
+                "keyword": "big boobs webcam",
+                "reason": "near_duplicate_of_primary"
+            },
+            {
+                "keyword": "massive boobs cam",
+                "reason": "near_duplicate_of_selected_term"
+            },
+            {
+                "keyword": "massive breasts webcam",
+                "reason": "near_duplicate_of_selected_term"
+            }
+        ],
+        "primary_placement": {
+            "count": 4,
+            "in_first_paragraph": true,
+            "in_h2": true,
+            "in_body_beyond_opening": true
+        }
+    },
+    "blonde-cam-models": {
+        "primary": "Blonde Cam Models",
+        "tracking": [
+            "Blonde Cam Models",
+            "blonde cams",
+            "blonde live sex",
+            "blonde sex cam",
+            "blonde live webcam"
+        ],
+        "active": {
+            "blonde cams": {
+                "role": "heading_h2",
+                "count": 1
+            },
+            "blonde live sex": {
+                "role": "heading_secondary",
+                "count": 1
+            },
+            "blonde sex cam": {
+                "role": "body",
+                "count": 1
+            },
+            "blonde live webcam": {
+                "role": "body",
+                "count": 1
+            }
+        },
+        "roles": {
+            "blonde cams": "heading_h2",
+            "blonde live sex": "heading_secondary",
+            "blonde sex cam": "body",
+            "blonde live webcam": "body"
+        },
+        "heading_keyword_map": {
+            "discovery_advice": {
+                "heading": "Comparing Listings in Blonde Cam Models",
+                "keyword": "Blonde Cam Models",
+                "role": "primary_h2"
+            },
+            "browse_listings": {
+                "heading": "Where Blonde Cams Fits In",
+                "keyword": "blonde cams",
+                "role": "heading_h2"
+            },
+            "expectations": {
+                "heading": "Blonde Live Sex: What to Know",
+                "keyword": "blonde live sex",
+                "role": "heading_secondary"
+            }
+        },
+        "unused": [],
+        "primary_placement": {
+            "count": 4,
+            "in_first_paragraph": true,
+            "in_h2": true,
+            "in_body_beyond_opening": true
+        }
+    },
+    "latina-cam-models": {
+        "primary": "Latina Cam Models",
+        "tracking": [
+            "Latina Cam Models",
+            "latina sex cam",
+            "latina live sex",
+            "live latina cams",
+            "latina nude webcam"
+        ],
+        "active": {
+            "latina sex cam": {
+                "role": "heading_h2",
+                "count": 1
+            },
+            "latina live sex": {
+                "role": "heading_secondary",
+                "count": 1
+            },
+            "live latina cams": {
+                "role": "body",
+                "count": 1
+            },
+            "latina nude webcam": {
+                "role": "body",
+                "count": 1
+            }
+        },
+        "roles": {
+            "latina sex cam": "heading_h2",
+            "latina live sex": "heading_secondary",
+            "live latina cams": "body",
+            "latina nude webcam": "body"
+        },
+        "heading_keyword_map": {
+            "expectations": {
+                "heading": "Getting the Most From Latina Cam Models",
+                "keyword": "Latina Cam Models",
+                "role": "primary_h2"
+            },
+            "compare_profiles": {
+                "heading": "Latina Sex Cam: What to Know",
+                "keyword": "latina sex cam",
+                "role": "heading_h2"
+            },
+            "discovery_advice": {
+                "heading": "A Closer Look at Latina Live Sex",
+                "keyword": "latina live sex",
+                "role": "heading_secondary"
+            }
+        },
+        "unused": [],
+        "primary_placement": {
+            "count": 3,
+            "in_first_paragraph": true,
+            "in_h2": true,
+            "in_body_beyond_opening": true
+        }
+    },
+    "free-cam-chat": {
+        "primary": "Free Cam Chat",
+        "tracking": [
+            "Free Cam Chat",
+            "free cam to cam chat",
+            "free live cams",
+            "free webcam chat",
+            "cam to cam chat",
+            "free live cam chat",
+            "cam chat sites",
+            "webcam chat rooms",
+            "free webcam shows"
+        ],
+        "active": {
+            "free live cams": {
+                "role": "heading_h2",
+                "count": 1
+            },
+            "free webcam shows": {
+                "role": "heading_secondary",
+                "count": 1
+            },
+            "cam to cam chat": {
+                "role": "body",
+                "count": 1
+            },
+            "free live cam chat": {
+                "role": "body",
+                "count": 1
+            }
+        },
+        "roles": {
+            "free live cams": "heading_h2",
+            "free webcam shows": "heading_secondary",
+            "cam to cam chat": "body",
+            "free live cam chat": "body"
+        },
+        "heading_keyword_map": {
+            "browse_listings": {
+                "heading": "Getting the Most From Free Cam Chat",
+                "keyword": "Free Cam Chat",
+                "role": "primary_h2"
+            },
+            "expectations": {
+                "heading": "Free Live Cams: What to Know",
+                "keyword": "free live cams",
+                "role": "heading_h2"
+            },
+            "discovery_advice": {
+                "heading": "A Closer Look at Free Webcam Shows",
+                "keyword": "free webcam shows",
+                "role": "heading_secondary"
+            }
+        },
+        "unused": [
+            {
+                "keyword": "free cam to cam chat",
+                "reason": "body_use_cap_reached"
+            },
+            {
+                "keyword": "free webcam chat",
+                "reason": "body_use_cap_reached"
+            },
+            {
+                "keyword": "cam chat sites",
+                "reason": "body_use_cap_reached"
+            },
+            {
+                "keyword": "webcam chat rooms",
+                "reason": "body_use_cap_reached"
+            }
+        ],
+        "primary_placement": {
+            "count": 4,
+            "in_first_paragraph": true,
+            "in_h2": true,
+            "in_body_beyond_opening": true
+        }
+    },
+    "amateur-cams": {
+        "primary": "Amateur Cams",
+        "tracking": [
+            "Amateur Cams",
+            "amateur webcam",
+            "amateur tv cams",
+            "live amateur sex cams",
+            "amateur sex chat"
+        ],
+        "active": {
+            "amateur tv cams": {
+                "role": "heading_h2",
+                "count": 1
+            },
+            "live amateur sex cams": {
+                "role": "heading_secondary",
+                "count": 1
+            },
+            "amateur sex chat": {
+                "role": "body",
+                "count": 1
+            }
+        },
+        "roles": {
+            "amateur tv cams": "heading_h2",
+            "live amateur sex cams": "heading_secondary",
+            "amateur sex chat": "body"
+        },
+        "heading_keyword_map": {
+            "expectations": {
+                "heading": "How Amateur Cams Is Organised",
+                "keyword": "Amateur Cams",
+                "role": "primary_h2"
+            },
+            "discovery_advice": {
+                "heading": "From Amateur TV Cams to a Shortlist",
+                "keyword": "amateur tv cams",
+                "role": "heading_h2"
+            },
+            "compare_profiles": {
+                "heading": "Where Live Amateur Sex Cams Fits In",
+                "keyword": "live amateur sex cams",
+                "role": "heading_secondary"
+            }
+        },
+        "unused": [
+            {
+                "keyword": "amateur webcam",
+                "reason": "near_duplicate_of_primary"
+            }
+        ],
+        "primary_placement": {
+            "count": 3,
+            "in_first_paragraph": true,
+            "in_h2": true,
+            "in_body_beyond_opening": true
+        }
+    }
+}

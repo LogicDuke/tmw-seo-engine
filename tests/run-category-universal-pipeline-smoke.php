@@ -46,6 +46,7 @@ require_once $pipeline_dir . 'class-category-draft-composer.php';
 require_once $pipeline_dir . 'class-category-quality-guard.php';
 require_once $pipeline_dir . 'class-category-factual-safety.php';
 require_once $pipeline_dir . 'class-category-grammar-guard.php';
+require_once $pipeline_dir . 'class-category-keyword-placement.php';
 require_once $pipeline_dir . 'class-category-paragraph-uniqueness-guard.php';
 require_once $pipeline_dir . 'class-category-claim-ledger.php';
 require_once $pipeline_dir . 'class-category-specificity-scorer.php';
@@ -86,7 +87,7 @@ $fixtures = [
         'keywords_source'    => 'category_db_approved',
         'model_count'        => 18,
         'video_count'        => 40,
-        'related_categories' => ['Blonde Cam Models', 'Free Cam Chat'],
+        'related_categories' => [[ 'name' => 'Blonde Cam Models', 'url' => 'https://top-models.webcam/category/blonde-cam-models/' ], [ 'name' => 'Free Cam Chat', 'url' => 'https://top-models.webcam/category/free-cam-chat/' ]],
         'models_url'         => 'https://top-models.webcam/webcam-models/',
         'videos_url'         => 'https://top-models.webcam/videos/',
         'site_name'          => 'Top Models Webcam',
@@ -99,7 +100,7 @@ $fixtures = [
         'keywords_source'    => 'category_db_approved',
         'model_count'        => 9,
         'video_count'        => 22,
-        'related_categories' => ['Amateur Cams', 'Latina Cam Models'],
+        'related_categories' => [[ 'name' => 'Amateur Cams', 'url' => 'https://top-models.webcam/category/amateur-cams/' ], [ 'name' => 'Latina Cam Models', 'url' => 'https://top-models.webcam/category/latina-cam-models/' ]],
         'models_url'         => 'https://top-models.webcam/webcam-models/',
         'videos_url'         => 'https://top-models.webcam/videos/',
         'site_name'          => 'Top Models Webcam',
@@ -112,7 +113,7 @@ $fixtures = [
         'keywords_source'    => 'category_db_approved',
         'model_count'        => 25,
         'video_count'        => 0,
-        'related_categories' => ['Latina Cam Models', 'Amateur Cams'],
+        'related_categories' => [[ 'name' => 'Latina Cam Models', 'url' => 'https://top-models.webcam/category/latina-cam-models/' ], [ 'name' => 'Amateur Cams', 'url' => 'https://top-models.webcam/category/amateur-cams/' ]],
         'models_url'         => 'https://top-models.webcam/webcam-models/',
         'videos_url'         => 'https://top-models.webcam/videos/',
         'site_name'          => 'Top Models Webcam',
@@ -125,7 +126,7 @@ $fixtures = [
         'keywords_source'    => 'category_db_approved',
         'model_count'        => 0,
         'video_count'        => 31,
-        'related_categories' => ['Blonde Cam Models', 'Big Boob Cam'],
+        'related_categories' => [[ 'name' => 'Blonde Cam Models', 'url' => 'https://top-models.webcam/category/blonde-cam-models/' ], [ 'name' => 'Big Boob Cam', 'url' => 'https://top-models.webcam/category/big-boob-cam/' ]],
         'models_url'         => 'https://top-models.webcam/webcam-models/',
         'videos_url'         => 'https://top-models.webcam/videos/',
         'site_name'          => 'Top Models Webcam',
@@ -138,7 +139,7 @@ $fixtures = [
         'keywords_source'    => 'category_db_approved',
         'model_count'        => 40,
         'video_count'        => 55,
-        'related_categories' => ['Amateur Cams'],
+        'related_categories' => [[ 'name' => 'Amateur Cams', 'url' => 'https://top-models.webcam/category/amateur-cams/' ]],
         'models_url'         => 'https://top-models.webcam/webcam-models/',
         'videos_url'         => 'https://top-models.webcam/videos/',
         'site_name'          => 'Top Models Webcam',
@@ -152,7 +153,7 @@ $fixtures = [
         'keywords_source'    => 'category_db_approved',
         'model_count'        => 3,
         'video_count'        => 5,
-        'related_categories' => ['Amateur Cams'],
+        'related_categories' => [[ 'name' => 'Amateur Cams', 'url' => 'https://top-models.webcam/category/amateur-cams/' ]],
         'models_url'         => 'https://top-models.webcam/webcam-models/',
         'videos_url'         => 'https://top-models.webcam/videos/',
         'site_name'          => 'Top Models Webcam',
@@ -353,12 +354,12 @@ check('failed draft returns empty html (never saved)', $fail_res['html'] === '')
 
 echo "\n== J. Provider handling (tests 15-17) ==\n";
 // A distinct provider draft that passes validation must survive (not be flattened).
-$provider_html = '<h2>Real Amateur Rooms, Explained Simply</h2><p>Amateur streaming has a texture that studio content rarely matches: performers set up their own spaces, run sessions at their own pace, and keep the chat conversational in a way scripted rooms never quite manage. The Forced Provider Cams listings gather that interaction style in one place, and how each performer describes their own approach is the detail that separates one room from the next.</p><h2>Narrowing a Wide Theme</h2><p>This is a broad grouping, and broad ground rewards an anchor: pick the single listing nearest what you came for and treat its page as the new starting point. Each anchored pick narrows the field further, and a vague search usually refines itself into a specific destination within three passes. When a narrowing path dead-ends, widen back out through the model directory and the video directory and start the loop again from a fresh anchor.</p><h2>Reading the Rooms Before You Enter</h2><p>The habit that pays off most is a slow first scan. Open two or three profiles, compare how each performer frames their own sessions, and weigh their stated approach against the kind of conversation or format you actually want. Similar stage names are everywhere in this space, so confirm the name matches the page you meant to open before engaging anywhere.</p><h2>Public Viewing and Paid Extras</h2><p>Most platforms keep public rooms open to watch while private sessions, requests, and cam-to-cam interaction are paid features. Where the line sits varies by performer and platform, so treat the destination page as the deciding source, and read its terms before stepping past open viewing. Current room status also lives on the destination platform, and it can change during a visit.</p><h2>Keeping the Search Moving</h2><p>When a listing is close but not right, move sideways before starting over. Categories like Blonde Cam Models approach the same space from another angle, and the main model and video directories reopen the complete field whenever this theme runs out of new names. A shortlist built from anchored picks beats an open-ended scroll every time, and the refining work compounds with each page opened.</p><p>That is the whole method for Forced Provider Cams browsing: anchor on the nearest match, check the stated session style on its page, and let the platforms handle everything operational once the choice is made.</p>';
+$provider_html = '<h2>Forced Provider Cams, Explained Simply</h2><p>Forced Provider Cams streaming has a texture that studio content rarely matches: performers set up their own spaces, run sessions at their own pace, and keep the chat conversational in a way scripted rooms never quite manage. These listings gather that interaction style into one wide field, and how each performer describes their own approach is the anchor detail that separates one room from the next. The same ground covers what people search as amateur webcam browsing, so that phrasing lands on these listings too.</p><h2>Narrowing a Wide Theme</h2><p>This is a broad grouping, and broad ground rewards an anchor: pick the single listing nearest what you came for and treat its page as the new starting point. Each anchored pick narrows the field further, and a vague search usually refines itself into a specific destination within a few passes. Searches phrased as amateur tv cams follow the same route, since the theme covers that wording as well.</p><h2>Reading the Rooms Before You Enter</h2><p>The habit that pays off most is a slow first scan. Open two or three profiles from this broad field, compare how each performer frames their own sessions, and weigh their stated approach against the kind of conversation or format you actually want, narrowing as you go. Similar stage names are everywhere in this space, so confirm the name matches the page you meant to open before engaging anywhere. Visitors who arrived through live amateur sex cams searches face the same reading job, answered by the same profile pages.</p><h2>Public Viewing and Paid Extras</h2><p>Most platforms keep public rooms open to watch while private sessions, requests, and cam-to-cam interaction are paid features. Where the line sits varies by performer and platform, so treat the destination page as the deciding source, and read its terms before stepping past open viewing. Current room status also lives on the destination platform, and it can change during a visit. The conversational side of the theme, including what people search as amateur sex chat, follows the same public-versus-paid split.</p><h2>Keeping the Search Moving</h2><p>When a listing is close but not right, move sideways before starting over. Adjacent themes approach the same space from another angle, and the <a href="https://top-models.webcam/models/">model directory</a> reopens the complete performer field whenever this theme runs out of new names. The <a href="https://top-models.webcam/videos/">video directory</a> does the same for clips, so both wide routes stay one click away. A shortlist built from anchored picks beats an open-ended scroll every time, and the refining work compounds with each page opened. Adjacent themes such as Blonde Cam Models approach the same ground from a different angle when this one runs thin, and the individual profile pages remain the place where the deciding details are stated. Treat every listing page as a starting point rather than a verdict, and the browsing stays efficient from the first visit onward.</p><p>That is the whole method for Forced Provider Cams browsing: anchor on the nearest match, check the stated session style on its page, and let the platforms handle everything operational once the choice is made.</p>';
 $ctx_prov = CategoryContextBuilder::build_from_parts(array_merge($fixtures['amateur-cams'], ['category_slug' => 'forced-provider', 'category_name' => 'Forced Provider Cams', 'primary_keyword' => 'Forced Provider Cams']));
 $prov_res = CategoryGenerationPipeline::generate_from_context($ctx_prov, ['tracking' => [], 'use_store' => false, 'provider' => 'openai', 'provider_html' => $provider_html]);
 check('provider draft accepted', (bool) $prov_res['ok'], implode('; ', array_slice((array) $prov_res['report']['failure_reasons'], 0, 4)));
 if ($prov_res['ok']) {
-    check('provider voice survives post-processing (not flattened)', strpos($prov_res['html'], 'Amateur streaming has a texture') !== false);
+    check('provider voice survives post-processing (not flattened)', strpos($prov_res['html'], 'streaming has a texture') !== false);
     check('raw provider output hash recorded', $prov_res['report']['raw_output_hash'] === \TMWSEO\Engine\Content\CategoryPipeline\CategoryGenerationResult::hash_output($provider_html));
     check('provider label reported', $prov_res['report']['provider'] === 'openai');
 }

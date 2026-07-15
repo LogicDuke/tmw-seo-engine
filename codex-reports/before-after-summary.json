@@ -1,0 +1,107 @@
+{
+    "big-boob-cam": {
+        "before": {
+            "words": 539,
+            "primary_uses": 2,
+            "primary_in_subheading": true,
+            "internal_links": 0,
+            "supporting_in_headings": 0
+        },
+        "after": {
+            "words": 681,
+            "primary_uses": 4,
+            "primary_in_first_paragraph": true,
+            "primary_exact_in_h2": true,
+            "internal_links": 3,
+            "supporting_in_headings": 2,
+            "intent": "body_type",
+            "intent_confidence": "high",
+            "faq_count": 4,
+            "faq_last": true
+        }
+    },
+    "blonde-cam-models": {
+        "before": {
+            "words": 572,
+            "primary_uses": 3,
+            "primary_in_subheading": true,
+            "internal_links": 0,
+            "supporting_in_headings": 0
+        },
+        "after": {
+            "words": 691,
+            "primary_uses": 4,
+            "primary_in_first_paragraph": true,
+            "primary_exact_in_h2": true,
+            "internal_links": 4,
+            "supporting_in_headings": 2,
+            "intent": "appearance_trait",
+            "intent_confidence": "high",
+            "faq_count": 3,
+            "faq_last": true
+        }
+    },
+    "latina-cam-models": {
+        "before": {
+            "words": 574,
+            "primary_uses": 1,
+            "primary_in_subheading": false,
+            "internal_links": 0,
+            "supporting_in_headings": 0
+        },
+        "after": {
+            "words": 712,
+            "primary_uses": 3,
+            "primary_in_first_paragraph": true,
+            "primary_exact_in_h2": true,
+            "internal_links": 4,
+            "supporting_in_headings": 2,
+            "intent": "ethnicity_regional",
+            "intent_confidence": "high",
+            "faq_count": 3,
+            "faq_last": true
+        }
+    },
+    "free-cam-chat": {
+        "before": {
+            "words": 580,
+            "primary_uses": 2,
+            "primary_in_subheading": true,
+            "internal_links": 0,
+            "supporting_in_headings": 0
+        },
+        "after": {
+            "words": 701,
+            "primary_uses": 4,
+            "primary_in_first_paragraph": true,
+            "primary_exact_in_h2": true,
+            "internal_links": 3,
+            "supporting_in_headings": 2,
+            "intent": "free_access_pricing",
+            "intent_confidence": "high",
+            "faq_count": 3,
+            "faq_last": true
+        }
+    },
+    "amateur-cams": {
+        "before": {
+            "words": 590,
+            "primary_uses": 2,
+            "primary_in_subheading": true,
+            "internal_links": 0,
+            "supporting_in_headings": 0
+        },
+        "after": {
+            "words": 640,
+            "primary_uses": 3,
+            "primary_in_first_paragraph": true,
+            "primary_exact_in_h2": true,
+            "internal_links": 3,
+            "supporting_in_headings": 2,
+            "intent": "broad_discovery",
+            "intent_confidence": "low",
+            "faq_count": 3,
+            "faq_last": true
+        }
+    }
+}

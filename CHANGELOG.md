@@ -1,3 +1,65 @@
+# Changelog
+
+## 5.9.9-universal-category-output-quality-v1.0.0 — 2026-07-15
+
+Universal repair of the category-page generation pipeline, driven by the July 2026 live-output audit (five real category pages: 539-590 words, zero internal links detected by Rank Math, metaphor-heavy prose, a production-style category misclassified as a session format, and the conclusion rendered after the FAQ).
+
+### Intent classification (`class-category-intent-classifier.php`)
+- Production-style/performer-descriptor tokens (`amateur`, `models`, `girls`, `couples`, ...) are now NEUTRAL signals: reported, never scored. The v5.9.7 nudge that pushed them toward `interaction_style` caused the audited misclassification.
+- Confidence gate: a non-neutral intent requires score >= 4 AND a signal token in the category name itself; anything weaker classifies as `broad_discovery` (neutral, factual copy). `confidence` (`high`/`low`) and `neutral_signals` are reported.
+- Deterministic tie-break priority between equally scored intents (fixed intent ordering, never a per-category rule).
+
+### Keyword planning (`class-category-keyword-planner.php`)
+- Tiered supporting-keyword selection: distinct root families first, then same-family terms that are not near-duplicate spelling variants (`variant_signature()`: folded, stemmed, order-insensitive token sets). Selects up to four active supporting keywords whenever four valid approved terms exist; pure spelling variants of one phrase never co-activate.
+- Per-keyword SEO roles (`assign_roles()`): the first two heading-safe terms take `heading_h2`/`heading_secondary`, the rest weave into body copy. Every unused approved keyword is logged with a reason (`near_duplicate_of_primary`, `near_duplicate_of_selected_term`, `body_use_cap_reached`, ...).
+
+### Content planning (`class-category-content-planner.php`)
+- Section order contract: opening → body sections → related navigation → conclusion → **FAQ LAST**. Middle sections raised to 6-7 for the word-count band.
+- `assign_keyword_headings()`: guarantees exactly one H2 with the exact primary keyword (reusing a natural heading when the category name already supplies it), assigns supporting-keyword headings from library `heading_templates` to topical sections only, and returns a `heading_keyword_map` for the report. The primary never appears in every heading.
+
+### Composition (`class-category-draft-composer.php`)
+- Real internal links: `{{models_link}}`, `{{videos_link}}`, `{{related_1_link}}`, `{{related_2_link}}` render as `<a href>` anchors with natural anchor-text pools (never a raw URL, never nofollow). Link placeholders substitute opaque tokens before escaping and real anchors after, so markup survives while all prose stays escaped. Sentences with unverifiable link destinations are dropped, never rendered with an invented URL. Rendered links are tracked and reported.
+- Body keyword queue draws only `body`-role keywords; heading-role keywords are placed by the planner and never double-drawn.
+- Cooldown selection is now seeded-among-fresh for both variants and sentence alternates: the previous first-fresh rule made consecutive pages converge onto the same choice whenever a pool ran low (the direct cause of cross-page exact-paragraph collisions).
+
+### Context (`class-category-context-builder.php`)
+- Related categories carry `{name, url}` with verified-internal URLs (term-link resolution + same-host check); unverifiable URLs degrade to plain names. Legacy plain-name arrays remain supported.
+
+### New stage (`class-category-keyword-placement.php`)
+- Primary-keyword placement contract: 3-5 exact uses, exact primary in the first paragraph and in >= 1 H2, presence in body beyond the opening. Bounded, grammar-safe repair only: overshoot demotes later exact uses to neutral references; undershoot promotes existing neutral references. Headings, FAQ questions, and anchor text are never modified; no sentence is ever added.
+
+### Validation (`class-category-final-validator.php`)
+- Word contract 620-950 visible words (was 380-1400); under-length pages fail safely — filler is never added.
+- Primary placement enforced (count band, first paragraph, H2). Every active supporting keyword must render.
+- Internal-link contract: >= 2 verified internal `<a href>` anchors when destinations exist, descriptive anchor text, no nofollow, zero raw URLs in visible text (site display name exempt).
+- Structure contract: FAQ is the final section; no H2 after it; every post-FAQ paragraph is an FAQ answer (no orphan conclusion); page ends on the FAQ block.
+
+### Natural language (`class-category-quality-guard.php`)
+- Every metaphor phrase documented in the audit PDF banned verbatim as regression anchors, plus structural rules against the phrase FAMILIES: commerce metaphors for attention, personified page mechanics, slogan-like triadic endings, fake-certainty idioms, and transaction framing of viewing.
+- Em-dash cap: one per paragraph, counted per `<p>` block (not per text node, so inline anchors can't split the count) with grammar-safe softening of extras.
+
+### Pipeline (`class-category-generation-pipeline.php`)
+- FAQ appended at the very end for both composed and provider paths (was spliced before the closing paragraph — the audited conclusion-after-FAQ bug).
+- Keyword-placement repair stage after grammar repair. `MAX_ATTEMPTS` 3 → 4. `UNIQUENESS_WINDOW_PAGES` widened to the fingerprint store limit (12) so no retained page escapes comparison.
+- Report extended: `intent_confidence`, `neutral_signals`, `internal_links`, `primary_placement`, `supporting_keyword_map`, `heading_keyword_map`, `faq_selection`, keyword `roles`.
+
+### Uniqueness (`class-category-paragraph-uniqueness-guard.php`)
+- `MAX_PARAGRAPH_SIMILARITY` 0.75 → 0.85 (paraphrase pools legitimately sit at 0.75-0.82; exact reuse stays zero-tolerance and page-level body similarity is enforced separately).
+- `MAX_SHARED_SENTENCE_TEMPLATES` 1 → 4 (~13% of a page's ~30 sentences; at 1, an 8-page cooldown over a finite library was mathematically infeasible).
+
+### FAQ (`class-category-faq-planner.php`, `class-category-faq-reuse-guard.php`, `data/category-universal-faq.json`)
+- Library rebuilt: 18 intent-tagged buckets, 82 variants. Pricing/private/identity buckets are intent-gated (no generic pricing FAQ on non-pricing categories). New buckets for content-format and broad-discovery intents. Reuse cooldown widened 8 → 12 pages.
+
+### Library (`data/category-universal-sections.json`)
+- Rebuilt (v6): metaphor-free copy across all 10 intents; dedicated droppable keyword slots in seven purposes; guaranteed related-navigation link slots; heading templates for primary/supporting keywords; >= 3 alternates per sentence slot (185 added) and 3-5 variants per purpose to survive cooldown pressure at catalog scale.
+
+### Tests
+- New `tests/run-category-real-output-regression.php`: the five audited categories with their real Rank Math keyword pools plus three synthetic categories (activity, language/regional, ambiguous-neutral); 220 assertions covering the full on-page contract and safe failure.
+- Updated category smokes where they encoded the old (incorrect) behaviour: provider-draft fixtures now meet the same final contract as every other provider, fixture related categories carry verified URLs, and forced-failure seeding shadows every retry salt.
+
+### Unchanged
+- Model-page and video-page pipelines, providers (OpenAI/Claude/template), Rank Math focus-keyword storage, featured-image behaviour, cron, CLI, admin, affiliate modules, and migrations are untouched. No child-theme changes.
+
 ## 5.9.8-universal-category-quality-hardening-v1.0.0
 
 Quality hardening of the universal category pipeline. Architecture, keyword

@@ -1,0 +1,268 @@
+{
+    "big-boob-cam": {
+        "claim_ledger": {
+            "entries": [
+                {
+                    "claim_type": "model_directory",
+                    "class": "site_config",
+                    "evidence": {
+                        "models_url": "https://top-models.webcam/webcam-models/"
+                    },
+                    "matches": 1,
+                    "snippet": "model directory"
+                },
+                {
+                    "claim_type": "video_directory",
+                    "class": "site_config",
+                    "evidence": {
+                        "videos_url": "https://top-models.webcam/webcam-videos/"
+                    },
+                    "matches": 1,
+                    "snippet": "video directory"
+                },
+                {
+                    "claim_type": "features_vary",
+                    "class": "safe_general",
+                    "evidence": "general_platform_guidance",
+                    "matches": 1,
+                    "snippet": "platform feature differences"
+                }
+            ],
+            "unsupported": [],
+            "counts": {
+                "context_verified": 0,
+                "site_config": 2,
+                "plugin_data": 0,
+                "safe_general": 1
+            },
+            "passed": true
+        },
+        "rejected": []
+    },
+    "blonde-cam-models": {
+        "claim_ledger": {
+            "entries": [
+                {
+                    "claim_type": "model_directory",
+                    "class": "site_config",
+                    "evidence": {
+                        "models_url": "https://top-models.webcam/webcam-models/"
+                    },
+                    "matches": 1,
+                    "snippet": "model directory"
+                },
+                {
+                    "claim_type": "video_directory",
+                    "class": "site_config",
+                    "evidence": {
+                        "videos_url": "https://top-models.webcam/webcam-videos/"
+                    },
+                    "matches": 1,
+                    "snippet": "video directory"
+                },
+                {
+                    "claim_type": "directories",
+                    "class": "site_config",
+                    "evidence": {
+                        "models_url": "https://top-models.webcam/webcam-models/"
+                    },
+                    "matches": 1,
+                    "snippet": "main directories"
+                }
+            ],
+            "unsupported": [],
+            "counts": {
+                "context_verified": 0,
+                "site_config": 3,
+                "plugin_data": 0,
+                "safe_general": 0
+            },
+            "passed": true
+        },
+        "rejected": []
+    },
+    "latina-cam-models": {
+        "claim_ledger": {
+            "entries": [
+                {
+                    "claim_type": "model_scale",
+                    "class": "context_verified",
+                    "evidence": {
+                        "model_count": 3244
+                    },
+                    "matches": 2,
+                    "snippet": "extensive set of performer listings"
+                },
+                {
+                    "claim_type": "video_scale",
+                    "class": "context_verified",
+                    "evidence": {
+                        "video_count": 2871
+                    },
+                    "matches": 1,
+                    "snippet": "large collection of video pages"
+                },
+                {
+                    "claim_type": "model_directory",
+                    "class": "site_config",
+                    "evidence": {
+                        "models_url": "https://top-models.webcam/webcam-models/"
+                    },
+                    "matches": 1,
+                    "snippet": "model directory"
+                },
+                {
+                    "claim_type": "video_directory",
+                    "class": "site_config",
+                    "evidence": {
+                        "videos_url": "https://top-models.webcam/webcam-videos/"
+                    },
+                    "matches": 1,
+                    "snippet": "video directory"
+                },
+                {
+                    "claim_type": "public_vs_paid",
+                    "class": "safe_general",
+                    "evidence": "general_platform_guidance",
+                    "matches": 2,
+                    "snippet": "open public viewing"
+                },
+                {
+                    "claim_type": "pricing_ownership",
+                    "class": "safe_general",
+                    "evidence": "general_platform_guidance",
+                    "matches": 2,
+                    "snippet": "pricing vary by destination, and each platform"
+                }
+            ],
+            "unsupported": [],
+            "counts": {
+                "context_verified": 3,
+                "site_config": 2,
+                "plugin_data": 0,
+                "safe_general": 4
+            },
+            "passed": true
+        },
+        "rejected": []
+    },
+    "free-cam-chat": {
+        "claim_ledger": {
+            "entries": [
+                {
+                    "claim_type": "related_categories",
+                    "class": "context_verified",
+                    "evidence": {
+                        "related_categories": 2
+                    },
+                    "matches": 1,
+                    "snippet": "adjacent theme"
+                },
+                {
+                    "claim_type": "model_directory",
+                    "class": "site_config",
+                    "evidence": {
+                        "models_url": "https://top-models.webcam/webcam-models/"
+                    },
+                    "matches": 1,
+                    "snippet": "model directory"
+                },
+                {
+                    "claim_type": "video_directory",
+                    "class": "site_config",
+                    "evidence": {
+                        "videos_url": "https://top-models.webcam/webcam-videos/"
+                    },
+                    "matches": 1,
+                    "snippet": "video directory"
+                },
+                {
+                    "claim_type": "public_vs_paid",
+                    "class": "safe_general",
+                    "evidence": "general_platform_guidance",
+                    "matches": 5,
+                    "snippet": "Public viewing"
+                },
+                {
+                    "claim_type": "pricing_ownership",
+                    "class": "safe_general",
+                    "evidence": "general_platform_guidance",
+                    "matches": 3,
+                    "snippet": "pricing, because rates and options are decided by each platform"
+                },
+                {
+                    "claim_type": "review_terms",
+                    "class": "safe_general",
+                    "evidence": "general_platform_guidance",
+                    "matches": 1,
+                    "snippet": "platform's own terms"
+                }
+            ],
+            "unsupported": [],
+            "counts": {
+                "context_verified": 1,
+                "site_config": 2,
+                "plugin_data": 0,
+                "safe_general": 9
+            },
+            "passed": true
+        },
+        "rejected": []
+    },
+    "amateur-cams": {
+        "claim_ledger": {
+            "entries": [
+                {
+                    "claim_type": "related_categories",
+                    "class": "context_verified",
+                    "evidence": {
+                        "related_categories": 2
+                    },
+                    "matches": 3,
+                    "snippet": "related themes"
+                },
+                {
+                    "claim_type": "model_directory",
+                    "class": "site_config",
+                    "evidence": {
+                        "models_url": "https://top-models.webcam/webcam-models/"
+                    },
+                    "matches": 1,
+                    "snippet": "model directory"
+                },
+                {
+                    "claim_type": "video_directory",
+                    "class": "site_config",
+                    "evidence": {
+                        "videos_url": "https://top-models.webcam/webcam-videos/"
+                    },
+                    "matches": 1,
+                    "snippet": "video directory"
+                },
+                {
+                    "claim_type": "public_vs_paid",
+                    "class": "safe_general",
+                    "evidence": "general_platform_guidance",
+                    "matches": 1,
+                    "snippet": "Public and private"
+                },
+                {
+                    "claim_type": "pricing_ownership",
+                    "class": "safe_general",
+                    "evidence": "general_platform_guidance",
+                    "matches": 2,
+                    "snippet": "Pricing Work Public and private access differ by platform"
+                }
+            ],
+            "unsupported": [],
+            "counts": {
+                "context_verified": 3,
+                "site_config": 2,
+                "plugin_data": 0,
+                "safe_general": 3
+            },
+            "passed": true
+        },
+        "rejected": []
+    }
+}

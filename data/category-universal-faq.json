@@ -1,5 +1,5 @@
 {
- "version": "2.0.0",
+ "version": "6.0.0",
  "buckets": {
   "what_free_means": {
    "tier": "intent",
@@ -8,300 +8,122 @@
    },
    "variants": [
     {
-     "id": "fq_free_1",
+     "id": "fq6_free_1",
      "q": "Does free mean everything in these rooms costs nothing?",
-     "a": "No. Free generally covers watching public rooms. Private sessions, requests, and personalised features are typically paid, and each platform sets its own boundary between the two — the platform's own labels are the deciding source."
+     "a": "No. Free generally covers watching the public side of a room. Private sessions, requests, and personalised features are handled and priced by each destination platform, and its own labels state where the paid side begins."
     },
     {
-     "id": "fq_free_2",
-     "q": "What can I actually do without paying?",
-     "a": "On most platforms, watch the public side of a room. Interaction beyond that — private time, requests, personal attention — is generally where paid features begin. The exact split varies by platform and by room, so check the destination's own terms."
+     "id": "fq6_free_2",
+     "q": "What exactly is free on the platforms these listings lead to?",
+     "a": "As a rule, open public viewing is the free part. Anything private or personalised is arranged on the destination platform under its own terms, so the reliable answer for any specific feature is on that platform's page."
     },
     {
-     "id": "fq_free_3",
-     "q": "Why do some rooms feel more open than others?",
-     "a": "Performers configure their own rooms within their platform's rules, so how much happens publicly differs room to room even on one platform. Sampling a couple of candidates briefly shows the difference faster than any description."
+     "id": "fq6_free_3",
+     "q": "How do I avoid unexpected costs while browsing?",
+     "a": "Stay within open public viewing until you have read the destination page's own terms. Every step beyond public viewing is governed by the platform and the performer, and their labels state what applies before you commit."
     },
     {
-     "id": "fq_free_4",
-     "q": "Is there a catch to free viewing?",
-     "a": "Not a hidden one — the model is simply tiered. Public viewing is the open tier on most platforms; the paid tier holds interaction and privacy. Knowing the tiers exist is the whole trick; the platform page states where its line sits."
+     "id": "fq6_free_4",
+     "q": "Why do the free boundaries feel different from room to room?",
+     "a": "Each platform draws its own line between the open side and the paid side, and performers configure their rooms within those rules. That is why a room's own labels are more reliable than any general description."
     },
     {
-     "id": "fq_free_5",
-     "q": "Where do I see what a specific room charges?",
-     "a": "On the destination platform — pricing and paid features are set by each platform and performer, and their own labels are the only binding version. Nothing on a directory page can state a room's current rates."
-    },
-    {
-     "id": "fq_free_6",
-     "q": "Does watching free mean lower quality?",
-     "a": "No — public viewing is simply the open tier of how most platforms structure rooms. The paid tier adds interaction and privacy, not a different grade of performer; plenty of visits never need to leave the open side."
+     "id": "fq6_free_5",
+     "q": "Is anything on this page itself paid?",
+     "a": "No. This page is a directory of listings, and nothing here charges anything. Payment questions only arise on the destination platforms, under their own stated terms."
     }
    ]
   },
-  "activity_status": {
-   "tier": "generic",
+  "cost_confirmation": {
+   "tier": "intent",
    "intents": {
-    "default": 6,
-    "content_format": 8,
-    "free_access_pricing": 7
+    "free_access_pricing": 8,
+    "interaction_style": 5
    },
    "variants": [
     {
-     "id": "fq_act_1",
-     "q": "Why is a performer listed here but not live?",
-     "a": "A listing means the performer matches this theme, not that they are streaming at this moment — those are separate facts. Live status lives on the destination platform and can change at any point during a visit."
+     "id": "fq6_cost_1",
+     "q": "Where do I find out what a session costs?",
+     "a": "On the destination platform's own page. Nothing on this site sets or displays session pricing, because rates and options are decided by each platform and performer and stated in their own labels."
     },
     {
-     "id": "fq_act_2",
-     "q": "How do I know who is live right now?",
-     "a": "Current status is a platform-level fact: the place where a performer streams is the only source that knows it. This directory groups by theme; the moment-to-moment picture belongs to the destination."
+     "id": "fq6_cost_2",
+     "q": "Can a listing here promise a specific price?",
+     "a": "No. Listings here establish that a performer or clip matches the theme, while pricing belongs entirely to the destination. Check the platform page's own terms whenever cost is part of the decision."
     },
     {
-     "id": "fq_act_3",
-     "q": "Does this page update when someone goes live?",
-     "a": "No — this page organises listings by theme and does not track live status. Check the destination platform when the timing question matters, and lean on the video pages when it doesn't."
+     "id": "fq6_cost_3",
+     "q": "Should I compare prices between listings on this page?",
+     "a": "This page does not carry pricing, so comparisons are better made on the destination platforms themselves. Shortlist by fit first, then confirm what each destination charges for the features you want."
     },
     {
-     "id": "fq_act_4",
-     "q": "A room I wanted was closed. What now?",
-     "a": "Live status can change within the hour, so a retry later is reasonable for a strong candidate. In the meantime the recorded side of {{category_name}} carries the same theme without the timing problem."
-    },
-    {
-     "id": "fq_act_5",
-     "q": "Does being listed high on the page mean more active?",
-     "a": "No — position carries no signal about activity or quality. Listings appear because they match the theme, and live status is a separate, platform-level fact that changes on its own schedule regardless of where a listing sits."
-    },
-    {
-     "id": "fq_act_6",
-     "q": "What is the fastest way to check if someone is live?",
-     "a": "Go to the source: the platform where the performer streams is the only place that knows the current status. Build the shortlist here by preference first, then check status at decision time — it can change between any two moments."
+     "id": "fq6_cost_4",
+     "q": "Where do I check what a session costs?",
+     "a": "On the destination platform's own page for that room. Pricing belongs to the platform and the performer, and their labels are the only reliable source for it."
     }
    ]
   },
-  "profile_detail": {
-   "tier": "generic",
+  "style_expectations": {
+   "tier": "intent",
    "intents": {
-    "default": 5,
+    "body_type": 9,
+    "appearance_trait": 9,
+    "age_style": 8
+   },
+   "variants": [
+    {
+     "id": "fq6_style_1",
+     "q": "Will every performer here match the exact look I have in mind?",
+     "a": "Expect the shared trait rather than a single look. The label of {{category_name}} is broad by design, and performers present the trait in genuinely different ways, which the individual model pages make clear."
+    },
+    {
+     "id": "fq6_style_2",
+     "q": "What does the category label actually guarantee?",
+     "a": "Only the shared theme. Presentation, style, and format stay individual, which is why the model and video pages carry the deciding detail once the label has gathered the candidates."
+    },
+    {
+     "id": "fq6_style_3",
+     "q": "How do I choose between performers who share the same trait?",
+     "a": "Compare what each performer states about their own presentation, format, and approach. Within a shared trait those stated details are where listings genuinely differ, and the clearer page usually deserves the click."
+    },
+    {
+     "id": "fq6_style_4",
+     "q": "Why do the listings look so different if they share one theme?",
+     "a": "Because the theme covers one trait and nothing else. Everything each performer chooses about styling and presentation is their own, so a spread of looks within the label is normal rather than a mistake."
+    },
+    {
+     "id": "fq6_style_5",
+     "q": "Will every listing here match the style exactly?",
+     "a": "Each listing fits the theme, and each performer interprets it their own way. The spread of interpretations is part of what the category offers, with the pages showing where each sits."
+    }
+   ]
+  },
+  "trait_vs_detail": {
+   "tier": "intent",
+   "intents": {
     "body_type": 7,
-    "appearance_trait": 7,
-    "ethnicity_regional": 7,
-    "age_style": 7
+    "appearance_trait": 7
    },
    "variants": [
     {
-     "id": "fq_prof_1",
-     "q": "What will I find on a performer's page here?",
-     "a": "It varies — profile detail availability differs between performers, so some pages carry a lot and some very little. Whatever a page provides is worth reading before an outbound click; where it's thin, the content itself does the introducing."
+     "id": "fq6_trait_1",
+     "q": "Which details matter most once the trait has narrowed the field?",
+     "a": "Whatever bears on your visit: stated format and approach if session style matters, and always the performer's name, since confirming you are on the intended page prevents the most common mix-up."
     },
     {
-     "id": "fq_prof_2",
-     "q": "Why do some profiles have much more detail than others?",
-     "a": "Performers and platforms supply different amounts of information, and neither depth predicts the room. A lean page just moves the evaluation to the clips or the live side rather than saying anything about quality."
+     "id": "fq6_trait_2",
+     "q": "Is the thumbnail enough to choose by inside this theme?",
+     "a": "Usually not, because thumbnails inside one shared trait tend to resemble each other. The stated details on each page separate the candidates far better than the images do."
     },
     {
-     "id": "fq_prof_3",
-     "q": "Should I skip performers with sparse profiles?",
-     "a": "Not automatically. A minimal page is a missing introduction, not a verdict — the recorded clips or the room itself can carry that introduction instead. Judge against your original search rather than against page length."
+     "id": "fq6_trait_3",
+     "q": "Do I need to keep the category label in mind while comparing pages?",
+     "a": "Not really. The label finished its work when it gathered these listings, and from here the useful comparisons are about what each page states rather than the trait they all share."
     },
     {
-     "id": "fq_prof_4",
-     "q": "Can I trust what a profile says?",
-     "a": "Treat performer-stated details as the performer's own account, and confirm anything that matters — identity especially — before engaging or paying on a platform. The platform's own terms govern everything operational."
-    },
-    {
-     "id": "fq_prof_5",
-     "q": "A profile I opened says almost nothing. Is that a red flag?",
-     "a": "Not by itself — profile depth varies for ordinary reasons, and a quiet page just means the introduction happens elsewhere. Let the clips or the room carry it, and judge the performer against your search rather than against page length."
-    },
-    {
-     "id": "fq_prof_6",
-     "q": "What details matter most on a performer page?",
-     "a": "Whatever bears on your visit: stated approach and format if the session style matters, stated languages if communication does, and always the name — confirming you're on the intended performer's page prevents the most common detour in this space."
-    }
-   ]
-  },
-  "wrong_account_safety": {
-   "tier": "generic",
-   "intents": {
-    "default": 4,
-    "interaction_style": 6
-   },
-   "variants": [
-    {
-     "id": "fq_acct_1",
-     "q": "How do I avoid ending up on the wrong performer's page?",
-     "a": "Similar stage names are common in this space. Confirm the name and the details you saw here match the page you land on before engaging or paying anywhere; a mismatch means backing out and starting from the listing again."
-    },
-    {
-     "id": "fq_acct_2",
-     "q": "What should I double-check after clicking through to a platform?",
-     "a": "That the performer is the one you meant: name and stated details matched against the page you came from. Then the platform's own terms for whatever you plan to do — those rules, not this directory, govern the session."
-    },
-    {
-     "id": "fq_acct_3",
-     "q": "What if the destination doesn't match the listing?",
-     "a": "Back out and re-approach from the listing here rather than searching the name on the platform — name collisions are exactly how wrong-account detours happen. If it still doesn't line up, treat that listing as unresolved and move to the next."
-    },
-    {
-     "id": "fq_acct_4",
-     "q": "Why does confirming the name matter so much?",
-     "a": "Because stage names repeat across this space more than almost anywhere, and engaging or paying on the wrong page is the most common avoidable mistake. A three-second match between the listing here and the page you land on removes the risk entirely."
-    }
-   ]
-  },
-  "category_membership": {
-   "tier": "generic",
-   "intents": {
-    "default": 4,
-    "broad_discovery": 7
-   },
-   "variants": [
-    {
-     "id": "fq_mem_1",
-     "q": "Why are these particular performers grouped together?",
-     "a": "Their profiles and clips match the theme of {{category_name}} — that is the whole criterion. Nothing here is a ranking, and listing order signals nothing about quality; position on the page and merit are unrelated."
-    },
-    {
-     "id": "fq_mem_2",
-     "q": "Is the order of listings a recommendation?",
-     "a": "No. Listings appear because they fit the theme, and their order carries no editorial judgement. Choose by fit with what you searched for, not by where a listing happens to sit."
-    },
-    {
-     "id": "fq_mem_3",
-     "q": "How strictly is this category applied?",
-     "a": "It is a grouping, not a certification — the theme is the common thread and the edges are soft. A listing that reads differently than expected is normal at the boundary; the next one over may fit better."
-    },
-    {
-     "id": "fq_mem_4",
-     "q": "A listing here doesn't seem to fit the theme. Why?",
-     "a": "Category edges are soft by nature: profiles and clips are matched on theme, and interpretations of a theme vary. Skip what doesn't fit your reading — soft edges cut both ways, and some boundary listings turn out to be the best matches."
-    },
-    {
-     "id": "fq_mem_5",
-     "q": "Can the same performer appear in several categories?",
-     "a": "Yes — categories are overlapping themes, not exclusive folders, so a performer whose profile and clips fit several themes appears in each. That overlap is useful: it's exactly what makes sideways browsing between related themes work."
-    }
-   ]
-  },
-  "narrowing_search": {
-   "tier": "generic",
-   "intents": {
-    "default": 4,
-    "broad_discovery": 8,
-    "activity_fetish": 6
-   },
-   "variants": [
-    {
-     "id": "fq_nar_1",
-     "q": "How do I find something more specific within this theme?",
-     "a": "Anchor on the closest match: open the nearest listing, read its page, and let what fits and doesn't fit steer the next pick. Two or three passes of that loop usually turns a broad theme into a precise result."
-    },
-    {
-     "id": "fq_nar_2",
-     "q": "Is it better to browse this category or search the whole site?",
-     "a": "If the theme matches the intent, staying inside it is faster — off-theme results are exactly what this page filters out. Widen to the full model and video directories only when the theme runs out of candidates."
-    },
-    {
-     "id": "fq_nar_3",
-     "q": "This theme is close but not exactly it. What now?",
-     "a": "Move sideways before starting over: related themes overlap this one with a different emphasis, and the overlap preserves the progress a fresh search would discard. The main directories remain the full reset when sideways fails."
-    },
-    {
-     "id": "fq_nar_4",
-     "q": "How long should finding a good match take?",
-     "a": "A few minutes with a method: shortlist two or three candidates on one pass, then compare their pages together. Sequential one-at-a-time browsing is what makes it feel slow — batch the comparing and it isn't."
-    },
-    {
-     "id": "fq_nar_5",
-     "q": "I keep opening listings that are almost right. What am I doing wrong?",
-     "a": "Probably nothing — near-misses are the narrowing process working. Register what misses each time (style, format, approach) and feed it into the next pick; two or three informed iterations usually land, where random re-picking just circles."
-    },
-    {
-     "id": "fq_nar_6",
-     "q": "When should I give up on this category and look elsewhere?",
-     "a": "When the near-misses stop teaching you anything new. At that point move sideways to a related theme, which keeps the context you've built, or reset wide through the main model and video directories if the whole direction changed."
-    }
-   ]
-  },
-  "live_vs_video": {
-   "tier": "intent",
-   "intents": {
-    "default": 3,
-    "content_format": 9,
-    "free_access_pricing": 4
-   },
-   "variants": [
-    {
-     "id": "fq_lv_1",
-     "q": "Should I start with live rooms or recorded clips?",
-     "a": "Match it to the visit: clips suit watching on your own schedule, live rooms suit being present while it happens. Clips also preview performers well — what lands recorded usually signals what a live visit will feel like."
-    },
-    {
-     "id": "fq_lv_2",
-     "q": "Do I lose anything by only watching clips?",
-     "a": "The interactive element — chat, responsiveness, requests — exists only in live rooms. Clips carry the style and skip the timing constraints; which trade is right depends on what the visit is for."
-    },
-    {
-     "id": "fq_lv_3",
-     "q": "Can I use both sides together?",
-     "a": "That's usually the strongest approach: shortlist performers through their clips, then take the shortlist to the live side. Each format covers the other's gap — clips ignore timing, rooms provide interaction."
-    },
-    {
-     "id": "fq_lv_4",
-     "q": "Is the recorded side worth browsing on its own?",
-     "a": "Yes — the video pages carry the theme's style without any timing constraint, which makes them a complete visit in themselves, not just a preview channel. Browse clips when the visit is about watching; switch to rooms when it is about being there."
-    },
-    {
-     "id": "fq_lv_5",
-     "q": "How do the live and recorded sides relate to each other?",
-     "a": "They cover each other's gaps: clips carry the theme whenever you want it, rooms carry the interaction whenever performers are present. Many visits use both — clips to build a shortlist, rooms to follow through on it."
-    },
-    {
-     "id": "fq_lv_6",
-     "q": "When is a recorded clip the better choice?",
-     "a": "Whenever timing is against you or the visit is about watching rather than participating. A clip asks nothing of the clock, and it previews a performer's style well enough to make the next live visit a more informed one."
-    }
-   ]
-  },
-  "private_sessions": {
-   "tier": "intent",
-   "intents": {
-    "default": 3,
-    "interaction_style": 9,
-    "activity_fetish": 8,
-    "free_access_pricing": 5
-   },
-   "variants": [
-    {
-     "id": "fq_priv_1",
-     "q": "How do private sessions work?",
-     "a": "Mechanics and rules are set by each platform, and performers configure their rooms within them — so specifics vary. The reliable constants: private features are typically paid, and the platform page states its own terms."
-    },
-    {
-     "id": "fq_priv_2",
-     "q": "Who sets the price for private features?",
-     "a": "The performer and their platform, between them. Nothing on this site sets or displays session pricing — rates and options differ by performer and platform, so the destination's own labels are the source."
-    },
-    {
-     "id": "fq_priv_3",
-     "q": "What should I check before starting a paid session?",
-     "a": "Three things: that the performer is the one you meant, what the platform's terms say about the feature you want, and that the room's own stated boundaries match yours. All three live on the destination side."
-    },
-    {
-     "id": "fq_priv_4",
-     "q": "Do private options work the same everywhere?",
-     "a": "No — private features are configured per platform and per room, so mechanics and boundaries differ between destinations. The constant is that private sides are typically paid; everything more specific is stated on the platform page itself."
-    },
-    {
-     "id": "fq_priv_5",
-     "q": "Is anything about private sessions standard across platforms?",
-     "a": "Only the broad shape: private features are typically paid and configured per room. Everything specific — mechanics, boundaries, options — is set by the platform and the performer, and stated on the destination page rather than anywhere on a directory."
-    },
-    {
-     "id": "fq_priv_6",
-     "q": "What if a room asks for something outside my comfort zone?",
-     "a": "Leave it — boundaries outrank momentum every time. Performers set their room's terms and platforms enforce them, but your level of participation is always yours to choose, and a room that pushes past it is a room to close."
+     "id": "fq6_trait_4",
+     "q": "Is the shared trait enough to choose by?",
+     "a": "It is enough to gather candidates, not to choose between them. The choosing runs on what each page states about presentation, format, and approach."
     }
    ]
   },
@@ -313,69 +135,385 @@
    },
    "variants": [
     {
-     "id": "fq_lang_1",
+     "id": "fq6_lang_1",
      "q": "Does this category tell me where performers are from or what they speak?",
-     "a": "No — the grouping reflects presentation and theme, not verified background, residence, or language. Details like spoken languages belong to what each performer states about themselves, which is where to look when it matters."
+     "a": "No. The grouping reflects presentation and theme rather than verified background, residence, or language. Details such as spoken languages belong to what each performer states about themselves, which is where to look when it matters."
     },
     {
-     "id": "fq_lang_2",
-     "q": "How do I find performers I can actually talk with?",
-     "a": "Shortlist on the theme, then check each shortlisted performer's own page for stated languages before committing. Where live conversation is the goal, that stated detail is the one that counts; for watching clips, language rarely matters at all."
+     "id": "fq6_lang_2",
+     "q": "How do I confirm a performer speaks a language I need?",
+     "a": "Read what the performer states on their own page, and confirm it on the destination platform before a session where communication matters. Stated details vary in depth, so the destination page is the reliable final check."
     },
     {
-     "id": "fq_lang_3",
-     "q": "Is the regional label accurate?",
-     "a": "It is accurate about presentation — performers appear here because their profiles and clips fit the theme. It makes no claim about anyone's actual origin or location; those are personal details performers share, or don't, themselves."
+     "id": "fq6_lang_3",
+     "q": "Is a regional label a statement about someone's nationality?",
+     "a": "No, it describes presentation within a theme. Nothing about nationality, residence, or background is verified by a category label, and performers state their own details where they choose to."
     },
     {
-     "id": "fq_lang_4",
-     "q": "What should I check if communication matters to me?",
-     "a": "Look at what each shortlisted performer states about the languages they use before committing to a room. The theme groups by presentation, so performer-stated language details are the reliable signal — and for recorded clips, language usually matters far less."
+     "id": "fq6_lang_4",
+     "q": "Why do performers in this theme present it so differently?",
+     "a": "A regional or heritage theme is a presentation style, and each performer brings their own version of it. The spread of presentations is part of what the category covers rather than a mismatch."
     },
     {
-     "id": "fq_lang_5",
-     "q": "Can I filter these listings by spoken language?",
-     "a": "Use the theme as the first cut, then check what each shortlisted performer states about language on their own page. Performer-stated details are the dependable signal here — the category groups by presentation, not by verified language."
+     "id": "fq6_lang_5",
+     "q": "Does the category name tell me what languages are spoken?",
+     "a": "No. The name sets a theme, and the languages actually spoken are whatever each performer states on their own page, confirmed on the destination platform where it matters."
     }
    ]
   },
-  "style_expectations": {
+  "communication_fit": {
    "tier": "intent",
    "intents": {
-    "body_type": 8,
-    "appearance_trait": 8,
-    "age_style": 8
+    "language_location": 8,
+    "ethnicity_regional": 6
    },
    "variants": [
     {
-     "id": "fq_style_1",
-     "q": "Will every performer here match the look I have in mind?",
-     "a": "Expect the shared trait, not a single look — the label of {{category_name}} is broad, and performers present it in genuinely different ways. The spread is the selection; the model pages show where each performer sits in it."
+     "id": "fq6_comm_1",
+     "q": "What should I check before a session where communication matters?",
+     "a": "Confirm the performer's stated languages on their destination page, and confirm the performer's name while you are there. Both checks take seconds and prevent the two most common disappointments."
     },
     {
-     "id": "fq_style_2",
-     "q": "How strictly is this style applied?",
-     "a": "Loosely, and on purpose. The theme is a direction that performers take to different places, so interpretations vary from close-to-the-label to well beyond it. Comparing two contrasting takes maps the range fastest."
+     "id": "fq6_comm_2",
+     "q": "What if a listing states nothing about language?",
+     "a": "Silence on a listing is not an answer either way. The destination platform's page may state more, and checking there settles the question before any commitment."
     },
     {
-     "id": "fq_style_3",
-     "q": "The thumbnails all look similar. How do I choose?",
-     "a": "Inside one visual theme, wording differentiates where images can't: listing titles and whatever performers state about their approach carry the distinguishing signal. Read a few before opening, and the similar-looking field separates quickly."
+     "id": "fq6_comm_3",
+     "q": "What if a performer lists several languages?",
+     "a": "Multiple stated languages usually mean sessions can run in any of them, but depth varies. The performer's own page and platform are where to confirm which language suits a full session."
     },
     {
-     "id": "fq_style_4",
-     "q": "Why do listings in this style look so different from each other?",
-     "a": "Because the theme is a direction, not a template — performers interpret the shared style in their own way, and that range is the actual selection. Treat the differences as the point: two contrasting takes teach the style faster than one exact match."
+     "id": "fq6_comm_4",
+     "q": "How important is language for a live session?",
+     "a": "As important as you want the conversation to be. For chat-centred visits, confirming stated languages first protects the session; for watching, it matters far less."
+    }
+   ]
+  },
+  "session_style": {
+   "tier": "intent",
+   "intents": {
+    "interaction_style": 9,
+    "activity_fetish": 6,
+    "age_style": 4
+   },
+   "variants": [
+    {
+     "id": "fq6_sess_1",
+     "q": "How can I tell what a session with a performer will be like?",
+     "a": "Read how the performer describes it themselves. A performer's own account of pace, format, and approach is the strongest signal available before clicking through, and where the words are thin their recorded clips show the style directly."
     },
     {
-     "id": "fq_style_5",
-     "q": "Should I trust the thumbnails or the pages more?",
-     "a": "The pages. Inside one visual theme, thumbnails compress everything to sameness while the written details — titles, stated approach, whatever performers share — carry the differences that actually decide a pick."
+     "id": "fq6_sess_2",
+     "q": "Do all performers in this theme offer the same kind of session?",
+     "a": "No. The theme establishes a shared style of session, and how each performer fills that style is their own. Comparing their stated approaches is how listings within one session theme get told apart."
     },
     {
-     "id": "fq_style_6",
-     "q": "What does the category name actually guarantee?",
-     "a": "Only the shared theme. Presentation, energy, format, and everything else that separates one listing from another stays individual, which is why the model pages do the real deciding once the label has done the gathering."
+     "id": "fq6_sess_3",
+     "q": "What decides the specifics of any session?",
+     "a": "The destination platform and the performer, between them. Session mechanics differ by platform and by room, so the destination page's own descriptions and terms govern the specifics."
+    },
+    {
+     "id": "fq6_sess_4",
+     "q": "Can I know what a session will be like before joining?",
+     "a": "Partly. A performer's stated approach and their clips are honest previews, and the open public side of a room shows the style directly before anything further."
+    }
+   ]
+  },
+  "private_sessions": {
+   "tier": "intent",
+   "intents": {
+    "interaction_style": 8,
+    "activity_fetish": 8,
+    "free_access_pricing": 6
+   },
+   "variants": [
+    {
+     "id": "fq6_priv_1",
+     "q": "How do private sessions work on the platforms these listings lead to?",
+     "a": "Mechanics and rules are set by each platform, and performers configure their rooms within them, so the specifics vary by destination. The platform page states its own terms, which is where to confirm anything that matters."
+    },
+    {
+     "id": "fq6_priv_2",
+     "q": "Do private options work the same on every platform?",
+     "a": "No. Private features are configured per platform and per room, so mechanics and boundaries differ between destinations. The destination page's own labels state what applies there."
+    },
+    {
+     "id": "fq6_priv_3",
+     "q": "What should I read before moving from public viewing to anything private?",
+     "a": "The destination platform's own terms and labels. They govern access, payment, and conduct for that room, and reading them first keeps the step predictable."
+    },
+    {
+     "id": "fq6_priv_4",
+     "q": "Who sets the rules for private sessions?",
+     "a": "The destination platform and the performer together. The platform sets the framework and the performer sets their own terms inside it, all stated on their own pages."
+    }
+   ]
+  },
+  "niche_fit": {
+   "tier": "intent",
+   "intents": {
+    "activity_fetish": 9
+   },
+   "variants": [
+    {
+     "id": "fq6_niche_1",
+     "q": "How do I find the exact variant of this interest I'm after?",
+     "a": "Compare the exact preference you have in mind with what each listing states, since specific interests come in versions. Where a listing states little, its clips or destination page usually carry the specifics."
+    },
+    {
+     "id": "fq6_niche_2",
+     "q": "Do platform rules affect what listings in this theme can offer?",
+     "a": "Yes. Each destination platform sets its own rules for specific content, and performers work within them, so what a platform permits is part of whether a listing fits."
+    },
+    {
+     "id": "fq6_niche_3",
+     "q": "Why do listings under one interest theme differ so much?",
+     "a": "Because a niche label gathers the general interest while each listing offers its own specific version. Reading the stated specifics is how the right variant gets found."
+    },
+    {
+     "id": "fq6_niche_4",
+     "q": "What if a listing covers the interest but not my exact version?",
+     "a": "Treat it as a near-miss and keep reading. Versions of a specific interest differ meaningfully, and the stated specifics on each page are what separate close from right."
+    }
+   ]
+  },
+  "live_vs_video": {
+   "tier": "intent",
+   "intents": {
+    "content_format": 9,
+    "free_access_pricing": 4,
+    "broad_discovery": 3
+   },
+   "variants": [
+    {
+     "id": "fq6_lv_1",
+     "q": "Should I start with live rooms or recorded clips?",
+     "a": "Match it to the visit: clips suit watching on your own schedule, while live rooms suit being present as it happens. Clips also introduce a performer's recorded style before any live visit."
+    },
+    {
+     "id": "fq6_lv_2",
+     "q": "How do the live and recorded sides relate to each other?",
+     "a": "They cover different needs. Clips carry the theme whenever you want it, live rooms carry the presence when performers are online, and many visits use both, clips to shortlist and rooms to follow through."
+    },
+    {
+     "id": "fq6_lv_3",
+     "q": "When is a recorded clip the better choice?",
+     "a": "Whenever timing is against you or the visit is about watching rather than participating. A clip asks nothing of the clock and shows a performer's recorded style at any hour."
+    },
+    {
+     "id": "fq6_lvv_4",
+     "q": "Can I tell from this page whether someone is live?",
+     "a": "No. A listing here confirms the theme match, and the performer's own platform reports live status, which can change at any moment."
+    },
+    {
+     "id": "fq6_lvv_5",
+     "q": "Do live and recorded listings mix on this page?",
+     "a": "The theme covers both sides where they exist. Model listings lead toward live rooms and video listings toward clips, and the site links the two where they connect."
+    }
+   ]
+  },
+  "clip_previews": {
+   "tier": "intent",
+   "intents": {
+    "content_format": 8,
+    "interaction_style": 4,
+    "broad_discovery": 3
+   },
+   "variants": [
+    {
+     "id": "fq6_clip_1",
+     "q": "What do recorded clips tell me before a live visit?",
+     "a": "A clip shows a performer's recorded style directly, on your own schedule. It works as an introduction, and the live room itself confirms whether a live session suits you."
+    },
+    {
+     "id": "fq6_clip_2",
+     "q": "Do I lose anything by starting on the recorded side?",
+     "a": "No, and the two sides connect where the site links them. Many visits start with clips to build a shortlist and move to live rooms to follow through on it."
+    },
+    {
+     "id": "fq6_clip_3",
+     "q": "Why choose a live room over a clip at all?",
+     "a": "Presence. A live room offers the session as it happens, which a recording cannot, while a clip trades that presence for complete control over timing."
+    },
+    {
+     "id": "fq6_clip_4",
+     "q": "How current are the recorded clips?",
+     "a": "Clips are fixed recordings, so each shows the performer as of its recording. For the current picture, the performer's live room and destination page carry the up-to-date view."
+    }
+   ]
+  },
+  "browsing_wide": {
+   "tier": "intent",
+   "intents": {
+    "broad_discovery": 8
+   },
+   "variants": [
+    {
+     "id": "fq6_wide_1",
+     "q": "How is a broad category like this best used?",
+     "a": "As a survey. Browse the wide field first to see the range, note what stands out, and then refine toward the narrower themes or the individual pages that match it."
+    },
+    {
+     "id": "fq6_wide_2",
+     "q": "Isn't a wide theme just harder to choose from?",
+     "a": "It trades precision for range on purpose. The width shows you options a narrow filter would hide, and the related themes provide the narrowing once a preference forms."
+    },
+    {
+     "id": "fq6_wide_3",
+     "q": "What's the fastest way from this wide page to a good pick?",
+     "a": "One unhurried scan, then two or three open candidates compared side by side. The individual pages carry the deciding detail, so depth beats opening everything."
+    },
+    {
+     "id": "fq6_wide_4",
+     "q": "Where should I start on a page this broad?",
+     "a": "Anywhere that catches your interest. Order carries no ranking here, so an unhurried scan followed by two or three opened candidates works better than starting at the top."
+    },
+    {
+     "id": "fq6_wide_5",
+     "q": "Do wide categories overlap with the narrow ones?",
+     "a": "Constantly, and that is by design. A listing can appear here and in several narrower themes at once, so this page works as the map and the narrow pages as the destinations."
+    }
+   ]
+  },
+  "activity_status": {
+   "tier": "generic",
+   "intents": {
+    "default": 6,
+    "content_format": 7,
+    "free_access_pricing": 5
+   },
+   "variants": [
+    {
+     "id": "fq6_act_1",
+     "q": "Why is a performer listed here but not live right now?",
+     "a": "A listing means the performer matches this theme, not that they are streaming at this moment. Live status lives on the destination platform and can change at any point during a visit."
+    },
+    {
+     "id": "fq6_act_2",
+     "q": "How do I know if a performer is online?",
+     "a": "Check the destination platform, which shows the current state of any room. Live status can change quickly, so a check just before engaging is the reliable habit."
+    },
+    {
+     "id": "fq6_act_3",
+     "q": "Does this page show who is currently streaming?",
+     "a": "No, it establishes theme membership rather than live status. The destination platform reports who is online, and the recorded side remains available regardless of timing."
+    },
+    {
+     "id": "fq6_act_4",
+     "q": "What can I rely on when timing never seems to line up?",
+     "a": "The recorded side, which does not depend on anyone being online. Clips carry the theme at any hour, and they double as introductions for a later live visit."
+    },
+    {
+     "id": "fq6_status_5",
+     "q": "Does this page update when performers go live?",
+     "a": "The page reflects the theme, not the minute-by-minute status. The performer's own platform is the live source, and checking it right before a visit is the reliable habit."
+    }
+   ]
+  },
+  "profile_detail": {
+   "tier": "generic",
+   "intents": {
+    "default": 5,
+    "body_type": 6,
+    "appearance_trait": 6,
+    "ethnicity_regional": 6,
+    "age_style": 6
+   },
+   "variants": [
+    {
+     "id": "fq6_prof_1",
+     "q": "What will I find on a performer's page here?",
+     "a": "It varies, because the amount of stated detail differs between performers. Whatever a page provides is worth reading before an outbound click, and where it is thin the performer's clips often carry the introduction instead."
+    },
+    {
+     "id": "fq6_prof_2",
+     "q": "Can I trust what a listing states about a performer?",
+     "a": "Treat stated details as the performer's own account, and confirm anything that matters on the destination platform before engaging or paying. The platform's own terms govern everything operational."
+    },
+    {
+     "id": "fq6_prof_3",
+     "q": "Why do some pages state so much more than others?",
+     "a": "Detail availability simply varies between performers. Weigh what is stated without treating silence as a fault, and let the destination page fill the gaps that matter."
+    },
+    {
+     "id": "fq6_profile_4",
+     "q": "Why do some listings state so little?",
+     "a": "Because the amount of stated detail is each performer's own choice. A quiet listing often keeps its introduction in its clips or on its destination page instead."
+    },
+    {
+     "id": "fq6_profile_5",
+     "q": "Are the listings here written by the performers?",
+     "a": "The stated details come from what performers and platforms provide about themselves. That is why the amount and depth of detail varies from one listing to the next."
+    }
+   ]
+  },
+  "category_membership": {
+   "tier": "intent",
+   "intents": {
+    "default": 4,
+    "broad_discovery": 8
+   },
+   "variants": [
+    {
+     "id": "fq6_mem_1",
+     "q": "What puts a performer or video in {{category_name}}?",
+     "a": "A match with the theme this page covers. Listings appear here because they fit the category, and their own pages show how each one interprets it."
+    },
+    {
+     "id": "fq6_mem_2",
+     "q": "Is being listed here a ranking or a recommendation?",
+     "a": "No. Inclusion reflects the theme match, and position on the page carries no ranking meaning, so interest rather than order should drive the clicks."
+    },
+    {
+     "id": "fq6_mem_3",
+     "q": "Does {{category_name}} overlap with other categories on the site?",
+     "a": "Often, yes. Performers and clips can fit more than one theme, and the related categories linked from this page cover the adjacent ground."
+    },
+    {
+     "id": "fq6_member_4",
+     "q": "What does being listed in this category actually mean?",
+     "a": "That the model or video matches the theme this page covers, nothing more and nothing less. Every operational detail belongs to the individual page and its destination platform."
+    },
+    {
+     "id": "fq6_member_5",
+     "q": "Does a listing here mean the site endorses it?",
+     "a": "It means the listing fits the theme. Judgements about quality or fit for your visit belong to you, made from what each listing's own page states."
+    }
+   ]
+  },
+  "narrowing_search": {
+   "tier": "intent",
+   "intents": {
+    "default": 4,
+    "broad_discovery": 9,
+    "activity_fetish": 5
+   },
+   "variants": [
+    {
+     "id": "fq6_nar_1",
+     "q": "What if this category is close to what I want but not exact?",
+     "a": "Try the related categories first, since adjacent themes often hold the version a search is really after. When none of them fit, the main model and video directories reopen the whole field."
+    },
+    {
+     "id": "fq6_nar_2",
+     "q": "How do I narrow things down from here?",
+     "a": "Note what stands out while browsing, then follow it: either into a related theme that matches more precisely, or onto the individual pages of the strongest candidates."
+    },
+    {
+     "id": "fq6_nar_3",
+     "q": "Where do I go if I change my mind about the theme entirely?",
+     "a": "The main model and video directories cover the complete field, and every category remains one step away from them. A full restart costs a single click."
+    },
+    {
+     "id": "fq6_narrow_4",
+     "q": "How do I get from this page to something more specific?",
+     "a": "Follow what stands out. The related categories carry the search sideways into adjacent themes, and each listing's own page carries it down into specifics."
+    },
+    {
+     "id": "fq6_narrow_5",
+     "q": "What if nothing on this page quite fits?",
+     "a": "Move sideways rather than starting over. The related categories cover adjacent ground, and the main directories reopen the whole field when the sideways step is not enough."
     }
    ]
   },
@@ -388,61 +526,58 @@
    },
    "variants": [
     {
-     "id": "fq_go_1",
-     "q": "What's the best way to start on this page?",
-     "a": "Shortlist first: one scanning pass to collect two or three candidates, then open those pages together and compare. Opening listings one at a time without a shortlist is the slow version of the same visit."
+     "id": "fq6_start_1",
+     "q": "What's a sensible way to use this page on a first visit?",
+     "a": "Scan the listings once before opening anything, then open two or three strong candidates together and compare what their pages state. The individual pages carry the deciding detail."
     },
     {
-     "id": "fq_go_2",
-     "q": "Do I need an account to browse here?",
-     "a": "Browsing this directory works like any website. Accounts, sign-ups, and payments only come into play on the destination platforms, each of which sets its own requirements for its own features."
+     "id": "fq6_start_2",
+     "q": "Do I need an account to browse these listings?",
+     "a": "Browsing this directory involves no commitment. Accounts, sessions, and payments belong to the destination platforms, and each platform states its own requirements on its own pages."
     },
     {
-     "id": "fq_go_3",
-     "q": "How much time should a visit here take?",
-     "a": "With a shortlist method, a few minutes to a good candidate. The pattern that works: scan once, pick two or three, compare their pages, and take the strongest through to its platform — most of the time cost is in skipping the shortlist step."
+     "id": "fq6_start_3",
+     "q": "Do I need an account to browse this page?",
+     "a": "No. Browsing the listings here requires nothing. Accounts, sessions, and payments only come into play on the destination platforms, each under its own terms."
     },
     {
-     "id": "fq_go_4",
-     "q": "Is there a wrong way to browse this page?",
-     "a": "Only the slow one: opening listings one by one with no shortlist. Scan once, flag two or three, compare them together, and follow the strongest out — every part of the page works better in that order."
+     "id": "fq6_start_4",
+     "q": "What is the fastest route to a good first pick?",
+     "a": "Read a few listings before opening any, then open the two or three strongest together. Side-by-side comparison settles a first pick faster than working down the page."
+    },
+    {
+     "id": "fq6_start_5",
+     "q": "How long does a useful first visit take?",
+     "a": "A few unhurried minutes. One scan of the listings, two or three opened candidates, and a look at their stated details usually produces a solid first pick."
     }
    ]
   },
-  "session_style": {
+  "wrong_account_safety": {
    "tier": "intent",
    "intents": {
-    "default": 2,
-    "interaction_style": 8,
-    "activity_fetish": 5,
-    "content_format": 4,
-    "age_style": 3
+    "interaction_style": 6,
+    "activity_fetish": 6
    },
    "variants": [
     {
-     "id": "fq_sess_1",
-     "q": "How can I tell what a session with a performer will feel like?",
-     "a": "Read how they frame it themselves: a performer's own description of pace, format, and approach is the strongest pre-click signal available. Where the words are thin, their recorded clips demonstrate the style directly."
+     "id": "fq6_safe_1",
+     "q": "What if the destination page doesn't match the listing that led there?",
+     "a": "Back out and re-approach from the listing here rather than searching the name on the platform, since similar stage names are how wrong-page detours happen. If it still doesn't line up, move to the next candidate."
     },
     {
-     "id": "fq_sess_2",
-     "q": "Do performers in the same category run their rooms the same way?",
-     "a": "No — the theme groups them, but pace, format, and approach stay individual, and the range inside one category is usually wider than expected. That spread is the real selection; comparing two stated approaches maps it quickly."
+     "id": "fq6_safe_2",
+     "q": "How do I make sure I'm engaging with the performer I intended?",
+     "a": "Confirm the name on the destination page before engaging or paying anywhere. The check takes seconds, and it prevents the most common mix-up in this space."
     },
     {
-     "id": "fq_sess_3",
-     "q": "What matters more: how a performer looks or how they run their room?",
-     "a": "For repeat visits, the room usually wins — session style is what you actually experience minute to minute. Thumbnails start the shortlist; stated approach and format should finish it."
+     "id": "fq6_wrong_3",
+     "q": "How do I make sure I'm on the right performer's page?",
+     "a": "Approach from the listing here rather than searching the name on the platform, and check that the destination matches what the listing showed. Similar stage names exist everywhere."
     },
     {
-     "id": "fq_sess_4",
-     "q": "Can I preview a session style before committing to a room?",
-     "a": "Yes, through the recorded side: clips show a performer's pace and approach without any timing constraint. What works on video is a reliable preview of what the live room will feel like."
-    },
-    {
-     "id": "fq_sess_5",
-     "q": "How much does the platform affect the session itself?",
-     "a": "Considerably — mechanics, features, and pricing are platform matters, so the same performer can offer a different experience depending on where they stream. The destination page states what its rooms support."
+     "id": "fq6_wrong_4",
+     "q": "What should match between a listing and its destination?",
+     "a": "The performer's name and general presentation. When the destination looks unlike the listing that led there, back out and approach again from the listing itself."
     }
    ]
   }

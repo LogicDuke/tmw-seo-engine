@@ -1,8 +1,8 @@
 <?php
 /**
  * Plugin Name: TMW SEO Engine
- * Description: Intelligence Core v5.9.8-universal-category-quality-hardening-v1.0.0 - Hardened universal category generation: paragraph-level uniqueness limits, intent-keyed closings, FAQ cooldown, deterministic grammar guard, evidence-based claim ledger, specificity scoring, immutable generation results, and provider-output preservation on top of the v5.9.7 intent-aware pipeline; failed drafts are never saved.
- * Version: 5.9.8-universal-category-quality-hardening-v1.0.0
+ * Description: Intelligence Core v5.9.9-universal-category-output-quality-v1.0.0 - Universal category output quality: confidence-gated intent classification with neutral fallback, tiered supporting-keyword selection with per-keyword SEO roles, keyword-bearing H2 assignment, real internal anchor links with natural anchor text, 620-950 word contract, primary-keyword placement verification and bounded repair, FAQ-last structure, structural natural-language rules against metaphor families, and widened uniqueness windows; failed drafts are never saved.
+ * Version: 5.9.9-universal-category-output-quality-v1.0.0
  * Author: The Milisofia Ltd
  * Text Domain: tmwseo
  */
@@ -14,7 +14,7 @@ if (defined('TMWSEO_ENGINE_BOOTSTRAPPED')) {
 }
 
 define('TMWSEO_ENGINE_BOOTSTRAPPED', true);
-defined('TMWSEO_ENGINE_VERSION') || define('TMWSEO_ENGINE_VERSION', '5.9.8-universal-category-quality-hardening-v1.0.0');
+defined('TMWSEO_ENGINE_VERSION') || define('TMWSEO_ENGINE_VERSION', '5.9.9-universal-category-output-quality-v1.0.0');
 defined('TMWSEO_ENGINE_PATH') || define('TMWSEO_ENGINE_PATH', plugin_dir_path(__FILE__));
 defined('TMWSEO_ENGINE_URL') || define('TMWSEO_ENGINE_URL', plugin_dir_url(__FILE__));
 defined('TMWSEO_ENGINE_DATA_DIR') || define('TMWSEO_ENGINE_DATA_DIR', TMWSEO_ENGINE_PATH . 'data');

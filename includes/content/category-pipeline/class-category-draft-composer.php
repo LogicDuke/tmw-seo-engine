@@ -55,7 +55,7 @@ class CategoryDraftComposer {
 	 *     @type string[] $variants  "section:variant_id" ids used by recent pages.
 	 *     @type string[] $sentences crc32 ids of sentence templates used recently.
 	 * }
-	 * @return array{html:string,sections:array<string,string>,used_keywords:string[],dropped_sentences:int,variant_ids:string[],sentence_ids:string[],intent_sections:string[]}
+	 * @return array{html:string,sections:array<string,string>,used_keywords:string[],dropped_sentences:int,variant_ids:string[],sentence_ids:string[],intent_sections:string[],internal_links:array<int,array{href:string,anchor:string}>}
 	 */
 	public static function compose( array $context, array $plan, array $keyword_plan, array $avoid = [] ): array {
 		$library = self::library();
@@ -67,13 +67,22 @@ class CategoryDraftComposer {
 		$sentence_ids    = [];
 		$intent_sections = [];
 
-		$kw_queue = array_values( (array) ( $keyword_plan['body_use'] ?? [] ) );
+		// v5.9.9: only keywords with the 'body' role feed the sentence
+		// queue — heading-role keywords are already placed by the planner's
+		// heading assignment and never double-drawn here.
+		$roles    = (array) ( $keyword_plan['roles'] ?? [] );
+		$kw_queue = [];
+		foreach ( (array) ( $keyword_plan['body_use'] ?? [] ) as $kw ) {
+			if ( ( $roles[ $kw ] ?? 'body' ) === 'body' ) { $kw_queue[] = (string) $kw; }
+		}
 		$used_kws = [];
 		$dropped  = 0;
 
 		$clarity_id = '';
-		$values     = self::base_values( $context, $intent, $plan, $avoid_sentences, $clarity_id );
+		$links      = [];
+		$values     = self::base_values( $context, $intent, $plan, $avoid_sentences, $clarity_id, $links );
 		if ( $clarity_id !== '' ) { $sentence_ids[] = $clarity_id; }
+		$links_used = [];
 
 		$html            = '';
 		$section_html    = [];
@@ -91,17 +100,25 @@ class CategoryDraftComposer {
 
 			$seed = (int) ( $plan['variant_seeds'][ $section ] ?? 0 );
 
-			// Cross-category cooldown: rotate from the seeded position and
-			// take the first variant no recent page used. If every variant
-			// is inside the window, fall back to the seeded pick — sentence
-			// alternates still differ, and the uniqueness guard verifies.
-			$n       = count( $variants );
-			$variant = $variants[ $seed % $n ];
+			// Cross-category cooldown (v5.9.9): choose the SEEDED pick among
+			// the variants no recent page used. Taking the first fresh
+			// candidate (the old rule) made consecutive pages converge on
+			// one variant whenever the pool ran low, which produced the
+			// exact-paragraph collisions the uniqueness guard then had to
+			// reject. Seeding within the fresh subset keeps pages apart
+			// even under cooldown pressure; when every variant is inside
+			// the window, fall back to the plain seeded pick and let the
+			// uniqueness guard verify the render.
+			$n     = count( $variants );
+			$fresh = [];
 			for ( $i = 0; $i < $n; $i++ ) {
-				$candidate = $variants[ ( $seed + $i ) % $n ];
-				$vid       = $section . ':' . (string) ( $candidate['id'] ?? ( $seed + $i ) % $n );
-				if ( ! isset( $avoid_variants[ $vid ] ) ) { $variant = $candidate; break; }
+				$candidate = $variants[ $i ];
+				$vid       = $section . ':' . (string) ( $candidate['id'] ?? $i );
+				if ( ! isset( $avoid_variants[ $vid ] ) ) { $fresh[] = $candidate; }
 			}
+			$variant = ! empty( $fresh )
+				? $fresh[ $seed % count( $fresh ) ]
+				: $variants[ $seed % $n ];
 			$variant_ids[] = $section . ':' . (string) ( $variant['id'] ?? $seed % $n );
 			if ( $from_intent_pool ) { $intent_sections[] = $section; }
 
@@ -116,7 +133,7 @@ class CategoryDraftComposer {
 			foreach ( (array) ( $variant['sentences'] ?? [] ) as $sentence_entry ) {
 				$sentence_template = self::pick_alternate( $sentence_entry, $seed, $sentence_index, $avoid_sentences );
 				$sentence_index++;
-				$sentence = self::resolve_sentence( (string) $sentence_template, $values, $section_kw_queue, $used_kws );
+				$sentence = self::resolve_sentence( (string) $sentence_template, $values, $section_kw_queue, $used_kws, $links, $links_used );
 				if ( $sentence === null ) { $dropped++; continue; }
 				if ( ! preg_match( '/^\s*\{\{[a-z0-9_]+\}\}\s*$/i', (string) $sentence_template ) ) {
 					$sentence_ids[] = (string) crc32( (string) $sentence_template );
@@ -150,6 +167,7 @@ class CategoryDraftComposer {
 			'variant_ids'       => $variant_ids,
 			'sentence_ids'      => array_values( array_unique( $sentence_ids ) ),
 			'intent_sections'   => $intent_sections,
+			'internal_links'    => array_values( $links_used ),
 		];
 	}
 
@@ -166,10 +184,17 @@ class CategoryDraftComposer {
 		if ( empty( $entry ) ) { return ''; }
 		$n     = count( $entry );
 		$start = CategoryContentPlanner::seed( $seed . '/' . $index ) % $n;
-		// Prefer an alternate no recent page rendered; fall back to seeded.
-		for ( $i = 0; $i < $n; $i++ ) {
-			$candidate = (string) $entry[ ( $start + $i ) % $n ];
-			if ( ! isset( $avoid_sentences[ (string) crc32( $candidate ) ] ) ) { return $candidate; }
+		// v5.9.9: seeded pick among the alternates no recent page rendered
+		// (first-fresh selection converged consecutive pages onto the same
+		// alternate under cooldown pressure). Fall back to seeded when the
+		// whole slot is inside the window.
+		$fresh = [];
+		foreach ( $entry as $candidate ) {
+			$candidate = (string) $candidate;
+			if ( ! isset( $avoid_sentences[ (string) crc32( $candidate ) ] ) ) { $fresh[] = $candidate; }
+		}
+		if ( ! empty( $fresh ) ) {
+			return $fresh[ $start % count( $fresh ) ];
 		}
 		return (string) $entry[ $start ];
 	}
@@ -183,7 +208,7 @@ class CategoryDraftComposer {
 	 * @param string[]             $kw_queue (by reference semantics via array)
 	 * @param string[]             $used_kws
 	 */
-	private static function resolve_sentence( string $template, array $values, array &$kw_queue, array &$used_kws ): ?string {
+	private static function resolve_sentence( string $template, array $values, array &$kw_queue, array &$used_kws, array $links = [], array &$links_used = [] ): ?string {
 		$kw_slots = 0;
 		if ( strpos( $template, '{{kw1}}' ) !== false ) { $kw_slots++; }
 		if ( strpos( $template, '{{kw2}}' ) !== false ) { $kw_slots++; }
@@ -193,6 +218,25 @@ class CategoryDraftComposer {
 		$local = $values;
 		if ( $kw_slots >= 1 ) { $local['kw1'] = (string) array_shift( $kw_queue ); }
 		if ( $kw_slots >= 2 ) { $local['kw2'] = (string) array_shift( $kw_queue ); }
+
+		// Internal-link placeholders (v5.9.9): a {{*_link}} placeholder is
+		// substituted with an opaque token BEFORE escaping and swapped for a
+		// real <a href> anchor AFTER escaping, so the anchor markup survives
+		// while every other character is escaped. A link placeholder whose
+		// destination is unverified resolves to nothing — the sentence is
+		// dropped, never rendered with a raw or invented URL.
+		$sentence_links = [];
+		foreach ( $links as $key => $link ) {
+			$ph = '{{' . $key . '}}';
+			if ( strpos( $template, $ph ) === false ) { continue; }
+			if ( empty( $link['href'] ) || empty( $link['anchor'] ) ) {
+				$local[ $key ] = ''; // unresolvable → sentence dropped below
+				continue;
+			}
+			$token                    = '@@TMWLNK' . count( $sentence_links ) . '@@';
+			$sentence_links[ $token ] = $link;
+			$local[ $key ]            = $token;
+		}
 
 		$sentence = preg_replace_callback( '/\{\{([a-z0-9_]+)\}\}/i', static function ( $m ) use ( $local ) {
 			$key = strtolower( (string) $m[1] );
@@ -211,7 +255,26 @@ class CategoryDraftComposer {
 		if ( $kw_slots >= 1 && isset( $local['kw1'] ) ) { $used_kws[] = $local['kw1']; }
 		if ( $kw_slots >= 2 && isset( $local['kw2'] ) ) { $used_kws[] = $local['kw2']; }
 
-		return self::esc( trim( $sentence ) );
+		$sentence = self::esc( trim( $sentence ) );
+
+		foreach ( $sentence_links as $token => $link ) {
+			$anchor = self::anchor_html( (string) $link['href'], (string) $link['anchor'] );
+			if ( strpos( $sentence, $token ) !== false ) {
+				$sentence                    = str_replace( $token, $anchor, $sentence );
+				$links_used[ $link['href'] . '|' . $link['anchor'] ] = [
+					'href'   => (string) $link['href'],
+					'anchor' => (string) $link['anchor'],
+				];
+			}
+		}
+
+		return $sentence;
+	}
+
+	/** Build a safe internal anchor element (never nofollow — these are internal links). */
+	public static function anchor_html( string $href, string $anchor ): string {
+		$href = function_exists( 'esc_url' ) ? esc_url( $href ) : htmlspecialchars( $href, ENT_QUOTES );
+		return '<a href="' . $href . '">' . self::esc( $anchor ) . '</a>';
 	}
 
 	/**
@@ -219,7 +282,7 @@ class CategoryDraftComposer {
 	 *
 	 * @return array<string,string>
 	 */
-	private static function base_values( array $context, string $intent, array $plan, array $avoid_sentences = [], string &$clarity_id = '' ): array {
+	private static function base_values( array $context, string $intent, array $plan, array $avoid_sentences = [], string &$clarity_id = '', array &$links = [] ): array {
 		$library = self::library();
 
 		$seed    = (int) ( $plan['seed'] ?? 0 );
@@ -238,16 +301,37 @@ class CategoryDraftComposer {
 			$clarity_id = (string) crc32( $clarity );
 		}
 
-		$related = (array) ( $context['related_categories'] ?? [] );
+		// Related categories may be plain names (legacy) or {name,url} pairs
+		// (v5.9.9 context builder). A link placeholder only resolves when a
+		// verified URL exists; the plain name placeholder keeps working.
+		$related       = [];
+		foreach ( (array) ( $context['related_categories'] ?? [] ) as $rel ) {
+			if ( is_array( $rel ) ) {
+				$related[] = [ 'name' => (string) ( $rel['name'] ?? '' ), 'url' => (string) ( $rel['url'] ?? '' ) ];
+			} else {
+				$related[] = [ 'name' => (string) $rel, 'url' => '' ];
+			}
+		}
+
+		$models_url = (string) ( $context['models_url'] ?? '' );
+		$videos_url = (string) ( $context['videos_url'] ?? '' );
+
+		$models_anchor = self::pick_string( [ 'webcam model directory', 'full model directory', 'model directory' ], $seed );
+		$videos_anchor = self::pick_string( [ 'webcam video directory', 'full video directory', 'video directory' ], $seed + 3 );
+
+		$links = [
+			'models_link'    => [ 'href' => $models_url, 'anchor' => $models_url !== '' ? $models_anchor : '' ],
+			'videos_link'    => [ 'href' => $videos_url, 'anchor' => $videos_url !== '' ? $videos_anchor : '' ],
+			'related_1_link' => [ 'href' => (string) ( $related[0]['url'] ?? '' ), 'anchor' => (string) ( $related[0]['name'] ?? '' ) ],
+			'related_2_link' => [ 'href' => (string) ( $related[1]['url'] ?? '' ), 'anchor' => (string) ( $related[1]['name'] ?? '' ) ],
+		];
 
 		return [
 			'category_name'   => (string) ( $context['category_name'] ?? '' ),
 			'primary_keyword' => (string) ( $context['primary_keyword'] ?? '' ),
 			'site_name'       => (string) ( $context['site_name'] ?? '' ),
-			'models_url'      => (string) ( $context['models_url'] ?? '' ),
-			'videos_url'      => (string) ( $context['videos_url'] ?? '' ),
-			'related_1'       => (string) ( $related[0] ?? '' ),
-			'related_2'       => (string) ( $related[1] ?? '' ),
+			'related_1'       => (string) ( $related[0]['name'] ?? '' ),
+			'related_2'       => (string) ( $related[1]['name'] ?? '' ),
 			'model_scale'     => self::scale_phrase( 'models', $context['model_count'] ?? null, $seed ),
 			'video_scale'     => self::scale_phrase( 'videos', $context['video_count'] ?? null, $seed + 1 ),
 			'intent_clarity'  => $clarity,

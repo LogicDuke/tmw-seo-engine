@@ -52,6 +52,7 @@ require_once $pipeline_dir . 'class-category-draft-composer.php';
 require_once $pipeline_dir . 'class-category-quality-guard.php';
 require_once $pipeline_dir . 'class-category-factual-safety.php';
 require_once $pipeline_dir . 'class-category-grammar-guard.php';
+require_once $pipeline_dir . 'class-category-keyword-placement.php';
 require_once $pipeline_dir . 'class-category-paragraph-uniqueness-guard.php';
 require_once $pipeline_dir . 'class-category-claim-ledger.php';
 require_once $pipeline_dir . 'class-category-specificity-scorer.php';
@@ -70,6 +71,9 @@ use TMWSEO\Engine\Content\CategoryPipeline\CategoryFactualSafety;
 use TMWSEO\Engine\Content\CategoryPipeline\CategoryGrammarGuard;
 use TMWSEO\Engine\Content\CategoryPipeline\CategoryParagraphUniquenessGuard as UGuard;
 use TMWSEO\Engine\Content\CategoryPipeline\CategoryClaimLedger;
+use TMWSEO\Engine\Content\CategoryPipeline\CategoryContentPlanner;
+use TMWSEO\Engine\Content\CategoryPipeline\CategoryDraftComposer;
+use TMWSEO\Engine\Content\CategoryPipeline\CategoryFaqPlanner;
 use TMWSEO\Engine\Content\CategoryPipeline\CategorySpecificityScorer;
 use TMWSEO\Engine\Content\CategoryPipeline\CategoryGenerationResult;
 use TMWSEO\Engine\Content\CategoryPipeline\CategoryDifferentiationScorer;
@@ -330,10 +334,21 @@ $fail_res = CategoryGenerationPipeline::generate_from_context($dup_ctx, ['tracki
 // Collision may resolve via retries; the guaranteed failure assertion follows below.
 $impossible = $fail_res;
 if ($impossible['ok']) {
-    // Force certain failure: compare against the page's OWN final fingerprint.
-    $own              = CategoryDifferentiationScorer::fingerprint((string) $impossible['html'], [], 'x');
-    $own['uniqueness'] = UGuard::fingerprint((string) $impossible['html'], [], []);
-    $impossible = CategoryGenerationPipeline::generate_from_context($dup_ctx, ['tracking' => [], 'use_store' => false, 'comparisons' => [$own]]);
+    // Force certain failure: fingerprint the would-be draft of EVERY salt so
+    // all retries collide with their own shadow (mirrors universal test 25).
+    $cls_f  = CategoryIntentClassifier::classify($dup_ctx);
+    $kwp_f  = CategoryKeywordPlanner::plan((string) $dup_ctx['primary_keyword'], (array) $fixtures['amateur-cams']['approved_keywords'], []);
+    $shadows = [];
+    for ($salt_f = 0; $salt_f < CategoryGenerationPipeline::MAX_ATTEMPTS; $salt_f++) {
+        $plan_f = CategoryContentPlanner::plan($dup_ctx, (string) $cls_f['intent'], $salt_f, $kwp_f);
+        $comp_f = CategoryDraftComposer::compose($dup_ctx, $plan_f, $kwp_f);
+        $faqs_f = CategoryFaqPlanner::plan($dup_ctx, (string) $cls_f['intent'], $salt_f);
+        $html_f = (string) $comp_f['html'] . CategoryFaqPlanner::render($faqs_f);
+        $fp_f   = CategoryDifferentiationScorer::fingerprint($html_f, [], 'shadow-' . $salt_f);
+        $fp_f['uniqueness'] = UGuard::fingerprint($html_f, [], (array) $comp_f['sentence_ids']);
+        $shadows[] = $fp_f;
+    }
+    $impossible = CategoryGenerationPipeline::generate_from_context($dup_ctx, ['tracking' => [], 'use_store' => false, 'comparisons' => $shadows]);
 }
 check('24. failed generation returns ok=false with empty html', !$impossible['ok'] && $impossible['html'] === '' && !empty($impossible['report']['failure_reasons']), implode('; ', array_slice((array) $impossible['report']['failure_reasons'], 0, 2)));
 check('24. failed result carries final_status=failed', $impossible['result']->final_status() === 'failed');

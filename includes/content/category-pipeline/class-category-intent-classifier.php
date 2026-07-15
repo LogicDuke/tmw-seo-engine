@@ -78,19 +78,50 @@ class CategoryIntentClassifier {
 	];
 
 	/**
-	 * Amateur/pro production style reads as an interaction/authenticity trait
-	 * rather than a body/appearance trait — scored separately so 'amateur'
-	 * doesn't fall through to broad discovery.
+	 * Production-style / performer-descriptor tokens ('amateur', 'model',
+	 * 'girls', ...) are NEUTRAL: they describe who appears on a page, not a
+	 * session format, an appearance trait, or any other content intent. The
+	 * v5.9.7 classifier nudged these toward interaction_style, which caused
+	 * the documented live failure (a production-style category written up as
+	 * a session-format category). They are now reported as neutral signals only and never add
+	 * to any intent score — a name made only of neutral tokens classifies as
+	 * broad_discovery with low confidence, which routes to neutral, factual
+	 * copy instead of an invented category definition.
 	 *
 	 * @var string[]
 	 */
-	private const PERFORMER_TRAIT_TOKENS = [ 'amateur', 'amateurs', 'homemade', 'real', 'pro', 'professional', 'pornstar', 'model', 'models', 'girl', 'girls', 'guy', 'guys', 'couple', 'couples', 'trans' ];
+	private const NEUTRAL_PRESENTATION_TOKENS = [ 'amateur', 'amateurs', 'homemade', 'real', 'pro', 'professional', 'pornstar', 'model', 'models', 'girl', 'girls', 'guy', 'guys', 'couple', 'couples', 'trans', 'cam', 'cams', 'webcam', 'webcams', 'live' ];
+
+	/**
+	 * Deterministic tie-break priority when two intents score equally with
+	 * name-token evidence. More access/appearance-defining modifiers outrank
+	 * generic interaction words (in a "free ... chat" style name, 'free'
+	 * defines the intent while 'chat' is near-generic in this niche). This is a fixed intent
+	 * ordering, never a category-name rule.
+	 *
+	 * @var string[]
+	 */
+	private const TIE_PRIORITY = [
+		self::INTENT_FREE_ACCESS,
+		self::INTENT_BODY_TYPE,
+		self::INTENT_APPEARANCE_TRAIT,
+		self::INTENT_ETHNICITY_REGION,
+		self::INTENT_LANGUAGE_LOCATION,
+		self::INTENT_AGE_STYLE,
+		self::INTENT_ACTIVITY_FETISH,
+		self::INTENT_CONTENT_FORMAT,
+		self::INTENT_INTERACTION_STYLE,
+		self::INTENT_BROAD_DISCOVERY,
+	];
+
+	/** Minimum top score for a confident (non-neutral) classification. */
+	public const MIN_CONFIDENT_SCORE = 4;
 
 	/**
 	 * Classify from a built context.
 	 *
 	 * @param array<string,mixed> $context CategoryContextBuilder output.
-	 * @return array{intent:string,scores:array<string,int>,signals:string[]}
+	 * @return array{intent:string,confidence:string,scores:array<string,int>,name_hits:array<string,int>,signals:string[],neutral_signals:string[]}
 	 */
 	public static function classify( array $context ): array {
 		$signals_map = self::SIGNALS;
@@ -108,13 +139,16 @@ class CategoryIntentClassifier {
 		}
 		$kw_tokens[] = ''; // keep array non-empty semantics simple
 
-		$scores  = [];
-		$matched = [];
+		$scores    = [];
+		$name_hits = [];
+		$matched   = [];
 		foreach ( $signals_map as $intent => $tokens ) {
-			$score = 0;
+			$score     = 0;
+			$name_hit  = 0;
 			foreach ( $tokens as $token ) {
 				if ( in_array( $token, $name_tokens, true ) ) {
-					$score += 2;
+					$score    += 2;
+					$name_hit += 1;
 					$matched[] = $token;
 				}
 				$hits = 0;
@@ -126,31 +160,50 @@ class CategoryIntentClassifier {
 					$matched[] = $token;
 				}
 			}
-			$scores[ $intent ] = $score;
+			$scores[ $intent ]    = $score;
+			$name_hits[ $intent ] = $name_hit;
 		}
 
-		// Performer-trait tokens nudge interaction_style when nothing stronger fires.
-		$trait_hits = 0;
-		foreach ( self::PERFORMER_TRAIT_TOKENS as $token ) {
-			if ( in_array( $token, $name_tokens, true ) ) { $trait_hits += 2; $matched[] = $token; }
-			foreach ( $kw_tokens as $kt ) { if ( $kt === $token ) { $trait_hits++; } }
-		}
-		if ( $trait_hits > 0 ) {
-			$scores[ self::INTENT_INTERACTION_STYLE ] = ( $scores[ self::INTENT_INTERACTION_STYLE ] ?? 0 ) + min( 4, $trait_hits );
+		// Neutral presentation tokens ('amateur', 'models', ...) are reported
+		// as signals but NEVER scored — see NEUTRAL_PRESENTATION_TOKENS.
+		$neutral = [];
+		foreach ( self::NEUTRAL_PRESENTATION_TOKENS as $token ) {
+			if ( in_array( $token, $name_tokens, true ) ) { $neutral[] = $token; }
 		}
 
-		arsort( $scores );
+		// Rank: score first, then category-name evidence, then the fixed
+		// tie-break priority (never a per-category rule).
+		$priority = array_flip( self::TIE_PRIORITY );
+		uksort( $scores, static function ( $a, $b ) use ( $scores, $name_hits, $priority ) {
+			if ( $scores[ $a ] !== $scores[ $b ] ) { return $scores[ $b ] <=> $scores[ $a ]; }
+			if ( ( $name_hits[ $a ] ?? 0 ) !== ( $name_hits[ $b ] ?? 0 ) ) {
+				return ( $name_hits[ $b ] ?? 0 ) <=> ( $name_hits[ $a ] ?? 0 );
+			}
+			return ( $priority[ $a ] ?? 99 ) <=> ( $priority[ $b ] ?? 99 );
+		} );
+
 		$top_intent = (string) array_key_first( $scores );
 		$top_score  = (int) ( $scores[ $top_intent ] ?? 0 );
 
-		if ( $top_score < 2 ) {
+		// Confidence gate: a non-neutral intent must carry a strong enough
+		// score AND at least one signal token in the category name itself.
+		// Anything weaker classifies as broad_discovery, whose library copy
+		// is neutral and factual — the pipeline never invents a category
+		// definition from thin evidence (the documented production-style misclassification).
+		$confident = $top_score >= self::MIN_CONFIDENT_SCORE
+			&& ( $name_hits[ $top_intent ] ?? 0 ) > 0;
+
+		if ( ! $confident ) {
 			$top_intent = self::INTENT_BROAD_DISCOVERY;
 		}
 
 		return [
-			'intent'  => $top_intent,
-			'scores'  => $scores,
-			'signals' => array_values( array_unique( $matched ) ),
+			'intent'          => $top_intent,
+			'confidence'      => $confident ? 'high' : 'low',
+			'scores'          => $scores,
+			'name_hits'       => $name_hits,
+			'signals'         => array_values( array_unique( $matched ) ),
+			'neutral_signals' => $neutral,
 		];
 	}
 

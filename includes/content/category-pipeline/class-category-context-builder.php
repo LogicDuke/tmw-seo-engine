@@ -1,6 +1,6 @@
 <?php
 /**
- * CategoryContextBuilder — Stage 1 of the universal category pipeline.
+ * CategoryContextBuilder â€” Stage 1 of the universal category pipeline.
  *
  * Builds a plain context array from real, available data only. Every field
  * is either verified at build time or absent; downstream stages treat an
@@ -22,7 +22,7 @@ if ( ! defined( 'ABSPATH' ) ) { exit; }
 class CategoryContextBuilder {
 
 	/**
-	 * Assemble a normalized context from raw parts. Pure — no WP calls.
+	 * Assemble a normalized context from raw parts. Pure â€” no WP calls.
 	 *
 	 * Recognized parts (all optional except category_name):
 	 *   category_id, category_name, category_slug, description,
@@ -59,12 +59,26 @@ class CategoryContextBuilder {
 			$approved[]   = $kw;
 		}
 
+		// Related categories: plain names (legacy) or {name,url} pairs
+		// (v5.9.9). A URL is kept only when it is verified internal â€” same
+		// host as the site's own models/videos URLs or protocol-relative to
+		// them; anything else is stripped so the composer never links out.
+		$home_host = self::host_of( (string) ( $parts['models_url'] ?? '' ) );
+		if ( $home_host === '' ) { $home_host = self::host_of( (string) ( $parts['videos_url'] ?? '' ) ); }
 		$related = [];
 		foreach ( (array) ( $parts['related_categories'] ?? [] ) as $rel ) {
-			$rel = trim( (string) $rel );
-			if ( $rel !== '' && self::lc( $rel ) !== self::lc( $name ) ) {
-				$related[] = $rel;
+			if ( is_array( $rel ) ) {
+				$rel_name = trim( (string) ( $rel['name'] ?? '' ) );
+				$rel_url  = trim( (string) ( $rel['url'] ?? '' ) );
+			} else {
+				$rel_name = trim( (string) $rel );
+				$rel_url  = '';
 			}
+			if ( $rel_name === '' || self::lc( $rel_name ) === self::lc( $name ) ) { continue; }
+			if ( $rel_url !== '' && ( $home_host === '' || self::host_of( $rel_url ) !== $home_host ) ) {
+				$rel_url = ''; // not verified internal â†’ name only, never a link
+			}
+			$related[] = [ 'name' => $rel_name, 'url' => $rel_url ];
 		}
 
 		$model_count = self::nullable_count( $parts['model_count'] ?? null );
@@ -107,7 +121,7 @@ class CategoryContextBuilder {
 	}
 
 	/**
-	 * WordPress wrapper — gathers real data for a tmw_category_page post.
+	 * WordPress wrapper â€” gathers real data for a tmw_category_page post.
 	 *
 	 * @param \WP_Post            $post
 	 * @param array<string,mixed> $keyword_pack build_category_keyword_pack() output.
@@ -154,10 +168,25 @@ class CategoryContextBuilder {
 				'exclude'    => [ (int) $term->term_id ],
 				'hide_empty' => true,
 				'number'     => 6,
-				'fields'     => 'names',
 			] );
 			if ( is_array( $siblings ) ) {
-				$parts['related_categories'] = array_map( 'strval', $siblings );
+				// v5.9.9: carry the VERIFIED archive URL of each sibling so
+				// related-category mentions render as real internal anchor
+				// links. get_term_link() resolving is the verification; a
+				// sibling whose link fails stays a plain (unlinked) name.
+				$related = [];
+				foreach ( $siblings as $sibling ) {
+					if ( ! is_object( $sibling ) || ! isset( $sibling->name ) ) { continue; }
+					$url = '';
+					if ( function_exists( 'get_term_link' ) ) {
+						$link = get_term_link( $sibling );
+						if ( is_string( $link ) && $link !== '' && ( ! function_exists( 'is_wp_error' ) || ! is_wp_error( $link ) ) ) {
+							$url = $link;
+						}
+					}
+					$related[] = [ 'name' => (string) $sibling->name, 'url' => $url ];
+				}
+				$parts['related_categories'] = $related;
 			}
 		}
 
@@ -208,6 +237,12 @@ class CategoryContextBuilder {
 			return max( 0, (int) $query->found_posts );
 		}
 		return null;
+	}
+
+	/** Lowercased host of a URL ('' when unparsable). */
+	private static function host_of( string $url ): string {
+		$host = parse_url( $url, PHP_URL_HOST );
+		return is_string( $host ) ? self::lc( $host ) : '';
 	}
 
 	private static function nullable_count( $value ): ?int {
