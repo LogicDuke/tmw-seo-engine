@@ -192,7 +192,7 @@ class CategoryKeywordPlanner {
 		];
 		$norm = [];
 		foreach ( $tokens as $token ) {
-			if ( $token === 'to' || $token === 'the' || $token === 'a' || $token === 'an' ) { continue; }
+			if ( in_array( $token, [ 'to', 'the', 'a', 'an', 'best', 'top', 'new' ], true ) ) { continue; }
 			if ( isset( $fold[ $token ] ) ) { $token = $fold[ $token ]; }
 			if ( strlen( $token ) > 4 && substr( $token, -1 ) === 's' && substr( $token, -2 ) !== 'ss' ) {
 				$token = substr( $token, 0, -1 );

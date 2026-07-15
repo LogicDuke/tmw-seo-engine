@@ -147,7 +147,7 @@ class CategoryFinalValidator {
 				$href = (string) $link[1];
 				$host = parse_url( $href, PHP_URL_HOST );
 				$anchor_text = trim( CategoryQualityGuard::visible( (string) $link[2] ) );
-				if ( is_string( $host ) && isset( $internal_hosts[ strtolower( $host ) ] ) ) {
+				if ( self::is_safe_site_relative_href( $href ) || ( is_string( $host ) && isset( $internal_hosts[ strtolower( $host ) ] ) ) ) {
 					$internal_link_count++;
 					// Anchor text must be natural/descriptive, never the URL itself.
 					if ( $anchor_text === '' || stripos( $anchor_text, 'http' ) === 0 ) {
@@ -268,4 +268,15 @@ class CategoryFinalValidator {
 			],
 		];
 	}
+
+	/** Whether an href is a safe root-relative internal URL. */
+	private static function is_safe_site_relative_href( string $href ): bool {
+		$href = trim( $href );
+		if ( $href === '' || $href[0] !== '/' ) { return false; }
+		if ( strpos( $href, '//' ) === 0 ) { return false; }
+		if ( preg_match( '/[\x00-\x1F\x7F]/', $href ) ) { return false; }
+		$scheme = parse_url( $href, PHP_URL_SCHEME );
+		return $scheme === null;
+	}
+
 }

@@ -122,6 +122,7 @@ class CategoryKeywordPlacement {
 			if ( $i === 0 ) { break; } // first paragraph occurrence is protected
 			[ $start, $len ] = $blocks[ $i ];
 			$inner = substr( $html, $start, $len );
+			$replaced = 0;
 			$new   = self::replace_last_matches_outside_anchors( $inner, $pattern, self::NEUTRAL_REFERENCES[ $i % count( self::NEUTRAL_REFERENCES ) ], $excess, $replaced );
 			if ( $replaced > 0 ) {
 				$html    = substr_replace( $html, $new, $start, $len );

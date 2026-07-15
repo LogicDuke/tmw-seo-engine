@@ -66,6 +66,7 @@ use TMWSEO\Engine\Content\CategoryPipeline\CategoryQualityGuard;
 use TMWSEO\Engine\Content\CategoryPipeline\CategoryFactualSafety;
 use TMWSEO\Engine\Content\CategoryPipeline\CategoryDifferentiationScorer;
 use TMWSEO\Engine\Content\CategoryPipeline\CategoryFaqPlanner;
+use TMWSEO\Engine\Content\CategoryPipeline\CategoryFaqReuseGuard;
 use TMWSEO\Engine\Content\CategoryPipeline\CategoryFinalValidator;
 use TMWSEO\Engine\Content\CategoryPipeline\CategoryKeywordPlacement;
 use TMWSEO\Engine\Content\CategoryPipeline\CategoryGenerationPipeline;
@@ -457,8 +458,35 @@ $promote->setAccessible(true);
 $actions = [];
 $promoted = $promote->invokeArgs(null, ['<p>Offset Primary starts here.</p><p>Pick this category carefully.</p><p>Then scan this theme slowly.</p>', 'Very Long Offset Primary', 2, &$actions]);
 check('paragraph promotion uses current offsets after each mutation', strpos($promoted, '<p>Pick Very Long Offset Primary carefully.</p><p>Then scan Very Long Offset Primary slowly.</p>') !== false, $promoted);
-$repair = CategoryKeywordPlacement::repair('<p>Anchor Primary first paragraph.</p><p><a href="/x?keep=Anchor%20Primary">Anchor Primary</a> and Anchor Primary in copy.</p><p>Anchor Primary again.</p>', 'Anchor Primary');
+$repair = CategoryKeywordPlacement::repair('<p>Anchor Primary first paragraph.</p><p><a href="/x?keep=Anchor%20Primary">Anchor Primary</a> and Anchor Primary in copy and Anchor Primary again.</p><p>Anchor Primary returns with Anchor Primary and Anchor Primary one more time.</p>', 'Anchor Primary');
+$demotion_actions = array_values(array_filter((array) $repair['actions'], static fn($a) => strpos((string) $a, 'demoted_primary_keyword_x') === 0));
+$demotion_count = 0;
+foreach ($demotion_actions as $action) { $demotion_count += (int) preg_replace('/\D+/', '', (string) $action); }
+check('primary demotion action recorded', !empty($demotion_actions), json_encode($repair['actions']));
+check('primary demotion count is positive', $demotion_count > 0, json_encode($repair['actions']));
 check('primary demotion preserves anchor text and href byte-for-byte', strpos($repair['html'], '<a href="/x?keep=Anchor%20Primary">Anchor Primary</a>') !== false && strpos($repair['html'], '<a href="/x?keep=Anchor%20Primary">this topic</a>') === false, $repair['html']);
+
+
+$relative_link_html = '<p>Relative Links Primary opens with enough filler words to satisfy the validator minimum for this targeted regression and keep the body substantial for metrics.</p><h2>Relative Links Primary Guide</h2><p>Readers can browse <a href="/webcam-models/">webcam models</a> and <a href="/videos/">recent videos</a> safely.</p><h2>Useful Details</h2><p>This paragraph repeats enough neutral words to satisfy validation while preserving relative links as internal destinations for the site.</p><h2>Frequently Asked Questions</h2><h3>What is included?</h3><p>Useful internal destinations are included.</p>';
+$relative_link_validation = CategoryFinalValidator::validate($relative_link_html, ['primary_keyword' => 'Relative Links Primary', 'models_url' => 'https://top-models.webcam/webcam-models/', 'videos_url' => 'https://top-models.webcam/videos/'], ['primary' => 'Relative Links Primary'], [], []);
+check('relative root links count as internal links', !in_array('too_few_internal_links:0', $relative_link_validation['reasons'], true) && (int) ($relative_link_validation['metrics']['internal_link_count'] ?? 0) === 2, json_encode($relative_link_validation['reasons']));
+
+$variant_ref = new ReflectionClass(CategoryKeywordPlanner::class);
+$variant_sig = $variant_ref->getMethod('variant_signature');
+$variant_sig->setAccessible(true);
+$live_signatures = array_map(static fn($kw) => $variant_sig->invoke(null, $kw), ['live cams', 'best live cams', 'top live cams', 'new live cams']);
+check('generic SEO modifiers collapse duplicate keyword signatures', count(array_unique($live_signatures)) === 1, implode(' | ', $live_signatures));
+$variant_plan = CategoryKeywordPlanner::plan('Live Cams', ['best live cams', 'top live cams', 'new live cams', 'live webcams'], []);
+check('generic SEO modifier variants cannot become active together', count((array) $variant_plan['body_use']) <= 1, json_encode($variant_plan['body_use']));
+
+$faq_used_order = ['old:a', 'middle:a', 'recent:a'];
+$faq_buckets = [
+    'old' => ['tier' => 'intent', 'intents' => ['broad_discovery' => 10], 'variants' => [['id' => 'a', 'q' => 'Old?', 'a' => 'Old answer.']]],
+    'middle' => ['tier' => 'intent', 'intents' => ['broad_discovery' => 9], 'variants' => [['id' => 'a', 'q' => 'Middle?', 'a' => 'Middle answer.']]],
+    'recent' => ['tier' => 'intent', 'intents' => ['broad_discovery' => 8], 'variants' => [['id' => 'a', 'q' => 'Recent?', 'a' => 'Recent answer.']]],
+];
+$eligible_relaxed_once = CategoryFaqReuseGuard::eligible($faq_buckets, array_slice($faq_used_order, 1));
+check('FAQ cooldown relaxation releases oldest entries first', isset($eligible_relaxed_once['old']) && !isset($eligible_relaxed_once['recent']), json_encode(array_keys($eligible_relaxed_once)));
 
 $dash_html = '<p>One—two&mdash;three&#8212;four&#x2014;five&#X2014;six.</p>';
 $dash_repair = CategoryQualityGuard::repair($dash_html, []);

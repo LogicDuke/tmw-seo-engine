@@ -65,9 +65,32 @@ class CategoryFaqPlanner {
 	 */
 	public static function plan( array $context, string $intent, int $salt = 0, array $used_ids = [] ): array {
 		$library = self::library();
-		$buckets = CategoryFaqReuseGuard::eligible( (array) ( $library['buckets'] ?? [] ), $used_ids );
-		if ( empty( $buckets ) ) { return []; }
+		$all_buckets = (array) ( $library['buckets'] ?? [] );
+		if ( empty( $all_buckets ) ) { return []; }
 
+		$attempts = [ array_values( $used_ids ) ];
+		for ( $release = 1; $release <= count( $used_ids ); $release++ ) {
+			$attempts[] = array_slice( array_values( $used_ids ), $release );
+		}
+		if ( empty( $used_ids ) ) { $attempts = [ [] ]; }
+
+		$best = [];
+		foreach ( $attempts as $attempt_used_ids ) {
+			$buckets = CategoryFaqReuseGuard::eligible( $all_buckets, $attempt_used_ids );
+			if ( empty( $buckets ) ) { continue; }
+			$faqs = self::plan_from_eligible_buckets( $buckets, $context, $intent, $salt );
+			if ( count( $faqs ) > count( $best ) ) { $best = $faqs; }
+			if ( count( $faqs ) >= self::MIN_FAQ ) { return $faqs; }
+		}
+
+		return $best;
+	}
+
+	/**
+	 * @param array<string,array> $buckets
+	 * @return array<int,array{id:string,vid:string,q:string,a:string,bucket:string,tier:string}>
+	 */
+	private static function plan_from_eligible_buckets( array $buckets, array $context, string $intent, int $salt ): array {
 		$slug = (string) ( $context['category_slug'] ?? '' );
 		$seed = CategoryContentPlanner::seed( $slug . '|faq|' . $intent . '|' . $salt );
 
@@ -110,10 +133,6 @@ class CategoryFaqPlanner {
 				if ( $is_generic ) { $generic_used++; }
 				break;
 			}
-		}
-
-		if ( count( $faqs ) < self::MIN_FAQ && ! empty( $used_ids ) ) {
-			return self::plan( $context, $intent, $salt, [] );
 		}
 
 		return $faqs;

@@ -122,7 +122,9 @@ class CategoryGenerationPipeline {
 		$final_provider = $provider;
 
 		$internal_links = [];
-		for ( $salt = 0; $salt < self::MAX_ATTEMPTS; $salt++ ) {
+		$start_salt = max( 0, min( self::MAX_ATTEMPTS - 1, (int) ( $options['salt'] ?? 0 ) ) );
+		$end_salt   = ! empty( $options['single_salt'] ) ? $start_salt + 1 : self::MAX_ATTEMPTS;
+		for ( $salt = $start_salt; $salt < $end_salt; $salt++ ) {
 			$plan = CategoryContentPlanner::plan( $context, $intent, $salt, $keyword_plan );
 			$faqs = CategoryFaqPlanner::plan( $context, $intent, $salt, $faq_used );
 

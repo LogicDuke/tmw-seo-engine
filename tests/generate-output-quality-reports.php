@@ -13,6 +13,35 @@ function delete_option($k) { unset($GLOBALS['__opts'][$k]); return true; }
 function esc_html($t) { return htmlspecialchars((string) $t, ENT_QUOTES, 'UTF-8'); }
 function esc_url($u) { return filter_var((string) $u, FILTER_SANITIZE_URL); }
 
+function write_report(string $path, string $body): void {
+    if (file_put_contents($path, $body) === false) {
+        fwrite(STDERR, 'Unable to write report artifact: ' . $path . PHP_EOL);
+        exit(1);
+    }
+}
+
+function faq_is_final_section(string $html): bool {
+    if (!preg_match('/<h2[^>]*>\s*Frequently Asked Questions\s*<\/h2>/iu', $html, $m, PREG_OFFSET_CAPTURE)) {
+        return false;
+    }
+    $after = substr($html, $m[0][1] + strlen($m[0][0]));
+    if (preg_match('/<h2\b/i', $after)) { return false; }
+    if (!preg_match_all('/<\/?(h3|p)\b[^>]*>/iu', $after, $tags, PREG_SET_ORDER)) { return false; }
+    $expect = 'h3';
+    $pairs = 0;
+    $last_end = 0;
+    foreach ($tags as $tag) {
+        $raw = $tag[0];
+        $name = strtolower($tag[1]);
+        if (strpos($raw, '</') === 0) { continue; }
+        if ($name !== $expect) { return false; }
+        if ($name === 'p') { $pairs++; $expect = 'h3'; } else { $expect = 'p'; }
+    }
+    if ($pairs < 1 || $expect !== 'h3') { return false; }
+    return (bool) preg_match('/<p\b[^>]*>.*<\/p>\s*$/isu', $after);
+}
+
+
 $pd = dirname(__DIR__) . '/includes/content/category-pipeline/';
 foreach (glob($pd . 'class-*.php') as $f) { require_once $f; }
 use TMWSEO\Engine\Content\CategoryPipeline as CP;
@@ -37,7 +66,10 @@ $fixtures = [
 ];
 
 $out = dirname(__DIR__) . '/codex-reports/';
-@mkdir($out, 0777, true);
+if (!is_dir($out) && !mkdir($out, 0777, true) && !is_dir($out)) {
+    fwrite(STDERR, 'Unable to create report directory: ' . $out . PHP_EOL);
+    exit(1);
+}
 $kw_report = []; $link_report = []; $claims_report = []; $nl_report = []; $ba = [];
 
 foreach ($fixtures as $slug => $fx) {
@@ -45,7 +77,7 @@ foreach ($fixtures as $slug => $fx) {
     $res = CP\CategoryGenerationPipeline::generate_from_context($ctx, ['tracking' => array_slice((array) $fx['approved_keywords'], 0, 8)]);
     if (!$res['ok']) { fwrite(STDERR, "$slug FAILED\n"); exit(1); }
     $html = (string) $res['html']; $r = (array) $res['report'];
-    file_put_contents($out . 'after-' . $slug . '.html', $html);
+    write_report($out . 'after-' . $slug . '.html', $html);
 
     $pl = CP\CategoryKeywordPlacement::analyze($html, (string) $fx['primary_keyword']);
     preg_match_all('/<h2[^>]*>(.*?)<\/h2>/isu', $html, $hm);
@@ -65,7 +97,7 @@ foreach ($fixtures as $slug => $fx) {
             'intent' => (string) $r['intent'],
             'intent_confidence' => (string) ($r['intent_confidence'] ?? ''),
             'faq_count' => count((array) ($r['faq_selection'] ?? [])),
-            'faq_last' => (bool) preg_match('/<\/(p|h3)>\s*$/i', $html),
+            'faq_last' => faq_is_final_section($html),
         ],
     ];
     $kw_report[$slug] = [
@@ -83,9 +115,9 @@ foreach ($fixtures as $slug => $fx) {
     echo "$slug ok (words=" . $ba[$slug]['after']['words'] . ", primary=" . $pl['count'] . "x, links=" . $ba[$slug]['after']['internal_links'] . ")\n";
 }
 
-file_put_contents($out . 'before-after-summary.json', json_encode($ba, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES));
-file_put_contents($out . 'keyword-role-report.json',  json_encode($kw_report, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES));
-file_put_contents($out . 'internal-link-report.json', json_encode($link_report, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES));
-file_put_contents($out . 'claim-ledger-report.json',  json_encode($claims_report, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES));
-file_put_contents($out . 'nl-quality-report.json',    json_encode($nl_report, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES));
+write_report($out . 'before-after-summary.json', json_encode($ba, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES));
+write_report($out . 'keyword-role-report.json',  json_encode($kw_report, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES));
+write_report($out . 'internal-link-report.json', json_encode($link_report, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES));
+write_report($out . 'claim-ledger-report.json',  json_encode($claims_report, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES));
+write_report($out . 'nl-quality-report.json',    json_encode($nl_report, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES));
 echo "reports written to codex-reports/\n";
