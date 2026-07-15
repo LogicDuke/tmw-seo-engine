@@ -29,7 +29,9 @@
         "grammar_repairs": [
             "normalized_punctuation_or_spacing"
         ],
-        "repairs": [],
+        "repairs": [
+            "restored_link_following_space"
+        ],
         "faq_selection": [
             {
                 "q": "Will every performer here match the exact look I have in mind?",
@@ -73,7 +75,9 @@
         "grammar_repairs": [
             "normalized_punctuation_or_spacing"
         ],
-        "repairs": [],
+        "repairs": [
+            "restored_link_following_space"
+        ],
         "faq_selection": [
             {
                 "q": "Why do the free boundaries feel different from room to room?",

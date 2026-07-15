@@ -401,6 +401,7 @@ check('verified flags allow verified claims', empty($claim_ok));
 echo "\n== L. Review regression units ==\n";
 $plan_ref = new ReflectionClass(CategoryContentPlanner::class);
 $assign = $plan_ref->getMethod('assign_keyword_headings');
+$assign->setAccessible(true);
 $headings = [
     'intro' => 'Review Primary Cams overview',
     'expectations' => 'What to expect',
@@ -410,6 +411,40 @@ $headings = [
 $map = $assign->invokeArgs(null, [&$headings, ['intro', 'expectations', 'discovery_advice', 'faq'], ['primary_keyword' => 'Review Primary Cams'], ['primary' => 'Review Primary Cams', 'roles' => []], 0]);
 check('primary keyword H2 reuse ignores intro headings', isset($map['expectations']) && !isset($map['intro']), json_encode($map));
 
+
+$cam_headings = [
+    'expectations' => 'What webcam viewers should know',
+    'discovery_advice' => 'Asian Cams: what to know',
+    'browse_listings' => 'How to browse cam',
+    'compare_profiles' => 'More cam choices',
+];
+$cam_map = $assign->invokeArgs(null, [&$cam_headings, ['expectations', 'discovery_advice', 'browse_listings', 'compare_profiles'], ['primary_keyword' => 'cam'], ['primary' => 'cam', 'roles' => []], 1]);
+$primary_h2_count = 0;
+foreach ($cam_headings as $h) { if (preg_match(CategoryFinalValidator::exact_keyword_pattern('cam'), $h)) { $primary_h2_count++; } }
+check('primary H2 exact matching rejects webcam substring and preserves one exact match', $primary_h2_count === 1 && isset($cam_map['browse_listings']), json_encode($cam_headings));
+$plural_headings = ['expectations' => 'Asian Cams: what to know', 'discovery_advice' => 'How to browse safely'];
+$plural_map = $assign->invokeArgs(null, [&$plural_headings, ['expectations', 'discovery_advice'], ['primary_keyword' => 'Asian Cam'], ['primary' => 'Asian Cam', 'roles' => []], 2]);
+check('primary H2 exact matching rejects singular/plural phrase mismatch', isset($plural_map['expectations']) && preg_match(CategoryFinalValidator::exact_keyword_pattern('Asian Cam'), $plural_headings['expectations']), json_encode($plural_headings));
+$non_topical_headings = ['intro' => 'Review Primary Cams guide', 'expectations' => 'What to expect'];
+$non_topical_map = $assign->invokeArgs(null, [&$non_topical_headings, ['intro', 'expectations'], ['primary_keyword' => 'Review Primary Cams'], ['primary' => 'Review Primary Cams', 'roles' => []], 3]);
+check('non-topical primary H2 does not satisfy primary heading assignment', isset($non_topical_map['expectations']) && !isset($non_topical_map['intro']), json_encode($non_topical_map));
+$multi_headings = ['expectations' => 'Review Primary Cams overview', 'discovery_advice' => 'Review Primary Cams tips', 'browse_listings' => 'Browse listings'];
+$multi_map = $assign->invokeArgs(null, [&$multi_headings, ['expectations', 'discovery_advice', 'browse_listings'], ['primary_keyword' => 'Review Primary Cams'], ['primary' => 'Review Primary Cams', 'roles' => []], 4]);
+$multi_count = 0;
+foreach ($multi_headings as $h) { if (preg_match(CategoryFinalValidator::exact_keyword_pattern('Review Primary Cams'), $h)) { $multi_count++; } }
+check('multiple topical primary H2s are reduced to one canonical match', $multi_count === 1 && isset($multi_map['expectations']), json_encode($multi_headings));
+
+$faq_bad = CategoryFinalValidator::validate('<h2>Frequently Asked Questions</h2><h3>Question?</h3>', ['primary_keyword' => 'x'], ['primary' => 'x'], [], []);
+check('FAQ validator rejects trailing unanswered question', in_array('faq_question_missing_answer', $faq_bad['reasons'], true) && in_array('content_after_final_faq_answer', $faq_bad['reasons'], true), json_encode($faq_bad['reasons']));
+$faq_order = CategoryFinalValidator::validate('<h2>Frequently Asked Questions</h2><h3>One?</h3><h3>Two?</h3><p>Answer.</p>', ['primary_keyword' => 'x'], ['primary' => 'x'], [], []);
+check('FAQ validator rejects incorrectly ordered balanced H3/P blocks', in_array('faq_question_missing_answer', $faq_order['reasons'], true), json_encode($faq_order['reasons']));
+$faq_ok = CategoryFinalValidator::validate('<p>x filler words repeated enough for structural unit x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x.</p><h2>Frequently Asked Questions</h2><h3>One?</h3><p>Answer.</p><h3>Two?</h3><p>Answer.</p><h3>Three?</h3><p>Answer.</p>', ['primary_keyword' => 'x'], ['primary' => 'x'], [], []);
+check('FAQ validator accepts alternating FAQ ending in paragraph structurally', !in_array('faq_question_missing_answer', $faq_ok['reasons'], true) && !in_array('content_after_final_faq_answer', $faq_ok['reasons'], true), json_encode($faq_ok['reasons']));
+
+$intent_ctx = ['category_name' => 'Blonde Redhead', 'approved_keywords' => ['free token cheap trial', 'free tokens cost', 'blonde hair guide']];
+$intent_res = CategoryIntentClassifier::classify($intent_ctx);
+check('intent classifier skips keyword-only raw winner for next confident name hit', $intent_res['intent'] === CategoryIntentClassifier::INTENT_APPEARANCE_TRAIT, json_encode($intent_res));
+
 $kw_plan = CategoryKeywordPlanner::plan('sample primary', ['live cams', 'live webcams', 'fresh chat', 'fresh chats', 'unique stream', 'another option'], []);
 check('pass 1 blocks near-duplicate active body keywords', !(in_array('live cams', $kw_plan['body_use'], true) && in_array('live webcams', $kw_plan['body_use'], true)), implode(', ', $kw_plan['body_use']));
 $unused_reasons = [];
@@ -418,11 +453,14 @@ check('duplicate unused reason beats cap reporting', ($unused_reasons['live webc
 
 $place_ref = new ReflectionClass(CategoryKeywordPlacement::class);
 $promote = $place_ref->getMethod('promote_in_paragraphs');
+$promote->setAccessible(true);
 $actions = [];
 $promoted = $promote->invokeArgs(null, ['<p>Offset Primary starts here.</p><p>Pick this category carefully.</p><p>Then scan this theme slowly.</p>', 'Very Long Offset Primary', 2, &$actions]);
 check('paragraph promotion uses current offsets after each mutation', strpos($promoted, '<p>Pick Very Long Offset Primary carefully.</p><p>Then scan Very Long Offset Primary slowly.</p>') !== false, $promoted);
+$repair = CategoryKeywordPlacement::repair('<p>Anchor Primary first paragraph.</p><p><a href="/x?keep=Anchor%20Primary">Anchor Primary</a> and Anchor Primary in copy.</p><p>Anchor Primary again.</p>', 'Anchor Primary');
+check('primary demotion preserves anchor text and href byte-for-byte', strpos($repair['html'], '<a href="/x?keep=Anchor%20Primary">Anchor Primary</a>') !== false && strpos($repair['html'], '<a href="/x?keep=Anchor%20Primary">this topic</a>') === false, $repair['html']);
 
-$dash_html = '<p>One—two&mdash;three—four.</p>';
+$dash_html = '<p>One—two&mdash;three&#8212;four&#x2014;five&#X2014;six.</p>';
 $dash_repair = CategoryQualityGuard::repair($dash_html, []);
 $dash_issues = CategoryQualityGuard::analyze($dash_repair['html'], []);
 check('em dash repair handles attached literal/entity dashes', !in_array('em_dash_overuse', array_column($dash_issues, 'type'), true), $dash_repair['html']);

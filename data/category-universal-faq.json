@@ -108,7 +108,7 @@
     {
      "id": "fq6_trait_1",
      "q": "Which details matter most once the trait has narrowed the field?",
-     "a": "Whatever bears on your visit: stated format and approach if session style matters, and always the performer's name, since confirming you are on the intended page prevents the most common mix-up."
+     "a": "Whatever bears on your visit: stated format and approach if session style matters, and always the performer's name, since confirming you are on the intended page helps avoid opening the wrong page."
     },
     {
      "id": "fq6_trait_2",
@@ -171,7 +171,7 @@
     {
      "id": "fq6_comm_1",
      "q": "What should I check before a session where communication matters?",
-     "a": "Confirm the performer's stated languages on their destination page, and confirm the performer's name while you are there. Both checks take seconds and prevent the two most common disappointments."
+     "a": "Confirm the performer's stated languages on their destination page, and confirm the performer's name while you are there. Both checks take seconds and help avoid language or identity mismatches."
     },
     {
      "id": "fq6_comm_2",
@@ -567,7 +567,7 @@
     {
      "id": "fq6_safe_2",
      "q": "How do I make sure I'm engaging with the performer I intended?",
-     "a": "Confirm the name on the destination page before engaging or paying anywhere. The check takes seconds, and it prevents the most common mix-up in this space."
+     "a": "Confirm the name on the destination page before engaging or paying anywhere. The check takes seconds, and it helps avoid a wrong-page mix-up."
     },
     {
      "id": "fq6_wrong_3",

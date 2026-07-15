@@ -78,8 +78,8 @@ foreach ($fixtures as $slug => $fx) {
         'primary_placement' => $pl,
     ];
     $link_report[$slug]   = (array) ($r['internal_links'] ?? []);
-    $claims_report[$slug] = ['claim_ledger' => $r['claim_ledger'] ?? ($r['claims'] ?? null), 'rejected' => $r['rejected_claims'] ?? ($r['repairs'] ?? [])];
-    $nl_report[$slug]     = ['grammar_repairs' => $r['grammar_repairs'] ?? [], 'repairs' => $r['repairs'] ?? [], 'faq_selection' => $r['faq_selection'] ?? []];
+    $claims_report[$slug] = ['claim_ledger' => $r['claim_ledger'] ?? ($r['claims'] ?? null), 'rejected' => $r['rejected_claims'] ?? ($r['repair_actions'] ?? [])];
+    $nl_report[$slug]     = ['grammar_repairs' => $r['grammar_repairs'] ?? [], 'repairs' => $r['repair_actions'] ?? [], 'faq_selection' => $r['faq_selection'] ?? []];
     echo "$slug ok (words=" . $ba[$slug]['after']['words'] . ", primary=" . $pl['count'] . "x, links=" . $ba[$slug]['after']['internal_links'] . ")\n";
 }
 

@@ -236,13 +236,20 @@ class CategoryContentPlanner {
 		// contains the exact primary (common when the category name IS the
 		// primary keyword); otherwise rewrite the first topical heading from
 		// the primary template pool.
-		$has_primary = '';
+		$primary_pattern = CategoryFinalValidator::exact_keyword_pattern( $primary );
+		$has_primary     = '';
+		$primary_pool    = array_values( (array) ( $templates['primary'] ?? [] ) );
 		foreach ( $topical as $section ) {
 			$heading = (string) ( $headings[ $section ] ?? '' );
-			if ( $heading !== '' && stripos( $heading, $primary ) !== false ) { $has_primary = $section; break; }
+			if ( $heading === '' || preg_match( $primary_pattern, $heading ) !== 1 ) { continue; }
+			if ( $has_primary === '' ) {
+				$has_primary = $section;
+				continue;
+			}
+			$headings[ $section ] = self::non_primary_heading( $section, $seed );
 		}
 		if ( $has_primary === '' ) {
-			$pool = array_values( (array) ( $templates['primary'] ?? [] ) );
+			$pool = $primary_pool;
 			if ( ! empty( $pool ) ) {
 				$section              = $topical[0];
 				$template             = (string) $pool[ $seed % count( $pool ) ];
@@ -272,6 +279,18 @@ class CategoryContentPlanner {
 		}
 
 		return $map;
+	}
+
+	/** Non-primary topical heading fallback used when duplicate primary H2s are demoted. */
+	private static function non_primary_heading( string $section, int $seed ): string {
+		$pools = [
+			'expectations'      => [ 'What This Page Covers', 'Setting the Right Expectations' ],
+			'discovery_advice'  => [ 'Reading a Page Before You Commit', 'Checks Worth Making First' ],
+			'browse_listings'   => [ 'Building a Better Shortlist', 'Browsing the Listings Carefully' ],
+			'compare_profiles' => [ 'Comparing Profiles With Care', 'Making the Final Comparison' ],
+		];
+		$pool = $pools[ $section ] ?? [ 'Details Worth Checking' ];
+		return $pool[ self::seed( $seed . '~non-primary~' . $section ) % count( $pool ) ];
 	}
 
 	/** Title-case a keyword for heading use ("free live cams" → "Free Live Cams"; common acronyms fully capitalised). */

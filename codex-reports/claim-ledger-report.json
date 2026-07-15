@@ -79,7 +79,9 @@
             },
             "passed": true
         },
-        "rejected": []
+        "rejected": [
+            "restored_link_following_space"
+        ]
     },
     "latina-cam-models": {
         "claim_ledger": {
@@ -207,7 +209,9 @@
             },
             "passed": true
         },
-        "rejected": []
+        "rejected": [
+            "restored_link_following_space"
+        ]
     },
     "amateur-cams": {
         "claim_ledger": {

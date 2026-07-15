@@ -26,6 +26,8 @@ if ( ! defined( 'ABSPATH' ) ) { exit; }
 
 class CategoryQualityGuard {
 
+	private const EM_DASH_PATTERN = '/(?:—|&mdash;|&#8212;|&#x2014;)/iu';
+
 	/**
 	 * Documented failure phrases. Matched case-insensitively in visible text.
 	 *
@@ -198,7 +200,7 @@ class CategoryQualityGuard {
 		// v5.9.9 — em-dash density: at most one per paragraph. Chains of
 		// em dashes were a fingerprint of the documented AI-style prose.
 		foreach ( self::paragraphs_text( $html ) as $paragraph ) {
-			$dashes = (int) preg_match_all( '/—|&mdash;/u', $paragraph );
+			$dashes = (int) preg_match_all( self::EM_DASH_PATTERN, $paragraph );
 			if ( $dashes > self::MAX_EM_DASHES_PER_PARAGRAPH ) {
 				$issues[] = [ 'type' => 'em_dash_overuse', 'detail' => 'x' . $dashes . ': ' . self::snippet( $paragraph ) ];
 			}
@@ -290,14 +292,14 @@ class CategoryQualityGuard {
 		//     count would let two dashes coexist around a link.
 		$html = (string) preg_replace_callback( '/(<p[^>]*>)(.*?)(<\/p>)/isu', static function ( $pm ) use ( &$actions ): string {
 			$inner = (string) $pm[2];
-			$count = (int) preg_match_all( '/—|&mdash;/u', strip_tags( $inner ) );
+			$count = (int) preg_match_all( self::EM_DASH_PATTERN, strip_tags( $inner ) );
 			if ( $count <= self::MAX_EM_DASHES_PER_PARAGRAPH ) { return $pm[0]; }
 			// Walk tag/text segments so replacements never touch markup.
 			$seen  = 0;
 			$parts = preg_split( '/(<[^>]+>)/u', $inner, -1, PREG_SPLIT_DELIM_CAPTURE );
 			foreach ( $parts as $pi => $part ) {
 				if ( $part === '' || $part[0] === '<' ) { continue; }
-				$parts[ $pi ] = (string) preg_replace_callback( '/—|&mdash;/u', static function ( $m ) use ( &$seen ) {
+				$parts[ $pi ] = (string) preg_replace_callback( self::EM_DASH_PATTERN, static function ( $m ) use ( &$seen ) {
 					$seen++;
 					return $seen <= self::MAX_EM_DASHES_PER_PARAGRAPH ? $m[0] : ', ';
 				}, $part );

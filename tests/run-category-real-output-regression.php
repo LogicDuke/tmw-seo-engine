@@ -188,13 +188,17 @@ foreach ($fixtures as $slug => $fx) {
     $roles = (array) ($report['keyword_plan']['roles'] ?? []);
     $heading_roles = array_keys(array_filter($roles, static fn($r) => $r === 'heading_h2' || $r === 'heading_secondary'));
     if (count($body_use) >= 2) {
-        check("[$slug] >=1 supporting keyword holds a heading role", count($heading_roles) >= 1, json_encode($roles));
-        $in_heading = false;
+        check("[$slug] >=2 supporting keywords hold heading roles", count($heading_roles) >= 2, json_encode($roles));
+        $missing_heading_role = '';
         foreach ($heading_roles as $hkw) {
-            foreach (array_merge($hm[1], []) as $h) { if (stripos(strip_tags($h), (string) $hkw) !== false) { $in_heading = true; break 2; } }
-            if (preg_match('/<h3[^>]*>[^<]*' . preg_quote((string) $hkw, '/') . '/iu', $html)) { $in_heading = true; break; }
+            $found_heading = false;
+            foreach (array_merge($hm[1], []) as $h) {
+                if (preg_match('/(?<![\p{L}\p{N}])' . preg_quote((string) $hkw, '/') . '(?![\p{L}\p{N}])/iu', strip_tags($h))) { $found_heading = true; break; }
+            }
+            if (!$found_heading && preg_match('/<h3[^>]*>[^<]*' . preg_quote((string) $hkw, '/') . '/iu', $html)) { $found_heading = true; }
+            if (!$found_heading) { $missing_heading_role = (string) $hkw; break; }
         }
-        check("[$slug] a heading-role keyword actually appears in a heading", $in_heading);
+        check("[$slug] every heading-role keyword actually appears in a heading", $missing_heading_role === '', $missing_heading_role);
     }
     // unused keywords carry logged reasons
     $unused = (array) ($report['keyword_plan']['unused'] ?? []);
@@ -228,10 +232,18 @@ foreach ($fixtures as $slug => $fx) {
         check("[$slug] no H2 after the FAQ heading", !preg_match('/<h2[^>]*>/i', $after));
         $q = preg_match_all('/<h3[^>]*>/i', $after);
         check("[$slug] FAQ count $q in 3-5", $q >= 3 && $q <= 5);
-        $p = preg_match_all('/<p[^>]*>/i', $after);
-        check("[$slug] every post-FAQ paragraph is an answer (no orphan conclusion)", $p === $q, "p=$p q=$q");
-        check("[$slug] page ends on the FAQ block", (bool) preg_match('/<\/(p|h3)>\s*$/i', $html));
-        check("[$slug] FAQ selection logged with buckets", count((array) ($report['faq_selection'] ?? [])) === $q);
+        preg_match_all('/<(h3|p)[^>]*>/i', $after, $faq_tags);
+        $sequence_ok = count($faq_tags[1]) === $q * 2;
+        foreach ($faq_tags[1] as $idx => $tag) {
+            $expected = ($idx % 2 === 0) ? 'h3' : 'p';
+            if (strtolower((string) $tag) !== $expected) { $sequence_ok = false; break; }
+        }
+        check("[$slug] FAQ alternates h3/p through the final answer", $sequence_ok, implode(',', $faq_tags[1] ?? []));
+        check("[$slug] page ends on the FAQ block", (bool) preg_match('/<\/p>\s*$/i', $html));
+        $faq_selection = (array) ($report['faq_selection'] ?? []);
+        $buckets_ok = count($faq_selection) === $q;
+        foreach ($faq_selection as $sel) { if (trim((string) ($sel['bucket'] ?? '')) === '') { $buckets_ok = false; break; } }
+        check("[$slug] FAQ selection logged with buckets", $buckets_ok);
     }
 
     // 7. Audit phrases + placeholders + evidence
@@ -239,6 +251,7 @@ foreach ($fixtures as $slug => $fx) {
     foreach ($audit_phrases as $ph) { if (stripos($visible, $ph) !== false) { $hit = $ph; break; } }
     check("[$slug] zero audit metaphor phrases", $hit === '', $hit);
     check("[$slug] zero unresolved placeholders", strpos($html, '{{') === false);
+    check("[$slug] link replacement preserves following whitespace", !preg_match('/<\/a>(?=[A-Za-z])/', $html));
     check("[$slug] claim ledger recorded in report", isset($report['claim_ledger']) || isset($report['evidence']) || isset($report['claims']));
     check("[$slug] provider recorded", (string) ($report['provider'] ?? '') !== '');
 }
@@ -289,7 +302,7 @@ for ($salt = 0; $salt < CategoryGenerationPipeline::MAX_ATTEMPTS; $salt++) {
     $fp['uniqueness'] = UGuard::fingerprint($h, [], (array) $comp['sentence_ids']);
     $shadows[] = $fp;
 }
-$failr = CategoryGenerationPipeline::generate_from_context($ctx, ['tracking' => [], 'use_store' => false, 'comparisons' => $shadows]);
+$failr = CategoryGenerationPipeline::generate_from_context($ctx, ['tracking' => array_slice((array) $dup['approved_keywords'], 0, 8), 'use_store' => false, 'comparisons' => $shadows]);
 check('impossible constraints fail safely (ok=false, empty html, reasons logged)', !$failr['ok'] && (string) $failr['html'] === '' && !empty($failr['report']['failure_reasons']));
 check('failed report still carries attempt log', count((array) ($failr['report']['attempt_log'] ?? [])) === CategoryGenerationPipeline::MAX_ATTEMPTS);
 

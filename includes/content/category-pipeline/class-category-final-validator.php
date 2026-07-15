@@ -17,6 +17,11 @@ if ( ! defined( 'ABSPATH' ) ) { exit; }
 
 class CategoryFinalValidator {
 
+	/** Unicode-aware exact keyword phrase pattern shared with planner. */
+	public static function exact_keyword_pattern( string $keyword ): string {
+		return '/(?<![\p{L}\p{N}])' . preg_quote( $keyword, '/' ) . '(?![\p{L}\p{N}])/iu';
+	}
+
 	/**
 	 * v5.9.9 word-count contract (from the real Rank Math output audit:
 	 * live pages generated 539-590 visible words against a 600-word ask).
@@ -53,7 +58,7 @@ class CategoryFinalValidator {
 		$primary_hits = 0;
 		$placement    = [];
 		if ( $primary !== '' ) {
-			$primary_hits = (int) preg_match_all( '/(?<![\p{L}\p{N}])' . preg_quote( $primary, '/' ) . '(?![\p{L}\p{N}])/iu', $visible );
+			$primary_hits = (int) preg_match_all( self::exact_keyword_pattern( $primary ), $visible );
 			if ( $primary_hits < 1 ) { $reasons[] = 'primary_keyword_missing'; }
 
 			// v5.9.9 placement contract: 3-5 exact uses, first paragraph, one H2.
@@ -184,15 +189,19 @@ class CategoryFinalValidator {
 				$expect_p = false;
 				foreach ( $sequence as $tag ) {
 					if ( $tag === 'h3' ) {
+						if ( $expect_p ) { $reasons[] = 'faq_question_missing_answer'; break; }
 						$expect_p = true;
 					} elseif ( $tag === 'p' ) {
 						if ( ! $expect_p ) { $reasons[] = 'orphan_paragraph_after_faq'; break; }
 						$expect_p = false;
 					}
 				}
+				if ( $expect_p ) {
+					$reasons[] = 'faq_question_missing_answer';
+				}
 			}
 			// The page must END with the FAQ block's last answer.
-			if ( preg_match( '/<\/(p|h3)>\s*$/i', $html ) !== 1 ) {
+			if ( preg_match( '/<\/p>\s*$/i', $html ) !== 1 ) {
 				$reasons[] = 'content_after_final_faq_answer';
 			}
 		}

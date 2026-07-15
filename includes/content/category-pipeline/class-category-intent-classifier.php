@@ -182,19 +182,19 @@ class CategoryIntentClassifier {
 			return ( $priority[ $a ] ?? 99 ) <=> ( $priority[ $b ] ?? 99 );
 		} );
 
-		$top_intent = (string) array_key_first( $scores );
-		$top_score  = (int) ( $scores[ $top_intent ] ?? 0 );
+		$top_intent = self::INTENT_BROAD_DISCOVERY;
+		$confident  = false;
 
 		// Confidence gate: a non-neutral intent must carry a strong enough
 		// score AND at least one signal token in the category name itself.
-		// Anything weaker classifies as broad_discovery, whose library copy
-		// is neutral and factual — the pipeline never invents a category
-		// definition from thin evidence (the documented production-style misclassification).
-		$confident = $top_score >= self::MIN_CONFIDENT_SCORE
-			&& ( $name_hits[ $top_intent ] ?? 0 ) > 0;
-
-		if ( ! $confident ) {
-			$top_intent = self::INTENT_BROAD_DISCOVERY;
+		// Walk the ranked candidates instead of allowing a keyword-only raw
+		// winner to suppress a lower-ranked but fully evidenced intent.
+		foreach ( $scores as $intent => $score ) {
+			if ( $score >= self::MIN_CONFIDENT_SCORE && ( $name_hits[ $intent ] ?? 0 ) > 0 ) {
+				$top_intent = (string) $intent;
+				$confident  = true;
+				break;
+			}
 		}
 
 		return [
