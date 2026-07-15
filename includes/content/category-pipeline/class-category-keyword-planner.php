@@ -63,6 +63,7 @@ class CategoryKeywordPlanner {
 		$unused          = [];
 		$family_of       = [];
 		$used_by_family  = [];
+		$selected_sigs   = [ self::variant_signature( $primary ) ];
 
 		foreach ( $candidates as $kw ) {
 			$family            = self::root_family( $kw );
@@ -70,23 +71,53 @@ class CategoryKeywordPlanner {
 			$families[ $family ][] = $kw;
 		}
 
+		// ── Pass 1: distinct-family candidates (root-family diversity first).
 		foreach ( $candidates as $kw ) {
 			$family = $family_of[ $kw ];
-
-			if ( count( $body_use ) >= self::MAX_BODY_USE ) {
-				$unused[] = [ 'keyword' => $kw, 'reason' => 'body_use_cap_reached' ];
-				continue;
-			}
-			if ( $family === $primary_family ) {
-				$unused[] = [ 'keyword' => $kw, 'reason' => 'same_root_family_as_primary' ];
-				continue;
-			}
-			if ( isset( $used_by_family[ $family ] ) ) {
-				$unused[] = [ 'keyword' => $kw, 'reason' => 'root_family_already_covered_by:' . $used_by_family[ $family ] ];
-				continue;
-			}
+			if ( count( $body_use ) >= self::MAX_BODY_USE ) { break; }
+			if ( $family === $primary_family ) { continue; }
+			if ( isset( $used_by_family[ $family ] ) ) { continue; }
+			$sig = self::variant_signature( $kw );
+			if ( in_array( $sig, $selected_sigs, true ) ) { continue; }
 			$used_by_family[ $family ] = $kw;
+			$selected_sigs[]           = $sig;
 			$body_use[]                = $kw;
+		}
+
+		// ── Pass 2 (v5.9.9): when the approved pool cannot supply four
+		// distinct-family terms (common for trait categories whose whole
+		// pool is close variants of the primary), fill remaining active
+		// slots with same-family terms that are NOT near-duplicate spelling
+		// variants of the primary or of an already-selected term. This is
+		// what makes "exactly four active supporting keywords where at
+		// least four VALID approved terms exist" achievable without ever
+		// selecting two spellings of one phrase.
+		if ( count( $body_use ) < self::MAX_BODY_USE ) {
+			foreach ( $candidates as $kw ) {
+				if ( count( $body_use ) >= self::MAX_BODY_USE ) { break; }
+				if ( in_array( $kw, $body_use, true ) ) { continue; }
+				$sig = self::variant_signature( $kw );
+				if ( in_array( $sig, $selected_sigs, true ) ) { continue; }
+				$selected_sigs[] = $sig;
+				$body_use[]      = $kw;
+			}
+		}
+
+		// ── Unused reasons for every approved candidate left out.
+		$selected_sigs = [ self::variant_signature( $primary ) ];
+		foreach ( $body_use as $kw ) { $selected_sigs[] = self::variant_signature( $kw ); }
+		foreach ( $candidates as $kw ) {
+			if ( in_array( $kw, $body_use, true ) ) { continue; }
+			$sig = self::variant_signature( $kw );
+			if ( $sig === self::variant_signature( $primary ) ) {
+				$unused[] = [ 'keyword' => $kw, 'reason' => 'near_duplicate_of_primary' ];
+			} elseif ( in_array( $sig, $selected_sigs, true ) ) {
+				$unused[] = [ 'keyword' => $kw, 'reason' => 'near_duplicate_of_selected_term' ];
+			} elseif ( count( $body_use ) >= self::MAX_BODY_USE ) {
+				$unused[] = [ 'keyword' => $kw, 'reason' => 'body_use_cap_reached' ];
+			} else {
+				$unused[] = [ 'keyword' => $kw, 'reason' => 'not_selected' ];
+			}
 		}
 
 		// Tracking-only terms that never made it into the pool candidates.
@@ -100,6 +131,7 @@ class CategoryKeywordPlanner {
 
 		$heading_candidates = array_values( array_filter( $body_use, [ self::class, 'is_heading_safe' ] ) );
 		$semantic_support   = self::semantic_support_terms( $primary, $body_use );
+		$roles              = self::assign_roles( $body_use, $heading_candidates );
 
 		return [
 			'primary'             => $primary,
@@ -107,6 +139,7 @@ class CategoryKeywordPlanner {
 			'rankmath_tracking'   => array_values( array_unique( array_merge( $primary !== '' ? [ $primary ] : [], array_map( 'strval', $tracking ) ) ) ),
 			'body_use'            => $body_use,
 			'heading_candidates'  => $heading_candidates,
+			'roles'               => $roles,
 			'semantic_support'    => $semantic_support,
 			'unused'              => $unused,
 			'root_families'       => $families,
@@ -115,6 +148,60 @@ class CategoryKeywordPlanner {
 				'max_exacts_per_sentence' => self::MAX_EXACTS_PER_SENTENCE,
 			],
 		];
+	}
+
+	/**
+	 * Distinct SEO roles for the active supporting keywords (v5.9.9).
+	 * The first two heading-safe terms take the heading roles (one per
+	 * heading, never four keywords in one heading); the rest weave into
+	 * body copy. Roles map straight into the pipeline report.
+	 *
+	 * @param string[] $body_use
+	 * @param string[] $heading_candidates
+	 * @return array<string,string> keyword => role (heading_h2|heading_secondary|body)
+	 */
+	public static function assign_roles( array $body_use, array $heading_candidates ): array {
+		$roles         = [];
+		$heading_slots = [ 'heading_h2', 'heading_secondary' ];
+		foreach ( $body_use as $kw ) {
+			if ( ! empty( $heading_slots ) && in_array( $kw, $heading_candidates, true ) ) {
+				$roles[ $kw ] = (string) array_shift( $heading_slots );
+				continue;
+			}
+			$roles[ $kw ] = 'body';
+		}
+		return $roles;
+	}
+
+	/**
+	 * Near-duplicate signature: folded, stemmed token SET of the phrase
+	 * (order-insensitive, synonym-folded, stop/filler words kept). Two
+	 * keywords with the same signature are spelling variants of one phrase
+	 * ("big boobs webcam" ≡ "big breast cam") and never both go active.
+	 */
+	public static function variant_signature( string $keyword ): string {
+		$kw     = self::lc( $keyword );
+		$kw     = preg_replace( '/[^a-z0-9\s]+/u', ' ', $kw ) ?: '';
+		$tokens = preg_split( '/\s+/', trim( $kw ) ) ?: [];
+		$fold   = [
+			'webcam' => 'cam', 'webcams' => 'cam', 'cams' => 'cam',
+			'chats' => 'chat', 'breast' => 'boob', 'breasts' => 'boob',
+			'boobs' => 'boob', 'tit' => 'boob', 'tits' => 'boob',
+			'videos' => 'video', 'clips' => 'clip', 'shows' => 'show',
+			'models' => 'model', 'girls' => 'girl',
+		];
+		$norm = [];
+		foreach ( $tokens as $token ) {
+			if ( $token === 'to' || $token === 'the' || $token === 'a' || $token === 'an' ) { continue; }
+			if ( isset( $fold[ $token ] ) ) { $token = $fold[ $token ]; }
+			if ( strlen( $token ) > 4 && substr( $token, -1 ) === 's' && substr( $token, -2 ) !== 'ss' ) {
+				$token = substr( $token, 0, -1 );
+			}
+			$norm[] = $token;
+		}
+		$norm = array_values( array_unique( $norm ) );
+		sort( $norm );
+		return implode( ' ', $norm );
 	}
 
 	/**

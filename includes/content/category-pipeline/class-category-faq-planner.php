@@ -1,6 +1,6 @@
 <?php
 /**
- * CategoryFaqPlanner — Stage 9 of the universal category pipeline.
+ * CategoryFaqPlanner â€” Stage 9 of the universal category pipeline.
  *
  * Selects 3-5 FAQs from the intent-tagged universal FAQ library:
  *
@@ -8,10 +8,10 @@
  *    weight), with a deterministic per-category jitter so equally weighted
  *    buckets do not resolve identically for every category;
  *  - one variant per chosen bucket, seeded by slug;
- *  - answers pass through factual-safety analysis — a variant carrying an
+ *  - answers pass through factual-safety analysis â€” a variant carrying an
  *    unsupported claim is skipped in favor of the next variant;
  *  - the exact category name may appear at most twice across the FAQ block
- *    (questions never stuff the name — the library has none).
+ *    (questions never stuff the name â€” the library has none).
  *
  * @package TMWSEO\Engine\Content\CategoryPipeline
  * @since   5.9.7
@@ -50,7 +50,7 @@ class CategoryFaqPlanner {
 	 * and at most CategoryFaqReuseGuard::MAX_GENERIC_PER_PAGE generic
 	 * buckets appear per page. Variants used by recent pages (the cooldown
 	 * window) are excluded up front by CategoryFaqReuseGuard; when a bucket
-	 * has no safe unused variant left, it is skipped entirely — the page
+	 * has no safe unused variant left, it is skipped entirely â€” the page
 	 * carries one fewer FAQ rather than a repeated answer.
 	 *
 	 * {{category_name}} / {{primary_keyword}} placeholders in questions and
@@ -72,7 +72,7 @@ class CategoryFaqPlanner {
 		$seed = CategoryContentPlanner::seed( $slug . '|faq|' . $intent . '|' . $salt );
 
 		$bucket_keys = CategoryFaqReuseGuard::rank_buckets( $buckets, $intent, $seed );
-		$count       = self::MIN_FAQ + ( $salt % 3 ); // 3-5 per page keeps the cooldown pool deep
+		$count       = 3 + ( $salt % 3 ); // full 3-5 range across salts
 
 		$values = [
 			'category_name'   => (string) ( $context['category_name'] ?? '' ),

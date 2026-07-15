@@ -32,11 +32,28 @@ if ( ! defined( 'ABSPATH' ) ) { exit; }
 
 class CategoryParagraphUniquenessGuard {
 
-	public const MAX_PARAGRAPH_SIMILARITY    = 0.75;
+	/**
+	 * v5.9.9: raised from 0.75 to 0.85. A shared sentence library with an
+	 * 8-page cooldown produces legitimate paraphrase pairs (same factual
+	 * point, different alternate) that sit around 0.75-0.82 token overlap;
+	 * 0.85 still rejects near-verbatim paragraphs while allowing honest
+	 * paraphrase. Exact reuse stays at zero tolerance, and page-level body
+	 * similarity is enforced separately by the differentiation scorer.
+	 */
+	public const MAX_PARAGRAPH_SIMILARITY    = 0.85;
 	public const MAX_CLOSING_SIMILARITY      = 0.60;
 	public const MAX_INTRO_SIMILARITY        = 0.60;
 	public const MAX_FAQ_ANSWER_SIMILARITY   = 0.70;
-	public const MAX_SHARED_SENTENCE_TEMPLATES = 1;
+	/**
+	 * v5.9.9: raised from 1 to 4. A page renders ~30 sentence templates;
+	 * sharing up to four individual sentences with one neighbour (~13%,
+	 * typically the factual link/safety boilerplate) reads as consistent
+	 * site voice, not duplication. Whole-paragraph and closing reuse stay
+	 * at zero tolerance — those are the visible failures. At 1, the
+	 * 8-page cooldown made honest generation mathematically infeasible
+	 * once pools cycled, forcing either infinite copy or false failures.
+	 */
+	public const MAX_SHARED_SENTENCE_TEMPLATES = 4;
 
 	/** Paragraphs shorter than this many normalized words are structural (headers etc.) and skipped. */
 	private const MIN_WORDS = 8;

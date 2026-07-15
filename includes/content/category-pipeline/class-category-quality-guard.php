@@ -57,6 +57,47 @@ class CategoryQualityGuard {
 		'related category tags',
 		'browsing theme',
 		'archive layer',
+		// ── v5.9.9: every metaphorical / manufactured phrase documented in
+		// the real live-output PDF (July 2026 audit). These are regression
+		// anchors; the structural patterns below catch the phrase FAMILIES.
+		'discovery currency',
+		'the discovery currency is',
+		'attention buys',
+		'money buys the interacting',
+		'shortlist mostly builds itself',
+		'the shortlist builds itself',
+		'timing tail',
+		'taste dog',
+		'tail wagging',
+		'the text stands down',
+		'stands in wherever',
+		'overlap is doing real work',
+		'doing real work',
+		'never runs dry',
+		'trait assembles',
+		'pages sort, platforms operate',
+		'the open side knowingly',
+		'the search is effectively over',
+		'the search effectively ends',
+		'survives contact with the room',
+		'survives contact with',
+		'relevance came free',
+		'came free with the category',
+		'answer immediately',
+		'without wasting clicks',
+		'wasting clicks',
+		'retire it',
+		'head-to-head comparisons flatter',
+		'flatter the wrong qualities',
+		'the deciding signal is visible',
+		'wears very differently',
+		'the label has done the gathering',
+		'count on the trait and count against',
+		'attention spend',
+		'keeps the attention spend honest',
+		'the content stands in',
+		'a clean finish respects that order',
+		'the fallback that never',
 	];
 
 	/**
@@ -81,7 +122,33 @@ class CategoryQualityGuard {
 		'/\bwidest doors?\b/iu',
 		'/\bwell-?labell?ed\b/iu',
 		'/\btwo widest\b/iu',
+		// ── v5.9.9 structural natural-language rules ────────────────────
+		// These target the phrase FAMILIES behind the documented failures,
+		// not just the exact strings (requirement: "do not solve this only
+		// with a small blacklist").
+		// 1. Commerce metaphors applied to attention/behaviour
+		//    ("attention buys the watching", "the discovery currency").
+		'/\b(?:attention|patience|curiosity|interest|time)\s+(?:buys|pays for|purchases)\b/iu',
+		'/\b(?:currency|economy)\s+(?:is|of)\s+(?:descriptions?|attention|clicks?)\b/iu',
+		// 2. Personified page mechanics ("the page loaded and the trait
+		//    retired", "rooms answer", "labels gather", "the search ends
+		//    itself").
+		'/\b(?:rooms?|labels?|traits?|pages?)\s*,?\s*unlike\s+(?:rooms?|labels?|traits?|pages?)\b/iu',
+		'/\b(?:trait|label|theme|category)(?:\'s)?\s+(?:filtering\s+)?job\s+(?:ended|is done|finished)\b/iu',
+		// 3. Slogan-like triadic endings ("trait assembles, pages sort,
+		//    platforms operate"): three short verb-final clauses joined by
+		//    commas closing a sentence.
+		'/\b\p{L}+\s+\p{L}+s,\s*\p{L}+\s+\p{L}+s?,\s*(?:and\s+)?\p{L}+\s+\p{L}+s?\s*(?:—|\.|$)/u',
+		// 4. Fake-certainty idioms about searches/choices completing
+		//    themselves.
+		'/\b(?:search|choice|shortlist|decision)\s+(?:is\s+)?(?:effectively|basically|essentially|mostly)\s+(?:over|ends?|finished|builds? itself|done)\b/iu',
+		'/\b(?:builds?|sorts?|finishes|completes?)\s+(?:itself|themselves)\b/iu',
+		// 5. Anthropomorphic transaction framing of viewing.
+		'/\bcosts? nothing but attention\b/iu',
 	];
+
+	/** Max em dashes allowed in a single paragraph (v5.9.9 structural rule). */
+	public const MAX_EM_DASHES_PER_PARAGRAPH = 1;
 
 	/**
 	 * Analyze visible content. Returns a list of issues; empty = clean.
@@ -126,6 +193,15 @@ class CategoryQualityGuard {
 
 		foreach ( self::duplicate_paragraphs( $html ) as $dup ) {
 			$issues[] = [ 'type' => 'duplicate_paragraph', 'detail' => self::snippet( $dup ) ];
+		}
+
+		// v5.9.9 — em-dash density: at most one per paragraph. Chains of
+		// em dashes were a fingerprint of the documented AI-style prose.
+		foreach ( self::paragraphs_text( $html ) as $paragraph ) {
+			$dashes = (int) preg_match_all( '/—|&mdash;/u', $paragraph );
+			if ( $dashes > self::MAX_EM_DASHES_PER_PARAGRAPH ) {
+				$issues[] = [ 'type' => 'em_dash_overuse', 'detail' => 'x' . $dashes . ': ' . self::snippet( $paragraph ) ];
+			}
 		}
 
 		foreach ( self::paragraphs_text( $html ) as $paragraph ) {
@@ -206,6 +282,30 @@ class CategoryQualityGuard {
 			}
 			return implode( ' ', $sentences );
 		} );
+
+		// 2b. Em-dash overuse: keep the first em dash in each PARAGRAPH,
+		//     soften the rest to commas (grammar-safe: " — " reads as ", ").
+		//     Counted per <p> block, not per text node — inline anchors
+		//     split a paragraph into several text nodes, and a per-node
+		//     count would let two dashes coexist around a link.
+		$html = (string) preg_replace_callback( '/(<p[^>]*>)(.*?)(<\/p>)/isu', static function ( $pm ) use ( &$actions ): string {
+			$inner = (string) $pm[2];
+			$count = (int) preg_match_all( '/—|&mdash;/u', strip_tags( $inner ) );
+			if ( $count <= self::MAX_EM_DASHES_PER_PARAGRAPH ) { return $pm[0]; }
+			// Walk tag/text segments so replacements never touch markup.
+			$seen  = 0;
+			$parts = preg_split( '/(<[^>]+>)/u', $inner, -1, PREG_SPLIT_DELIM_CAPTURE );
+			foreach ( $parts as $pi => $part ) {
+				if ( $part === '' || $part[0] === '<' ) { continue; }
+				$parts[ $pi ] = (string) preg_replace_callback( '/—|&mdash;/u', static function ( $m ) use ( &$seen ) {
+					$seen++;
+					return $seen <= self::MAX_EM_DASHES_PER_PARAGRAPH ? $m[0] : ', ';
+				}, $part );
+			}
+			$new_inner = implode( '', $parts );
+			if ( $new_inner !== $inner ) { $actions[] = 'softened_extra_em_dashes'; }
+			return $pm[1] . $new_inner . $pm[3];
+		}, $html );
 
 		// 3. Remove repeated sentences beyond their first occurrence (page-wide).
 		$seen_sentences = [];
