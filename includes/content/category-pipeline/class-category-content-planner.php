@@ -21,9 +21,10 @@ if ( ! defined( 'ABSPATH' ) ) { exit; }
 
 class CategoryContentPlanner {
 
-	/** How many middle sections a plan carries. */
-	private const MIN_MIDDLE = 4;
-	private const MAX_MIDDLE = 5;
+	/** How many middle sections a plan carries (v5.9.9: raised so the
+	 * visible word count lands in the 650-850 target band without filler). */
+	private const MIN_MIDDLE = 6;
+	private const MAX_MIDDLE = 7;
 
 	/**
 	 * Intent → middle-section relevance weights. Sections absent for an
@@ -109,12 +110,13 @@ class CategoryContentPlanner {
 	/**
 	 * Build the section plan.
 	 *
-	 * @param array<string,mixed> $context Stage 1 output.
-	 * @param string              $intent  Stage 2 intent.
-	 * @param int                 $salt    Regeneration salt (0 on first attempt).
-	 * @return array{seed:int,sections:string[],headings:array<string,string>,variant_seeds:array<string,int>}
+	 * @param array<string,mixed> $context      Stage 1 output.
+	 * @param string              $intent       Stage 2 intent.
+	 * @param int                 $salt         Regeneration salt (0 on first attempt).
+	 * @param array<string,mixed> $keyword_plan Stage 3 output (heading keyword roles).
+	 * @return array{seed:int,sections:string[],headings:array<string,string>,heading_keyword_map:array<string,array{heading:string,keyword:string}>,variant_seeds:array<string,int>}
 	 */
-	public static function plan( array $context, string $intent, int $salt = 0 ): array {
+	public static function plan( array $context, string $intent, int $salt = 0, array $keyword_plan = [] ): array {
 		$slug    = (string) ( $context['category_slug'] ?? '' );
 		$primary = (string) ( $context['primary_keyword'] ?? '' );
 		$seed    = self::seed( $slug . '|' . $primary . '|' . $intent . '|' . $salt );
@@ -163,7 +165,11 @@ class CategoryContentPlanner {
 		$middle = self::seeded_order( $middle, $seed );
 		$middle = self::enforce_coherence( $middle );
 
-		$sections = array_merge( [ 'intro' ], $middle, [ 'related_navigation', 'faq', 'closing' ] );
+		// v5.9.9 structure contract: opening → body sections → related
+		// navigation (internal links) → conclusion → FAQ LAST. The closing
+		// paragraph is the page's conclusion and must precede the FAQ; no
+		// orphan paragraph may follow the final FAQ answer.
+		$sections = array_merge( [ 'intro' ], $middle, [ 'related_navigation', 'closing', 'faq' ] );
 
 		// Pick a heading wording per section (deterministic, per category).
 		$headings      = [];
@@ -180,14 +186,121 @@ class CategoryContentPlanner {
 			}
 		}
 
+		$heading_keyword_map = self::assign_keyword_headings( $headings, $sections, $context, $keyword_plan, $seed );
+
 		return [
-			'seed'          => $seed,
-			'salt'          => $salt,
-			'intent'        => $intent,
-			'sections'      => $sections,
-			'headings'      => $headings,
-			'variant_seeds' => $variant_seeds,
+			'seed'                => $seed,
+			'salt'                => $salt,
+			'intent'              => $intent,
+			'sections'            => $sections,
+			'headings'            => $headings,
+			'heading_keyword_map' => $heading_keyword_map,
+			'variant_seeds'       => $variant_seeds,
 		];
+	}
+
+	/**
+	 * Keyword → heading assignment (v5.9.9).
+	 *
+	 * Guarantees, using the library's heading_templates pools:
+	 *  - exactly ONE H2 carries the exact primary keyword (requirement:
+	 *    "at least one H2 must contain the exact primary keyword", plus
+	 *    "the primary keyword must not appear in every heading");
+	 *  - when heading-safe supporting keywords exist, ONE additional
+	 *    heading carries one supporting keyword (role heading_h2) and,
+	 *    when a second heading-safe term exists and enough sections are
+	 *    planned, one more heading carries it (role heading_secondary);
+	 *  - a keyword-bearing heading is only attached to sections whose
+	 *    content genuinely answers that keyword's intent (the topical
+	 *    sections: expectations, discovery_advice, browse_listings,
+	 *    compare_profiles) — never to safety/availability boilerplate.
+	 *
+	 * @param array<string,string> $headings by reference — updated in place.
+	 * @return array<string,array{heading:string,keyword:string,role:string}> section => assignment
+	 */
+	private static function assign_keyword_headings( array &$headings, array $sections, array $context, array $keyword_plan, int $seed ): array {
+		$library   = CategoryDraftComposer::library();
+		$templates = (array) ( $library['heading_templates'] ?? [] );
+		$primary   = trim( (string) ( $keyword_plan['primary'] ?? $context['primary_keyword'] ?? '' ) );
+		$map       = [];
+
+		// Sections whose copy is about the category topic itself — the only
+		// legitimate hosts for a keyword heading.
+		$topical = array_values( array_intersect(
+			$sections,
+			[ 'expectations', 'discovery_advice', 'browse_listings', 'compare_profiles' ]
+		) );
+		if ( $primary === '' || empty( $topical ) ) { return $map; }
+
+		// 1. Primary keyword H2 — reuse an existing heading when it already
+		// contains the exact primary (common when the category name IS the
+		// primary keyword); otherwise rewrite the first topical heading from
+		// the primary template pool.
+		$primary_pattern = CategoryFinalValidator::exact_keyword_pattern( $primary );
+		$has_primary     = '';
+		$primary_pool    = array_values( (array) ( $templates['primary'] ?? [] ) );
+		foreach ( $topical as $section ) {
+			$heading = (string) ( $headings[ $section ] ?? '' );
+			if ( $heading === '' || preg_match( $primary_pattern, $heading ) !== 1 ) { continue; }
+			if ( $has_primary === '' ) {
+				$has_primary = $section;
+				continue;
+			}
+			$headings[ $section ] = self::non_primary_heading( $section, $seed );
+		}
+		if ( $has_primary === '' ) {
+			$pool = $primary_pool;
+			if ( ! empty( $pool ) ) {
+				$section              = $topical[0];
+				$template             = (string) $pool[ $seed % count( $pool ) ];
+				$headings[ $section ] = str_replace( '{{primary_keyword}}', $primary, $template );
+				$has_primary          = $section;
+			}
+		}
+		if ( $has_primary !== '' ) {
+			$map[ $has_primary ] = [ 'heading' => $headings[ $has_primary ], 'keyword' => $primary, 'role' => 'primary_h2' ];
+		}
+
+		// 2. Supporting keyword headings from the assigned roles.
+		$roles = (array) ( $keyword_plan['roles'] ?? [] );
+		$hosts = array_values( array_diff( $topical, [ $has_primary ] ) );
+		foreach ( $roles as $kw => $role ) {
+			if ( $role !== 'heading_h2' && $role !== 'heading_secondary' ) { continue; }
+			if ( empty( $hosts ) ) { break; }
+			$pool = array_values( (array) ( $templates['supporting'] ?? [] ) );
+			if ( empty( $pool ) ) { break; }
+			$section  = (string) array_shift( $hosts );
+			$template = (string) $pool[ self::seed( $seed . '~' . $kw ) % count( $pool ) ];
+			$heading  = str_replace( '{{kw}}', self::title_case( (string) $kw ), $template );
+			// Never let a supporting heading duplicate the primary heading.
+			if ( strcasecmp( $heading, (string) ( $headings[ $has_primary ] ?? '' ) ) === 0 ) { continue; }
+			$headings[ $section ] = $heading;
+			$map[ $section ]      = [ 'heading' => $heading, 'keyword' => (string) $kw, 'role' => $role ];
+		}
+
+		return $map;
+	}
+
+	/** Non-primary topical heading fallback used when duplicate primary H2s are demoted. */
+	private static function non_primary_heading( string $section, int $seed ): string {
+		$pools = [
+			'expectations'      => [ 'What This Page Covers', 'Setting the Right Expectations' ],
+			'discovery_advice'  => [ 'Reading a Page Before You Commit', 'Checks Worth Making First' ],
+			'browse_listings'   => [ 'Building a Better Shortlist', 'Browsing the Listings Carefully' ],
+			'compare_profiles' => [ 'Comparing Profiles With Care', 'Making the Final Comparison' ],
+		];
+		$pool = $pools[ $section ] ?? [ 'Details Worth Checking' ];
+		return $pool[ self::seed( $seed . '~non-primary~' . $section ) % count( $pool ) ];
+	}
+
+	/** Title-case a keyword for heading use ("free live cams" → "Free Live Cams"; common acronyms fully capitalised). */
+	private static function title_case( string $kw ): string {
+		$cased = (string) preg_replace_callback( '/\b\p{Ll}/u', static function ( $m ) {
+			return function_exists( 'mb_strtoupper' ) ? mb_strtoupper( $m[0], 'UTF-8' ) : strtoupper( $m[0] );
+		}, $kw );
+		return (string) preg_replace_callback( '/\b(Tv|Hd|Vr|Bbw|Milf|Joi|Pov|Bdsm)\b/u', static function ( $m ) {
+			return strtoupper( $m[0] );
+		}, $cased );
 	}
 
 	/** Deterministic heading choice from the library, capping category-name headings at 2. */
