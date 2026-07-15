@@ -136,10 +136,9 @@ class CategoryGenerationPipeline {
 				$draft     = $provider_html;
 				if ( stripos( $draft, 'Frequently Asked Questions' ) === false && ! empty( $faqs ) ) {
 					$faq_html = CategoryFaqPlanner::render( $faqs );
-					$closing_pos = self::closing_position( $draft );
-					$draft = $closing_pos !== null
-						? substr( $draft, 0, $closing_pos ) . $faq_html . substr( $draft, $closing_pos )
-						: $draft . $faq_html;
+					if ( $faq_html !== '' ) {
+						$draft .= $faq_html;
+					}
 				}
 				$composed = [ 'html' => $draft, 'used_keywords' => [], 'dropped_sentences' => 0, 'sentence_ids' => [], 'variant_ids' => [], 'intent_sections' => [], 'internal_links' => [] ];
 				$stage['raw'] = $provider_html;

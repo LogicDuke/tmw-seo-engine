@@ -220,11 +220,12 @@ foreach ($fixtures as $slug => $fx) {
     check("[$slug] report lists the rendered internal links", count((array) ($report['internal_links'] ?? [])) >= 2);
 
     // 6. FAQ last, 3-5, no orphan paragraph after it
-    $fp = stripos($html, 'Frequently Asked Questions');
+    $faq_heading = '<h2>Frequently Asked Questions</h2>';
+    $fp = stripos($html, $faq_heading);
     check("[$slug] FAQ section present", $fp !== false);
     if ($fp !== false) {
-        $after = substr($html, $fp);
-        check("[$slug] no H2 after the FAQ heading", !preg_match('/<h2[^>]*>/i', substr($after, 40)));
+        $after = substr($html, $fp + strlen($faq_heading));
+        check("[$slug] no H2 after the FAQ heading", !preg_match('/<h2[^>]*>/i', $after));
         $q = preg_match_all('/<h3[^>]*>/i', $after);
         check("[$slug] FAQ count $q in 3-5", $q >= 3 && $q <= 5);
         $p = preg_match_all('/<p[^>]*>/i', $after);

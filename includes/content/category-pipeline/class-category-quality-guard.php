@@ -290,14 +290,14 @@ class CategoryQualityGuard {
 		//     count would let two dashes coexist around a link.
 		$html = (string) preg_replace_callback( '/(<p[^>]*>)(.*?)(<\/p>)/isu', static function ( $pm ) use ( &$actions ): string {
 			$inner = (string) $pm[2];
-			$count = (int) preg_match_all( '/\s—\s|&mdash;/u', strip_tags( $inner ) );
+			$count = (int) preg_match_all( '/—|&mdash;/u', strip_tags( $inner ) );
 			if ( $count <= self::MAX_EM_DASHES_PER_PARAGRAPH ) { return $pm[0]; }
 			// Walk tag/text segments so replacements never touch markup.
 			$seen  = 0;
 			$parts = preg_split( '/(<[^>]+>)/u', $inner, -1, PREG_SPLIT_DELIM_CAPTURE );
 			foreach ( $parts as $pi => $part ) {
 				if ( $part === '' || $part[0] === '<' ) { continue; }
-				$parts[ $pi ] = (string) preg_replace_callback( '/\s—\s|&mdash;/u', static function ( $m ) use ( &$seen ) {
+				$parts[ $pi ] = (string) preg_replace_callback( '/—|&mdash;/u', static function ( $m ) use ( &$seen ) {
 					$seen++;
 					return $seen <= self::MAX_EM_DASHES_PER_PARAGRAPH ? $m[0] : ', ';
 				}, $part );

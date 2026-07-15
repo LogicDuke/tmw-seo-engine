@@ -63,6 +63,7 @@ class CategoryKeywordPlanner {
 		$unused          = [];
 		$family_of       = [];
 		$used_by_family  = [];
+		$selected_sigs   = [ self::variant_signature( $primary ) ];
 
 		foreach ( $candidates as $kw ) {
 			$family            = self::root_family( $kw );
@@ -76,7 +77,10 @@ class CategoryKeywordPlanner {
 			if ( count( $body_use ) >= self::MAX_BODY_USE ) { break; }
 			if ( $family === $primary_family ) { continue; }
 			if ( isset( $used_by_family[ $family ] ) ) { continue; }
+			$sig = self::variant_signature( $kw );
+			if ( in_array( $sig, $selected_sigs, true ) ) { continue; }
 			$used_by_family[ $family ] = $kw;
+			$selected_sigs[]           = $sig;
 			$body_use[]                = $kw;
 		}
 
@@ -89,8 +93,6 @@ class CategoryKeywordPlanner {
 		// least four VALID approved terms exist" achievable without ever
 		// selecting two spellings of one phrase.
 		if ( count( $body_use ) < self::MAX_BODY_USE ) {
-			$selected_sigs = [ self::variant_signature( $primary ) ];
-			foreach ( $body_use as $kw ) { $selected_sigs[] = self::variant_signature( $kw ); }
 			foreach ( $candidates as $kw ) {
 				if ( count( $body_use ) >= self::MAX_BODY_USE ) { break; }
 				if ( in_array( $kw, $body_use, true ) ) { continue; }
@@ -107,12 +109,12 @@ class CategoryKeywordPlanner {
 		foreach ( $candidates as $kw ) {
 			if ( in_array( $kw, $body_use, true ) ) { continue; }
 			$sig = self::variant_signature( $kw );
-			if ( count( $body_use ) >= self::MAX_BODY_USE ) {
-				$unused[] = [ 'keyword' => $kw, 'reason' => 'body_use_cap_reached' ];
-			} elseif ( $sig === self::variant_signature( $primary ) ) {
+			if ( $sig === self::variant_signature( $primary ) ) {
 				$unused[] = [ 'keyword' => $kw, 'reason' => 'near_duplicate_of_primary' ];
 			} elseif ( in_array( $sig, $selected_sigs, true ) ) {
 				$unused[] = [ 'keyword' => $kw, 'reason' => 'near_duplicate_of_selected_term' ];
+			} elseif ( count( $body_use ) >= self::MAX_BODY_USE ) {
+				$unused[] = [ 'keyword' => $kw, 'reason' => 'body_use_cap_reached' ];
 			} else {
 				$unused[] = [ 'keyword' => $kw, 'reason' => 'not_selected' ];
 			}

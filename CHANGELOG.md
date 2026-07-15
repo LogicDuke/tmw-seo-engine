@@ -55,7 +55,7 @@ Universal repair of the category-page generation pipeline, driven by the July 20
 
 ### Tests
 - New `tests/run-category-real-output-regression.php`: the five audited categories with their real Rank Math keyword pools plus three synthetic categories (activity, language/regional, ambiguous-neutral); 220 assertions covering the full on-page contract and safe failure.
-- Updated category smokes where they encoded the old (incorrect) behaviour: provider-draft fixtures now meet the same final contract as every other provider, fixture related categories carry verified URLs, and forced-failure seeding shadows every retry salt.
+- Updated category smokes where they encoded the old (incorrect) behaviour: provider-draft fixtures now meet the same final contract as every other provider, fixture-related categories carry verified URLs, and forced-failure seeding shadows every retry salt.
 
 ### Unchanged
 - Model-page and video-page pipelines, providers (OpenAI/Claude/template), Rank Math focus-keyword storage, featured-image behaviour, cron, CLI, admin, affiliate modules, and migrations are untouched. No child-theme changes.

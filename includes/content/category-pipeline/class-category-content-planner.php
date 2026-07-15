@@ -237,8 +237,9 @@ class CategoryContentPlanner {
 		// primary keyword); otherwise rewrite the first topical heading from
 		// the primary template pool.
 		$has_primary = '';
-		foreach ( $headings as $section => $heading ) {
-			if ( $section !== 'faq' && stripos( $heading, $primary ) !== false ) { $has_primary = $section; break; }
+		foreach ( $topical as $section ) {
+			$heading = (string) ( $headings[ $section ] ?? '' );
+			if ( $heading !== '' && stripos( $heading, $primary ) !== false ) { $has_primary = $section; break; }
 		}
 		if ( $has_primary === '' ) {
 			$pool = array_values( (array) ( $templates['primary'] ?? [] ) );

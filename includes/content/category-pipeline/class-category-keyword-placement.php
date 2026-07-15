@@ -136,14 +136,19 @@ class CategoryKeywordPlacement {
 
 	private static function promote_in_paragraphs( string $html, string $primary, int $needed, array &$actions ): string {
 		if ( $needed <= 0 ) { return $html; }
-		$blocks = self::paragraph_offsets( $html, true );
-		foreach ( $blocks as $i => $block ) {
-			if ( $needed <= 0 ) { break; }
-			if ( $i === 0 ) { continue; } // opening already carries its use
-			[ $start, $len ] = $block;
+		$i = 1;
+		while ( $needed > 0 ) {
+			$blocks = self::paragraph_offsets( $html, true );
+			if ( $i >= count( $blocks ) ) { break; }
+
+			[ $start, $len ] = $blocks[ $i ];
 			$inner = substr( $html, $start, $len );
-			if ( strpos( $inner, '<a ' ) !== false ) { continue; } // keep anchors pristine
-			if ( preg_match( self::pattern( $primary ), $inner ) ) { continue; } // one per paragraph max
+			if ( strpos( $inner, '<a ' ) !== false || preg_match( self::pattern( $primary ), $inner ) ) {
+				$i++;
+				continue;
+			}
+
+			$promoted = false;
 			foreach ( self::NEUTRAL_REFERENCES as $neutral ) {
 				$np = '/(?<![\p{L}\p{N}])' . preg_quote( $neutral, '/' ) . '(?![\p{L}\p{N}])/iu';
 				if ( preg_match( $np, $inner ) ) {
@@ -151,10 +156,12 @@ class CategoryKeywordPlacement {
 					$html = substr_replace( $html, $new, $start, $len );
 					$needed--;
 					$actions[] = 'promoted_neutral_reference_to_primary';
-					$blocks = self::paragraph_offsets( $html, true );
+					$promoted = true;
 					break;
 				}
 			}
+			$i++;
+			if ( $promoted ) { continue; }
 		}
 		return $html;
 	}
