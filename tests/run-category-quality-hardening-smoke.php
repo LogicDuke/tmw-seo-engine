@@ -52,6 +52,7 @@ require_once $pipeline_dir . 'class-category-draft-composer.php';
 require_once $pipeline_dir . 'class-category-quality-guard.php';
 require_once $pipeline_dir . 'class-category-factual-safety.php';
 require_once $pipeline_dir . 'class-category-grammar-guard.php';
+require_once $pipeline_dir . 'class-category-keyword-placement.php';
 require_once $pipeline_dir . 'class-category-paragraph-uniqueness-guard.php';
 require_once $pipeline_dir . 'class-category-claim-ledger.php';
 require_once $pipeline_dir . 'class-category-specificity-scorer.php';
@@ -61,6 +62,7 @@ require_once $pipeline_dir . 'class-category-differentiation-scorer.php';
 require_once $pipeline_dir . 'class-category-faq-planner.php';
 require_once $pipeline_dir . 'class-category-final-validator.php';
 require_once $pipeline_dir . 'class-category-generation-pipeline.php';
+require_once __DIR__ . '/category-collision-shadow-helper.php';
 
 use TMWSEO\Engine\Content\CategoryPipeline\CategoryContextBuilder;
 use TMWSEO\Engine\Content\CategoryPipeline\CategoryIntentClassifier;
@@ -70,6 +72,9 @@ use TMWSEO\Engine\Content\CategoryPipeline\CategoryFactualSafety;
 use TMWSEO\Engine\Content\CategoryPipeline\CategoryGrammarGuard;
 use TMWSEO\Engine\Content\CategoryPipeline\CategoryParagraphUniquenessGuard as UGuard;
 use TMWSEO\Engine\Content\CategoryPipeline\CategoryClaimLedger;
+use TMWSEO\Engine\Content\CategoryPipeline\CategoryContentPlanner;
+use TMWSEO\Engine\Content\CategoryPipeline\CategoryDraftComposer;
+use TMWSEO\Engine\Content\CategoryPipeline\CategoryFaqPlanner;
 use TMWSEO\Engine\Content\CategoryPipeline\CategorySpecificityScorer;
 use TMWSEO\Engine\Content\CategoryPipeline\CategoryGenerationResult;
 use TMWSEO\Engine\Content\CategoryPipeline\CategoryDifferentiationScorer;
@@ -330,10 +335,10 @@ $fail_res = CategoryGenerationPipeline::generate_from_context($dup_ctx, ['tracki
 // Collision may resolve via retries; the guaranteed failure assertion follows below.
 $impossible = $fail_res;
 if ($impossible['ok']) {
-    // Force certain failure: compare against the page's OWN final fingerprint.
-    $own              = CategoryDifferentiationScorer::fingerprint((string) $impossible['html'], [], 'x');
-    $own['uniqueness'] = UGuard::fingerprint((string) $impossible['html'], [], []);
-    $impossible = CategoryGenerationPipeline::generate_from_context($dup_ctx, ['tracking' => [], 'use_store' => false, 'comparisons' => [$own]]);
+    // Force certain failure: fingerprint the would-be draft of EVERY salt so
+    // all retries collide with their own shadow (mirrors universal test 25).
+    $shadows = tmwseo_category_collision_shadows($dup_ctx, (array) $fixtures['amateur-cams']['approved_keywords']);
+    $impossible = CategoryGenerationPipeline::generate_from_context($dup_ctx, ['tracking' => [], 'use_store' => false, 'comparisons' => $shadows]);
 }
 check('24. failed generation returns ok=false with empty html', !$impossible['ok'] && $impossible['html'] === '' && !empty($impossible['report']['failure_reasons']), implode('; ', array_slice((array) $impossible['report']['failure_reasons'], 0, 2)));
 check('24. failed result carries final_status=failed', $impossible['result']->final_status() === 'failed');

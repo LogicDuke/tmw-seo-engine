@@ -235,6 +235,7 @@ class Loader {
         tmwseo_safe_require( $p . 'category-pipeline/class-category-quality-guard.php' );
         tmwseo_safe_require( $p . 'category-pipeline/class-category-factual-safety.php' );
         tmwseo_safe_require( $p . 'category-pipeline/class-category-grammar-guard.php' );
+        tmwseo_safe_require( $p . 'category-pipeline/class-category-keyword-placement.php' );
         tmwseo_safe_require( $p . 'category-pipeline/class-category-paragraph-uniqueness-guard.php' );
         tmwseo_safe_require( $p . 'category-pipeline/class-category-claim-ledger.php' );
         tmwseo_safe_require( $p . 'category-pipeline/class-category-specificity-scorer.php' );

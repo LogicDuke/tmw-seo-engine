@@ -23,7 +23,7 @@ if ( ! defined( 'ABSPATH' ) ) { exit; }
 class CategoryFaqReuseGuard {
 
 	/** How many recent pages define the cooldown window. */
-	public const COOLDOWN_PAGES = 8;
+	public const COOLDOWN_PAGES = 12; // v5.9.9: widened so bucket variants cannot recur as identical answers just past the old 8-page window
 
 	/** Maximum generic-tier FAQs allowed on a single page. */
 	public const MAX_GENERIC_PER_PAGE = 1;
