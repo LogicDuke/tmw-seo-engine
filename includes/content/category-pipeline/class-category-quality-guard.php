@@ -193,6 +193,24 @@ class CategoryQualityGuard {
 			$issues[] = [ 'type' => 'repeated_sentence', 'detail' => self::snippet( $repeated ) ];
 		}
 
+		// v5.9.11 — abstract-filler structure detection. The audited live
+		// output still carried reusable low-information sentences built
+		// around abstract nouns ("The destination shapes the session",
+		// "the trait gathers the field"). This is STRUCTURAL, not a string
+		// blacklist: a sentence trips when its subject and object heads are
+		// both drawn from the abstract-filler vocabulary and it carries no
+		// concrete anchor, or when filler nouns dominate a short sentence.
+		foreach ( self::abstract_filler_sentences( $visible, $keywords ) as $hit ) {
+			$issues[] = [ 'type' => 'abstract_filler_structure', 'detail' => self::snippet( $hit ) ];
+		}
+
+		// Cross-sentence skeleton repetition WITHIN a page: two sentences
+		// sharing one determiner-FILLER-verb-determiner-FILLER skeleton
+		// read as assembled modules even when the nouns differ.
+		foreach ( self::repeated_filler_skeletons( $visible ) as $hit ) {
+			$issues[] = [ 'type' => 'repeated_filler_skeleton', 'detail' => $hit ];
+		}
+
 		foreach ( self::duplicate_paragraphs( $html ) as $dup ) {
 			$issues[] = [ 'type' => 'duplicate_paragraph', 'detail' => self::snippet( $dup ) ];
 		}
@@ -369,6 +387,99 @@ class CategoryQualityGuard {
 	}
 
 	/** @return string[] */
+	/** Abstract-filler vocabulary: reusable nouns that carry no category-specific information. */
+	private const FILLER_NOUNS = [
+		'destination', 'destinations', 'field', 'route', 'routes', 'side', 'sides',
+		'fit', 'visit', 'visits', 'signal', 'signals', 'shortlist', 'ground',
+		'doorway', 'session', 'sessions', 'trait', 'label', 'theme', 'pick', 'picks',
+	];
+
+	/** Generic verbs that pair with filler nouns to form information-free claims. */
+	private const FILLER_VERBS = [
+		'shapes', 'shape', 'gathers', 'gather', 'gathered', 'settles', 'settle',
+		'carries', 'carry', 'holds', 'hold', 'opens', 'open', 'opened',
+		'closes', 'close', 'closed', 'covers', 'cover', 'points', 'point',
+		'fills', 'fill', 'narrows', 'narrow', 'widens', 'widen',
+	];
+
+	/** Concrete anchors that rescue a sentence: real entities, data, or keywords. */
+	private const CONCRETE_ANCHORS = [
+		'performer', 'performers', 'model', 'models', 'video', 'videos', 'clip',
+		'clips', 'page', 'pages', 'listing', 'listings', 'platform', 'platforms',
+		'room', 'rooms', 'price', 'pricing', 'terms', 'name', 'names', 'directory',
+	];
+
+	/**
+	 * Sentences whose informational core is filler-on-filler (v5.9.11).
+	 *
+	 * Two structural triggers, no literal blacklist:
+	 *  1. subject-object pattern: "<det> FILLER ... FILLER_VERB ... <det> FILLER"
+	 *     with no concrete anchor and no exact keyword in the sentence;
+	 *  2. saturation: a sentence of <= 14 words carrying 3+ filler nouns and
+	 *     no concrete anchor.
+	 *
+	 * @param string   $visible
+	 * @param string[] $keywords
+	 * @return string[]
+	 */
+	private static function abstract_filler_sentences( string $visible, array $keywords = [] ): array {
+		$hits    = [];
+		$fillers = implode( '|', array_map( static function ( $w ) { return preg_quote( (string) $w, '/' ); }, self::FILLER_NOUNS ) );
+		$verbs   = implode( '|', array_map( static function ( $w ) { return preg_quote( (string) $w, '/' ); }, self::FILLER_VERBS ) );
+		$pattern = '/\\b(?:the|a|an|this|that|its|each|every)\\s+(?:' . $fillers . ')\\b[^.!?]{0,40}?\\b(?:' . $verbs . ')\\b[^.!?]{0,40}?\\b(?:the|a|an|this|that|its|each|every)\\s+(?:' . $fillers . ')\\b/iu';
+
+		foreach ( self::sentences( $visible ) as $sentence ) {
+			if ( self::has_concrete_anchor( $sentence, $keywords ) ) { continue; }
+			if ( preg_match( $pattern, $sentence ) ) {
+				$hits[] = $sentence;
+				continue;
+			}
+			$words = preg_split( '/\\s+/u', trim( $sentence ) ) ?: [];
+			if ( count( $words ) <= 14 ) {
+				$filler_hits = (int) preg_match_all( '/\\b(?:' . $fillers . ')\\b/iu', $sentence );
+				if ( $filler_hits >= 3 ) { $hits[] = $sentence; }
+			}
+		}
+		return $hits;
+	}
+
+	/** True when a sentence names anything concrete: an entity noun, a digit, or an exact tracked keyword. */
+	private static function has_concrete_anchor( string $sentence, array $keywords ): bool {
+		if ( preg_match( '/[0-9]/', $sentence ) ) { return true; }
+		$anchors = implode( '|', array_map( static function ( $w ) { return preg_quote( (string) $w, '/' ); }, self::CONCRETE_ANCHORS ) );
+		if ( preg_match( '/\\b(?:' . $anchors . ')\\b/iu', $sentence ) ) { return true; }
+		foreach ( $keywords as $kw ) {
+			$kw = trim( (string) $kw );
+			if ( $kw === '' ) { continue; }
+			if ( preg_match( '/(?<![\\p{L}\\p{N}])' . preg_quote( $kw, '/' ) . '(?![\\p{L}\\p{N}])/iu', $sentence ) ) { return true; }
+		}
+		return false;
+	}
+
+	/**
+	 * Determiner-FILLER-verb skeletons repeated across a page's sentences.
+	 * Semantic-pattern detection: the nouns may differ, the reused structure
+	 * is what reads as an assembled module.
+	 *
+	 * @return string[] skeleton descriptors ("filler_skeleton x2: the-FILLER-VERB-the-FILLER")
+	 */
+	private static function repeated_filler_skeletons( string $visible ): array {
+		$fillers = implode( '|', array_map( static function ( $w ) { return preg_quote( (string) $w, '/' ); }, self::FILLER_NOUNS ) );
+		$verbs   = implode( '|', array_map( static function ( $w ) { return preg_quote( (string) $w, '/' ); }, self::FILLER_VERBS ) );
+		$seen    = [];
+		$out     = [];
+		foreach ( self::sentences( $visible ) as $sentence ) {
+			if ( ! preg_match( '/\\b(?:the|a|an|this|that)\\s+(?:' . $fillers . ')\\b\\s+\\b(' . $verbs . ')\\b/iu', $sentence, $m ) ) { continue; }
+			$skeleton = 'det-FILLER-' . self::lc( (string) $m[1] );
+			if ( isset( $seen[ $skeleton ] ) ) {
+				$out[] = 'x2+: ' . $skeleton . ' — ' . self::snippet( $sentence );
+			} else {
+				$seen[ $skeleton ] = true;
+			}
+		}
+		return $out;
+	}
+
 	private static function sentences( string $visible ): array {
 		return preg_split( '/(?<=[.!?])\s+/u', $visible ) ?: [];
 	}

@@ -207,9 +207,16 @@ class CategoryGenerationPipeline {
 			$grammar_result = CategoryGrammarGuard::repair( $draft );
 			$draft          = (string) $grammar_result['html'];
 
-			// v5.9.9 â€” primary-keyword placement contract (3-5 exact uses,
-			// first paragraph, one H2). Bounded swap-based repair only.
-			$placement_result = CategoryKeywordPlacement::repair( $draft, (string) $keyword_plan['primary'] );
+			// v5.9.11 — dynamic primary-density contract. The target is
+			// derived from the FINAL rendered word count and the tracked
+			// Rank Math keyword set (combined-count matching, exactly as
+			// the analyzer scores density); the old fixed 3-5 band is gone.
+			$density_tracked  = array_values( array_unique( array_filter( array_map( 'strval', array_merge(
+				[ (string) $keyword_plan['primary'] ],
+				(array) $keyword_plan['rankmath_tracking'],
+				(array) $keyword_plan['body_use']
+			) ) ) ) );
+			$placement_result = CategoryKeywordPlacement::repair( $draft, (string) $keyword_plan['primary'], $density_tracked );
 			$draft            = (string) $placement_result['html'];
 			$link_spaced      = (string) preg_replace( '/(<\/a>)(?=[\p{L}\p{N}])/u', '$1 ', $draft );
 			$link_actions     = [];

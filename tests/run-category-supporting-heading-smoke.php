@@ -37,7 +37,7 @@ foreach ([
     'draft-composer', 'quality-guard', 'factual-safety', 'grammar-guard',
     'paragraph-uniqueness-guard', 'claim-ledger', 'specificity-scorer',
     'faq-reuse-guard', 'generation-result', 'differentiation-scorer',
-    'faq-planner', 'final-validator', 'keyword-placement', 'generation-pipeline',
+    'faq-planner', 'final-validator', 'density-policy', 'keyword-placement', 'generation-pipeline',
 ] as $c) {
     require_once $pd . 'class-category-' . $c . '.php';
 }

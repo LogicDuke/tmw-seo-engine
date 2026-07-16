@@ -46,7 +46,7 @@ require_once $pipeline_dir . 'class-category-draft-composer.php';
 require_once $pipeline_dir . 'class-category-quality-guard.php';
 require_once $pipeline_dir . 'class-category-factual-safety.php';
 require_once $pipeline_dir . 'class-category-grammar-guard.php';
-require_once $pipeline_dir . 'class-category-keyword-placement.php';
+require_once $pipeline_dir . 'class-category-density-policy.php'; require_once $pipeline_dir . 'class-category-keyword-placement.php';
 require_once $pipeline_dir . 'class-category-paragraph-uniqueness-guard.php';
 require_once $pipeline_dir . 'class-category-claim-ledger.php';
 require_once $pipeline_dir . 'class-category-specificity-scorer.php';
@@ -463,7 +463,16 @@ $promote = $place_ref->getMethod('promote_in_paragraphs');
 $promote->setAccessible(true);
 $actions = [];
 $promoted = $promote->invokeArgs(null, ['<p>Offset Primary starts here.</p><p>Pick this category carefully.</p><p>Then scan this theme slowly.</p>', 'Very Long Offset Primary', 2, &$actions]);
-check('paragraph promotion uses current offsets after each mutation', strpos($promoted, '<p>Pick Very Long Offset Primary carefully.</p><p>Then scan Very Long Offset Primary slowly.</p>') !== false, $promoted);
+// v5.9.11 two-phase distribution contract: the STRICT pass never adds
+// adjacent to a primary-bearing paragraph; the bounded RELAXED pass covers
+// only the residual need and labels its actions.
+check('paragraph promotion uses current offsets after each mutation', strpos($promoted, '<p>Pick Very Long Offset Primary carefully.</p>') !== false, $promoted);
+check('residual need served by the labelled relaxed pass', (bool) array_filter($actions, static fn($a) => str_ends_with((string) $a, '_relaxed_adjacency')), json_encode($actions));
+// Strict-pass preference: with ONE needed use and a primary-bearing middle
+// paragraph, the non-adjacent host wins and the adjacent one is untouched.
+$strict_actions = [];
+$strict = $promote->invokeArgs(null, ['<p>Opening paragraph text.</p><p>Adjacent host with this category here.</p><p>Very Long Offset Primary sits here.</p><p>Buffer paragraph plain words.</p><p>Far host with this theme available.</p>', 'Very Long Offset Primary', 1, &$strict_actions]);
+check('strict pass prefers the non-adjacent host', strpos($strict, '<p>Adjacent host with this category here.</p>') !== false && strpos($strict, 'Far host with Very Long Offset Primary available') !== false, $strict);
 $repair = CategoryKeywordPlacement::repair('<p>Anchor Primary first paragraph.</p><p><a href="/x?keep=Anchor%20Primary">Anchor Primary</a> and Anchor Primary in copy.</p><p>Anchor Primary again.</p><p>Anchor Primary again.</p><p>Anchor Primary again.</p><p>Anchor Primary again.</p>', 'Anchor Primary');
 $demoted = array_values(array_filter((array) $repair['actions'], static fn($a) => preg_match('/^demoted_primary_keyword_x([1-9][0-9]*)$/', (string) $a)));
 check('primary demotion action records a positive count', count($demoted) > 0, json_encode($repair['actions']));

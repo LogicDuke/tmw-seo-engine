@@ -55,22 +55,42 @@ class CategoryFinalValidator {
 		if ( $words > self::MAX_WORDS ) { $reasons[] = 'too_long:' . $words; }
 
 		$primary = trim( (string) ( $keyword_plan['primary'] ?? $context['primary_keyword'] ?? '' ) );
-		$primary_hits = 0;
-		$placement    = [];
+		$primary_hits    = 0;
+		$placement       = [];
+		$density_metrics = [];
 		if ( $primary !== '' ) {
 			$primary_hits = (int) preg_match_all( self::exact_keyword_pattern( $primary ), $visible );
 			if ( $primary_hits < 1 ) { $reasons[] = 'primary_keyword_missing'; }
 
-			// v5.9.9 placement contract: 3-5 exact uses, first paragraph, one H2.
+			// Structural placement contract (unchanged): first paragraph,
+			// one topical H2, and the structural minimum body presence.
 			$placement = CategoryKeywordPlacement::analyze( $html, $primary );
 			if ( $primary_hits < CategoryKeywordPlacement::MIN_PRIMARY_USES ) {
 				$reasons[] = 'primary_underused:' . $primary_hits;
 			}
-			if ( $primary_hits > CategoryKeywordPlacement::MAX_PRIMARY_USES ) {
-				$reasons[] = 'primary_overused:' . $primary_hits;
-			}
 			if ( empty( $placement['in_first_paragraph'] ) ) { $reasons[] = 'primary_missing_from_first_paragraph'; }
 			if ( empty( $placement['in_h2'] ) )              { $reasons[] = 'primary_missing_from_h2'; }
+
+			// v5.9.11 — dynamic density contract. The fixed 3-5 band is
+			// replaced by a target CALCULATED from the final word count and
+			// the tracked keyword set, using the analyzer's own
+			// combined-count matching. A generation whose combined density
+			// stays below the global minimum is NOT successful; above the
+			// safe maximum it is rejected as stuffing.
+			$density_tracked = array_values( array_unique( array_filter( array_map( 'strval', array_merge(
+				[ $primary ],
+				(array) ( $keyword_plan['rankmath_tracking'] ?? [] ),
+				(array) ( $keyword_plan['body_use'] ?? [] )
+			) ) ) ) );
+			$density_metrics = CategoryDensityPolicy::evaluate( $html, $density_tracked );
+			if ( $density_metrics['status'] === 'below' ) {
+				$reasons[] = 'combined_density_below_minimum:' . $density_metrics['density']
+					. '(' . $density_metrics['combined_count'] . '/' . $density_metrics['min_count'] . ')';
+			}
+			if ( $density_metrics['status'] === 'above' ) {
+				$reasons[] = 'combined_density_above_maximum:' . $density_metrics['density']
+					. '(' . $density_metrics['combined_count'] . '/' . $density_metrics['max_count'] . ')';
+			}
 		}
 
 		// Root-family density ceiling for the primary family.
@@ -292,6 +312,7 @@ class CategoryFinalValidator {
 				'word_count'       => $words,
 				'primary_hits'     => $primary_hits,
 				'primary_placement' => $placement,
+				'density'          => $density_metrics,
 				'internal_link_count' => $internal_link_count ?? 0,
 				'family_density'   => $family_density,
 				'heading_count'    => count( $headings ),

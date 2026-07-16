@@ -1,0 +1,142 @@
+{
+    "big-boob-cam": {
+        "before_v5910": {
+            "word_count": 661,
+            "combined_count": 6,
+            "density": 0.91,
+            "min_density": 1,
+            "max_density": 2.2,
+            "min_count": 7,
+            "max_count": 14,
+            "needed": 1,
+            "excess": 0,
+            "status": "below"
+        },
+        "after_v5911": {
+            "word_count": 664,
+            "combined_count": 7,
+            "density": 1.05,
+            "min_density": 1,
+            "max_density": 2.2,
+            "min_count": 7,
+            "max_count": 14,
+            "needed": 0,
+            "excess": 0,
+            "status": "within"
+        },
+        "live_wordpress_before": {
+            "word_count": 684,
+            "combined_count": 5,
+            "density": 0.73,
+            "rank_math_band": "fair (orange)"
+        }
+    },
+    "blonde-cam-models": {
+        "before_v5910": {
+            "word_count": 640,
+            "combined_count": 8,
+            "density": 1.25,
+            "min_density": 1,
+            "max_density": 2.2,
+            "min_count": 7,
+            "max_count": 14,
+            "needed": 0,
+            "excess": 0,
+            "status": "within"
+        },
+        "after_v5911": {
+            "word_count": 640,
+            "combined_count": 8,
+            "density": 1.25,
+            "min_density": 1,
+            "max_density": 2.2,
+            "min_count": 7,
+            "max_count": 14,
+            "needed": 0,
+            "excess": 0,
+            "status": "within"
+        },
+        "live_wordpress_before": null
+    },
+    "latina-cam-models": {
+        "before_v5910": {
+            "word_count": 682,
+            "combined_count": 8,
+            "density": 1.17,
+            "min_density": 1,
+            "max_density": 2.2,
+            "min_count": 7,
+            "max_count": 15,
+            "needed": 0,
+            "excess": 0,
+            "status": "within"
+        },
+        "after_v5911": {
+            "word_count": 682,
+            "combined_count": 8,
+            "density": 1.17,
+            "min_density": 1,
+            "max_density": 2.2,
+            "min_count": 7,
+            "max_count": 15,
+            "needed": 0,
+            "excess": 0,
+            "status": "within"
+        },
+        "live_wordpress_before": null
+    },
+    "free-cam-chat": {
+        "before_v5910": {
+            "word_count": 638,
+            "combined_count": 6,
+            "density": 0.94,
+            "min_density": 1,
+            "max_density": 2.2,
+            "min_count": 7,
+            "max_count": 14,
+            "needed": 1,
+            "excess": 0,
+            "status": "below"
+        },
+        "after_v5911": {
+            "word_count": 641,
+            "combined_count": 7,
+            "density": 1.09,
+            "min_density": 1,
+            "max_density": 2.2,
+            "min_count": 7,
+            "max_count": 14,
+            "needed": 0,
+            "excess": 0,
+            "status": "within"
+        },
+        "live_wordpress_before": null
+    },
+    "amateur-cams": {
+        "before_v5910": {
+            "word_count": 626,
+            "combined_count": 7,
+            "density": 1.12,
+            "min_density": 1,
+            "max_density": 2.2,
+            "min_count": 7,
+            "max_count": 13,
+            "needed": 0,
+            "excess": 0,
+            "status": "within"
+        },
+        "after_v5911": {
+            "word_count": 626,
+            "combined_count": 7,
+            "density": 1.12,
+            "min_density": 1,
+            "max_density": 2.2,
+            "min_count": 7,
+            "max_count": 13,
+            "needed": 0,
+            "excess": 0,
+            "status": "within"
+        },
+        "live_wordpress_before": null
+    }
+}
