@@ -118,6 +118,7 @@ class CategoryFaqPlanner {
 		}
 
 		if ( count( $faqs ) < self::MIN_FAQ && ! empty( $relaxed_ids ) ) {
+			array_shift( $relaxed_ids );
 			return self::plan( $context, $intent, $salt, $relaxed_ids );
 		}
 

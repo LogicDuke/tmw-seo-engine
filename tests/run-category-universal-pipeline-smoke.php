@@ -474,6 +474,24 @@ $dash_repair = CategoryQualityGuard::repair($dash_html, []);
 $dash_issues = CategoryQualityGuard::analyze($dash_repair['html'], []);
 check('em dash repair handles attached literal/entity dashes', !in_array('em_dash_overuse', array_column($dash_issues, 'type'), true), $dash_repair['html']);
 
+$faq_ref = new ReflectionClass(CategoryFaqPlanner::class);
+$faq_library = $faq_ref->getProperty('library');
+$faq_library->setAccessible(true);
+$original_faq_library = $faq_library->getValue();
+$faq_library->setValue(null, ['buckets' => [
+    'old_safe' => ['tier' => 'intent', 'intents' => ['interaction_style' => 10], 'variants' => [['id' => 'v0', 'q' => 'What older safe answer returns?', 'a' => 'Older safe guidance is available for this category.']]],
+    'unsafe_one' => ['tier' => 'intent', 'intents' => ['interaction_style' => 9], 'variants' => [['id' => 'v0', 'q' => 'Can I check schedules?', 'a' => 'Profiles show their schedules before you open them.']]],
+    'unsafe_two' => ['tier' => 'intent', 'intents' => ['interaction_style' => 8], 'variants' => [['id' => 'v0', 'q' => 'Can I filter listings?', 'a' => 'You can filter the listings by many profile details.']]],
+    'unsafe_three' => ['tier' => 'intent', 'intents' => ['interaction_style' => 7], 'variants' => [['id' => 'v0', 'q' => 'Are counts current?', 'a' => 'This page shows the current count for this theme.']]],
+    'safe_four' => ['tier' => 'intent', 'intents' => ['interaction_style' => 6], 'variants' => [['id' => 'v0', 'q' => 'What should I compare first?', 'a' => 'Compare the visible listing details and open the most relevant profile first.']]],
+    'safe_five' => ['tier' => 'intent', 'intents' => ['interaction_style' => 5], 'variants' => [['id' => 'v0', 'q' => 'How should I use nearby options?', 'a' => 'Use nearby category options when the first listing does not fit.']]],
+]]);
+$recursion_ctx = CategoryContextBuilder::build_from_parts($fixtures['amateur-cams'] + ['category_name' => 'Recursive FAQ Cams', 'category_slug' => 'recursive-faq-cams', 'primary_keyword' => 'Recursive FAQ Cams']);
+$recursion_faqs = CategoryFaqPlanner::plan($recursion_ctx, 'interaction_style', 0, ['old_safe:v0']);
+$faq_library->setValue(null, $original_faq_library);
+$recursion_ids = array_column($recursion_faqs, 'vid');
+check('FAQ planner recursion relaxes one used ID after generated variants are skipped', count($recursion_faqs) >= 3 && in_array('old_safe:v0', $recursion_ids, true), implode(',', $recursion_ids));
+
 echo "\n== M. No hardcoded category copy (test 2) ==\n";
 $hard_names = ['Amateur Cams', 'Big Boob Cam', 'Blonde Cam Models', 'Latina Cam Models', 'Free Cam Chat'];
 $scan_files = array_merge(
