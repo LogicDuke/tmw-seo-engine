@@ -124,7 +124,38 @@ class CategoryGenerationPipeline {
 		$internal_links = [];
 		for ( $salt = 0; $salt < self::MAX_ATTEMPTS; $salt++ ) {
 			$plan = CategoryContentPlanner::plan( $context, $intent, $salt, $keyword_plan );
-			$faqs = CategoryFaqPlanner::plan( $context, $intent, $salt, $faq_used );
+
+			// v5.9.10 — supporting keywords whose subheading placement is
+			// an FAQ question: the faq_heading role from Stage 3 plus any
+			// heading-role keyword the planner could not host in a topical
+			// H2 ('__unplaced'). Each gets ONE keyword-carrying question so
+			// every active Rank Math extra lands in an H2-H6 subheading.
+			$kw_questions = [];
+			foreach ( (array) ( $keyword_plan['roles'] ?? [] ) as $kw => $role ) {
+				if ( $role === 'faq_heading' ) { $kw_questions[] = (string) $kw; }
+			}
+			$hkm = (array) ( $plan['heading_keyword_map'] ?? [] );
+			if ( isset( $hkm['__unplaced']['keyword'] ) ) {
+				foreach ( explode( '|', (string) $hkm['__unplaced']['keyword'] ) as $kw ) {
+					if ( trim( $kw ) !== '' ) { $kw_questions[] = trim( $kw ); }
+				}
+			}
+			// Provider drafts keep their own headings: every heading-role
+			// keyword the provider's H2-H6 did not carry is demoted to an
+			// FAQ question, so the subheading contract holds on both paths.
+			if ( $provider_html !== '' && $salt === 0 ) {
+				$prov_heads = '';
+				if ( preg_match_all( '/<h([2-6])[^>]*>(.*?)<\/h\1>/isu', $provider_html, $phm ) ) {
+					$prov_heads = implode( "\n", $phm[2] );
+				}
+				foreach ( (array) ( $keyword_plan['roles'] ?? [] ) as $kw => $role ) {
+					if ( ! in_array( $role, [ 'heading_h2', 'heading_secondary', 'heading_tertiary' ], true ) ) { continue; }
+					$kp = '/(?<![\p{L}\p{N}])' . preg_quote( (string) $kw, '/' ) . '(?![\p{L}\p{N}])/iu';
+					if ( ! preg_match( $kp, $prov_heads ) ) { $kw_questions[] = (string) $kw; }
+				}
+			}
+			$kw_questions = array_values( array_unique( $kw_questions ) );
+			$faqs = CategoryFaqPlanner::plan( $context, $intent, $salt, $faq_used, $kw_questions );
 
 			if ( $provider_html !== '' && $salt === 0 ) {
 				// AI provider path: normalize the provider's own draft instead

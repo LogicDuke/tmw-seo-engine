@@ -151,26 +151,57 @@ class CategoryKeywordPlanner {
 	}
 
 	/**
-	 * Distinct SEO roles for the active supporting keywords (v5.9.9).
-	 * The first two heading-safe terms take the heading roles (one per
-	 * heading, never four keywords in one heading); the rest weave into
-	 * body copy. Roles map straight into the pipeline report.
+	 * Distinct SEO roles for the active supporting keywords (v5.9.10).
+	 *
+	 * Contract change (owner requirement: "the Rank Math extra keywords must
+	 * appear in the H2s"): every ACTIVE supporting keyword now receives a
+	 * subheading role, so each additional Rank Math keyword can earn its
+	 * "Focus Keyword found in the subheading(s)" check:
+	 *
+	 *  - up to THREE heading-safe terms take topical H2 roles
+	 *    (heading_h2 | heading_secondary | heading_tertiary) — still one
+	 *    keyword per heading, never several keywords stuffed into one;
+	 *  - the next active term takes the faq_heading role: its exact phrase
+	 *    is carried by one FAQ H3 question (Rank Math counts H2–H6, so an
+	 *    FAQ question is a legitimate subheading for a SUPPORTING keyword;
+	 *    the PRIMARY keyword's topical-H2 requirement is unchanged and is
+	 *    never satisfied by FAQ text);
+	 *  - terms that fit no subheading naturally stay role 'body' — a
+	 *    keyword is never grafted into a heading it cannot carry.
 	 *
 	 * @param string[] $body_use
 	 * @param string[] $heading_candidates
-	 * @return array<string,string> keyword => role (heading_h2|heading_secondary|body)
+	 * @return array<string,string> keyword => role (heading_h2|heading_secondary|heading_tertiary|faq_heading|body)
 	 */
 	public static function assign_roles( array $body_use, array $heading_candidates ): array {
 		$roles         = [];
-		$heading_slots = [ 'heading_h2', 'heading_secondary' ];
+		$heading_slots = [ 'heading_h2', 'heading_secondary', 'heading_tertiary' ];
+		$faq_slots     = [ 'faq_heading' ];
 		foreach ( $body_use as $kw ) {
 			if ( ! empty( $heading_slots ) && in_array( $kw, $heading_candidates, true ) ) {
 				$roles[ $kw ] = (string) array_shift( $heading_slots );
 				continue;
 			}
+			if ( ! empty( $faq_slots ) && self::is_faq_question_safe( $kw ) ) {
+				$roles[ $kw ] = (string) array_shift( $faq_slots );
+				continue;
+			}
 			$roles[ $kw ] = 'body';
 		}
 		return $roles;
+	}
+
+	/**
+	 * FAQ-question safe: 1-6 words and not itself already a question opener.
+	 * Question templates tolerate more phrase shapes than topical H2s, so
+	 * this is deliberately looser than is_heading_safe().
+	 */
+	public static function is_faq_question_safe( string $kw ): bool {
+		$words = preg_split( '/\s+/', trim( $kw ) ) ?: [];
+		$n     = count( $words );
+		if ( $n < 1 || $n > 6 ) { return false; }
+		$first = self::lc( (string) ( $words[0] ?? '' ) );
+		return ! in_array( $first, [ 'how', 'what', 'why', 'is', 'are', 'do', 'does', 'can' ], true );
 	}
 
 	/**

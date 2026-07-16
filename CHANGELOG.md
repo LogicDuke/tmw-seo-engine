@@ -1,5 +1,31 @@
 # Changelog
 
+## 5.9.10-supporting-keyword-subheadings-v1.0.0 — 2026-07-16
+
+Rank Math additional keywords now land in subheadings, the catalog-wide identical meta description is retired, and the three verified noindex root causes are fixed. Driven by the July 2026 audit PDF (five audited category pages: additional-keyword tabs orange, one meta-description sentence repeated verbatim on every category, "Noindex robots meta is enabled" on every page intended for SEO).
+
+### Supporting keywords in subheadings (owner requirement)
+- `CategoryKeywordPlanner::assign_roles()` — heading slots extended from two to three (`heading_h2`, `heading_secondary`, `heading_tertiary`); the next active supporting keyword takes the new `faq_heading` role (one FAQ H3 question carries its exact phrase — Rank Math's subheading check scans H2–H6, so an FAQ question is a legitimate subheading placement for a SUPPORTING keyword; the PRIMARY keyword's topical-H2 requirement is unchanged and never satisfied by FAQ text).
+- `CategoryContentPlanner` — heading-host guarantee: when the seeded section lottery carries fewer topical sections than heading roles need, the missing topical hosts are promoted deterministically (weakest non-topical, non-pinned picks replaced first). Duplicate-heading collisions rotate to the next template instead of silently dropping the keyword; anything still unplaced is handed to the FAQ planner via the reserved `__unplaced` map entry.
+- `CategoryFaqPlanner::plan()` — new `$keyword_questions` parameter: each listed keyword gets exactly ONE question whose text carries the exact phrase, from a new universal `keyword_questions` template pool (10 templates × 3 answer variants, `{{kw}}`/`{{kw_title}}` placeholders, factual-safety-checked, cooldown-aware with guaranteed termination). Provider (AI) drafts keep their own headings: heading-role keywords the provider's H2–H6 did not carry are demoted to FAQ questions, so the contract holds on both paths.
+- `CategoryFinalValidator` — new checks: every keyword holding a heading/faq_heading role must appear in an H2–H6 subheading (`supporting_keyword_not_in_subheading`), and at least two active supporting keywords must land in subheadings (`too_few_supporting_keywords_in_subheadings`). New metrics: `supporting_coverage` (per-keyword role/count/subheading), `supporting_in_subheadings`.
+- Data: `heading_templates.supporting` pool deepened 4 → 8; `category-universal-faq.json` gains the `keyword_questions` pool.
+- Near-duplicate policy unchanged and intentional: extras that are spelling variants of the primary (same variant signature) stay tracking-only with a logged reason — they are never grafted into content to force a green.
+
+### Meta descriptions (`ContentEngine::build_category_page_meta_description`)
+- Root cause fixed: ONE hard-coded sentence ("… browse webcam model profiles, related videos, and nearby categories across the full directory.") rendered identically on every category — the audit's catalog-wide repetition. Replaced by a slug-seeded variant pool (8 with-support + 8 without-support templates): primary keyword first, ONE active supporting keyword woven in when it fits the 160-char budget (earning that keyword's "used inside SEO Meta Description" check), deterministic per slug, no unsupported superlatives, length-degrading variant fallback for long names.
+
+### Noindex root causes (`ContentEngine::maybe_clear_rank_math_noindex`) — release blocking
+1. SETTINGS-KEY MISMATCH — dashboard/sanitizer store `auto_clear_noindex`; the method read `auto_clear_rank_math_noindex`, a key nothing writes. The toggle did nothing. Both keys now read (canonical first, legacy fallback).
+2. INVERTED GENERATED-FLAG GUARD — `if (_tmwseo_generated) return` blocked exactly the pages the method exists to serve. Removed; real gates (explicit toggle + `_tmwseo_ready_to_index=1` + publish + owned post types) all remain.
+3. DELETE → THEME FALLBACK — the child theme's category bridge falls back to `['noindex','follow']` when the CPT post's `rank_math_robots` meta is EMPTY, so the old `delete_post_meta` could never index a category archive. An explicit `['index','follow']` is now written, honored by the bridge, the Rank Math editor, and the IndexReadinessGate.
+- No automatic behavior change on update: the toggle default remains OFF and nothing is regenerated or re-indexed on activation.
+
+### Tests
+- New `tests/run-category-supporting-heading-smoke.php` (122 checks): the subheading contract on the five audited categories with the REAL Rank Math extras from the audit screenshots, plus synthetic trait/access/regional/duplicate-pool categories whose names are proven absent from the category generation surface; the meta-description contract; all six noindex gates.
+- Keyword-question cooldown regression covered by the existing `run-category-real-output-regression.php` catalog run (228 checks, green).
+- Test-environment repairs (tests/bootstrap only, no production impact): fallback classname autoloader, `get_object_taxonomies`/`get_the_terms` stubs, PHP 8.3 typed-property fix in `ImageMetaGeneratorTest`.
+
 ## 5.9.9-universal-category-output-quality-v1.0.0 — 2026-07-15
 
 Universal repair of the category-page generation pipeline, driven by the July 2026 live-output audit (five real category pages: 539-590 words, zero internal links detected by Rank Math, metaphor-heavy prose, a production-style category misclassified as a session format, and the conclusion rendered after the FAQ).
