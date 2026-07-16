@@ -183,6 +183,7 @@ class CategoryKeywordPlanner {
 		$kw     = self::lc( $keyword );
 		$kw     = preg_replace( '/[^a-z0-9\s]+/u', ' ', $kw ) ?: '';
 		$tokens = preg_split( '/\s+/', trim( $kw ) ) ?: [];
+		$drop   = [ 'to', 'the', 'a', 'an', 'best', 'top', 'new' ];
 		$fold   = [
 			'webcam' => 'cam', 'webcams' => 'cam', 'cams' => 'cam',
 			'chats' => 'chat', 'breast' => 'boob', 'breasts' => 'boob',
@@ -192,7 +193,7 @@ class CategoryKeywordPlanner {
 		];
 		$norm = [];
 		foreach ( $tokens as $token ) {
-			if ( $token === 'to' || $token === 'the' || $token === 'a' || $token === 'an' ) { continue; }
+			if ( in_array( $token, $drop, true ) ) { continue; }
 			if ( isset( $fold[ $token ] ) ) { $token = $fold[ $token ]; }
 			if ( strlen( $token ) > 4 && substr( $token, -1 ) === 's' && substr( $token, -2 ) !== 'ss' ) {
 				$token = substr( $token, 0, -1 );

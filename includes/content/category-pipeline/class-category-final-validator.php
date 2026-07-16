@@ -147,7 +147,8 @@ class CategoryFinalValidator {
 				$href = (string) $link[1];
 				$host = parse_url( $href, PHP_URL_HOST );
 				$anchor_text = trim( CategoryQualityGuard::visible( (string) $link[2] ) );
-				if ( is_string( $host ) && isset( $internal_hosts[ strtolower( $host ) ] ) ) {
+				$is_site_relative = ! is_string( $host ) && preg_match( '#^/(?!/)#', $href ) === 1;
+				if ( $is_site_relative || ( is_string( $host ) && isset( $internal_hosts[ strtolower( $host ) ] ) ) ) {
 					$internal_link_count++;
 					// Anchor text must be natural/descriptive, never the URL itself.
 					if ( $anchor_text === '' || stripos( $anchor_text, 'http' ) === 0 ) {

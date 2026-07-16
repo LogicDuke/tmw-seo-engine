@@ -62,6 +62,7 @@ require_once $pipeline_dir . 'class-category-differentiation-scorer.php';
 require_once $pipeline_dir . 'class-category-faq-planner.php';
 require_once $pipeline_dir . 'class-category-final-validator.php';
 require_once $pipeline_dir . 'class-category-generation-pipeline.php';
+require_once __DIR__ . '/category-collision-shadow-helper.php';
 
 use TMWSEO\Engine\Content\CategoryPipeline\CategoryContextBuilder;
 use TMWSEO\Engine\Content\CategoryPipeline\CategoryIntentClassifier;
@@ -336,18 +337,7 @@ $impossible = $fail_res;
 if ($impossible['ok']) {
     // Force certain failure: fingerprint the would-be draft of EVERY salt so
     // all retries collide with their own shadow (mirrors universal test 25).
-    $cls_f  = CategoryIntentClassifier::classify($dup_ctx);
-    $kwp_f  = CategoryKeywordPlanner::plan((string) $dup_ctx['primary_keyword'], (array) $fixtures['amateur-cams']['approved_keywords'], []);
-    $shadows = [];
-    for ($salt_f = 0; $salt_f < CategoryGenerationPipeline::MAX_ATTEMPTS; $salt_f++) {
-        $plan_f = CategoryContentPlanner::plan($dup_ctx, (string) $cls_f['intent'], $salt_f, $kwp_f);
-        $comp_f = CategoryDraftComposer::compose($dup_ctx, $plan_f, $kwp_f);
-        $faqs_f = CategoryFaqPlanner::plan($dup_ctx, (string) $cls_f['intent'], $salt_f);
-        $html_f = (string) $comp_f['html'] . CategoryFaqPlanner::render($faqs_f);
-        $fp_f   = CategoryDifferentiationScorer::fingerprint($html_f, [], 'shadow-' . $salt_f);
-        $fp_f['uniqueness'] = UGuard::fingerprint($html_f, [], (array) $comp_f['sentence_ids']);
-        $shadows[] = $fp_f;
-    }
+    $shadows = tmwseo_category_collision_shadows($dup_ctx, (array) $fixtures['amateur-cams']['approved_keywords']);
     $impossible = CategoryGenerationPipeline::generate_from_context($dup_ctx, ['tracking' => [], 'use_store' => false, 'comparisons' => $shadows]);
 }
 check('24. failed generation returns ok=false with empty html', !$impossible['ok'] && $impossible['html'] === '' && !empty($impossible['report']['failure_reasons']), implode('; ', array_slice((array) $impossible['report']['failure_reasons'], 0, 2)));

@@ -440,6 +440,8 @@ $faq_order = CategoryFinalValidator::validate('<h2>Frequently Asked Questions</h
 check('FAQ validator rejects incorrectly ordered balanced H3/P blocks', in_array('faq_question_missing_answer', $faq_order['reasons'], true), json_encode($faq_order['reasons']));
 $faq_ok = CategoryFinalValidator::validate('<p>x filler words repeated enough for structural unit x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x.</p><h2>Frequently Asked Questions</h2><h3>One?</h3><p>Answer.</p><h3>Two?</h3><p>Answer.</p><h3>Three?</h3><p>Answer.</p>', ['primary_keyword' => 'x'], ['primary' => 'x'], [], []);
 check('FAQ validator accepts alternating FAQ ending in paragraph structurally', !in_array('faq_question_missing_answer', $faq_ok['reasons'], true) && !in_array('content_after_final_faq_answer', $faq_ok['reasons'], true), json_encode($faq_ok['reasons']));
+$relative_links = CategoryFinalValidator::validate('<p>x repeated words ' . str_repeat('word ', 650) . '</p><h2>x topic</h2><h2>Helpful links</h2><h2>More guidance</h2><a href="/webcam-models/">models</a><a href="/videos/">videos</a><h2>Frequently Asked Questions</h2><h3>One?</h3><p>Answer.</p><h3>Two?</h3><p>Answer.</p><h3>Three?</h3><p>Answer.</p>', ['primary_keyword' => 'x', 'models_url' => 'https://top-models.webcam/webcam-models/', 'videos_url' => 'https://top-models.webcam/videos/'], ['primary' => 'x'], [], []);
+check('validator counts root-relative internal links toward minimum', !in_array('too_few_internal_links:0', $relative_links['reasons'], true) && !in_array('too_few_internal_links:1', $relative_links['reasons'], true), json_encode($relative_links['reasons']));
 
 $intent_ctx = ['category_name' => 'Blonde Redhead', 'approved_keywords' => ['free token cheap trial', 'free tokens cost', 'blonde hair guide']];
 $intent_res = CategoryIntentClassifier::classify($intent_ctx);
@@ -447,6 +449,11 @@ check('intent classifier skips keyword-only raw winner for next confident name h
 
 $kw_plan = CategoryKeywordPlanner::plan('sample primary', ['live cams', 'live webcams', 'fresh chat', 'fresh chats', 'unique stream', 'another option'], []);
 check('pass 1 blocks near-duplicate active body keywords', !(in_array('live cams', $kw_plan['body_use'], true) && in_array('live webcams', $kw_plan['body_use'], true)), implode(', ', $kw_plan['body_use']));
+$variant_sigs = array_map(static fn($kw) => CategoryKeywordPlanner::variant_signature($kw), ['live cams', 'best live cams', 'top live cams', 'new live cams']);
+check('generic SEO modifiers collapse to one duplicate signature', count(array_unique($variant_sigs)) === 1, implode(' | ', $variant_sigs));
+$modifier_plan = CategoryKeywordPlanner::plan('sample primary', ['live cams', 'best live cams', 'top live cams', 'new live cams', 'distinct option'], []);
+$active_modifiers = array_values(array_intersect(['live cams', 'best live cams', 'top live cams', 'new live cams'], (array) $modifier_plan['body_use']));
+check('modifier variants cannot become active together', count($active_modifiers) <= 1, implode(', ', $modifier_plan['body_use']));
 $unused_reasons = [];
 foreach ((array) $kw_plan['unused'] as $row) { $unused_reasons[$row['keyword']] = $row['reason']; }
 check('duplicate unused reason beats cap reporting', ($unused_reasons['live webcams'] ?? '') === 'near_duplicate_of_selected_term' || ($unused_reasons['live cams'] ?? '') === 'near_duplicate_of_selected_term', json_encode($kw_plan['unused']));
@@ -457,7 +464,9 @@ $promote->setAccessible(true);
 $actions = [];
 $promoted = $promote->invokeArgs(null, ['<p>Offset Primary starts here.</p><p>Pick this category carefully.</p><p>Then scan this theme slowly.</p>', 'Very Long Offset Primary', 2, &$actions]);
 check('paragraph promotion uses current offsets after each mutation', strpos($promoted, '<p>Pick Very Long Offset Primary carefully.</p><p>Then scan Very Long Offset Primary slowly.</p>') !== false, $promoted);
-$repair = CategoryKeywordPlacement::repair('<p>Anchor Primary first paragraph.</p><p><a href="/x?keep=Anchor%20Primary">Anchor Primary</a> and Anchor Primary in copy.</p><p>Anchor Primary again.</p>', 'Anchor Primary');
+$repair = CategoryKeywordPlacement::repair('<p>Anchor Primary first paragraph.</p><p><a href="/x?keep=Anchor%20Primary">Anchor Primary</a> and Anchor Primary in copy.</p><p>Anchor Primary again.</p><p>Anchor Primary again.</p><p>Anchor Primary again.</p><p>Anchor Primary again.</p>', 'Anchor Primary');
+$demoted = array_values(array_filter((array) $repair['actions'], static fn($a) => preg_match('/^demoted_primary_keyword_x([1-9][0-9]*)$/', (string) $a)));
+check('primary demotion action records a positive count', count($demoted) > 0, json_encode($repair['actions']));
 check('primary demotion preserves anchor text and href byte-for-byte', strpos($repair['html'], '<a href="/x?keep=Anchor%20Primary">Anchor Primary</a>') !== false && strpos($repair['html'], '<a href="/x?keep=Anchor%20Primary">this topic</a>') === false, $repair['html']);
 
 $dash_html = '<p>One—two&mdash;three&#8212;four&#x2014;five&#X2014;six.</p>';

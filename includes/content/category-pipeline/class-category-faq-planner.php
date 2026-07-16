@@ -66,6 +66,11 @@ class CategoryFaqPlanner {
 	public static function plan( array $context, string $intent, int $salt = 0, array $used_ids = [] ): array {
 		$library = self::library();
 		$buckets = CategoryFaqReuseGuard::eligible( (array) ( $library['buckets'] ?? [] ), $used_ids );
+		$relaxed_ids = $used_ids;
+		while ( ! empty( $relaxed_ids ) && self::eligible_variant_count( $buckets ) < self::MIN_FAQ ) {
+			array_shift( $relaxed_ids );
+			$buckets = CategoryFaqReuseGuard::eligible( (array) ( $library['buckets'] ?? [] ), $relaxed_ids );
+		}
 		if ( empty( $buckets ) ) { return []; }
 
 		$slug = (string) ( $context['category_slug'] ?? '' );
@@ -112,11 +117,20 @@ class CategoryFaqPlanner {
 			}
 		}
 
-		if ( count( $faqs ) < self::MIN_FAQ && ! empty( $used_ids ) ) {
-			return self::plan( $context, $intent, $salt, [] );
+		if ( count( $faqs ) < self::MIN_FAQ && ! empty( $relaxed_ids ) ) {
+			return self::plan( $context, $intent, $salt, $relaxed_ids );
 		}
 
 		return $faqs;
+	}
+
+	/** @param array<string,array<string,mixed>> $buckets */
+	private static function eligible_variant_count( array $buckets ): int {
+		$count = 0;
+		foreach ( $buckets as $bucket ) {
+			$count += count( (array) ( $bucket['variants'] ?? [] ) );
+		}
+		return $count;
 	}
 
 	/** Resolve context placeholders in FAQ text; unresolved markers survive for the caller's skip check. */

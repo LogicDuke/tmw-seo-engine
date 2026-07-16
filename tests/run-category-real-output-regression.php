@@ -41,6 +41,7 @@ foreach ([
     'class-category-faq-reuse-guard', 'class-category-generation-result', 'class-category-differentiation-scorer',
     'class-category-faq-planner', 'class-category-final-validator', 'class-category-generation-pipeline',
 ] as $c) { require_once $pipeline_dir . $c . '.php'; }
+require_once __DIR__ . '/category-collision-shadow-helper.php';
 
 use TMWSEO\Engine\Content\CategoryPipeline\CategoryContextBuilder;
 use TMWSEO\Engine\Content\CategoryPipeline\CategoryDifferentiationScorer;
@@ -195,8 +196,7 @@ foreach ($fixtures as $slug => $fx) {
             foreach (array_merge($hm[1], []) as $h) {
                 if (preg_match('/(?<![\p{L}\p{N}])' . preg_quote((string) $hkw, '/') . '(?![\p{L}\p{N}])/iu', strip_tags($h))) { $found_heading = true; break; }
             }
-            if (!$found_heading && preg_match('/<h3[^>]*>[^<]*' . preg_quote((string) $hkw, '/') . '/iu', $html)) { $found_heading = true; }
-            if (!$found_heading) { $missing_heading_role = (string) $hkw; break; }
+			if (!$found_heading) { $missing_heading_role = (string) $hkw; break; }
         }
         check("[$slug] every heading-role keyword actually appears in a heading", $missing_heading_role === '', $missing_heading_role);
     }
@@ -291,17 +291,7 @@ echo "\n== Safe failure ==\n";
 $dup = $fixtures['amateur-cams'];
 $dup['category_slug'] = 'forced-failure';
 $ctx = CategoryContextBuilder::build_from_parts($dup);
-$cls = CategoryIntentClassifier::classify($ctx);
-$kwp = CategoryKeywordPlanner::plan((string) $dup['primary_keyword'], (array) $dup['approved_keywords'], []);
-$shadows = [];
-for ($salt = 0; $salt < CategoryGenerationPipeline::MAX_ATTEMPTS; $salt++) {
-    $plan = CategoryContentPlanner::plan($ctx, (string) $cls['intent'], $salt, $kwp);
-    $comp = CategoryDraftComposer::compose($ctx, $plan, $kwp);
-    $h    = (string) $comp['html'] . CategoryFaqPlanner::render(CategoryFaqPlanner::plan($ctx, (string) $cls['intent'], $salt));
-    $fp   = CategoryDifferentiationScorer::fingerprint($h, [], 'shadow-' . $salt);
-    $fp['uniqueness'] = UGuard::fingerprint($h, [], (array) $comp['sentence_ids']);
-    $shadows[] = $fp;
-}
+$shadows = tmwseo_category_collision_shadows($ctx, (array) $dup['approved_keywords']);
 $failr = CategoryGenerationPipeline::generate_from_context($ctx, ['tracking' => array_slice((array) $dup['approved_keywords'], 0, 8), 'use_store' => false, 'comparisons' => $shadows]);
 check('impossible constraints fail safely (ok=false, empty html, reasons logged)', !$failr['ok'] && (string) $failr['html'] === '' && !empty($failr['report']['failure_reasons']));
 check('failed report still carries attempt log', count((array) ($failr['report']['attempt_log'] ?? [])) === CategoryGenerationPipeline::MAX_ATTEMPTS);
