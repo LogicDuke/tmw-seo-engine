@@ -159,6 +159,39 @@ class CategoryContentPlanner {
 			if ( ! in_array( $section, $middle, true ) ) { $middle[] = $section; }
 		}
 
+		// v5.9.10 — heading-host guarantee. Every heading-role keyword
+		// (primary + up to three supporting) needs its own TOPICAL host
+		// section. When the seeded middle selection carries fewer topical
+		// sections than heading roles need, promote the missing topical
+		// sections into the plan (replacing the lowest-scored non-topical,
+		// non-pinned picks) so no supporting keyword loses its H2 merely
+		// because the section lottery skipped a host. Deterministic: the
+		// promotion order is the fixed topical list.
+		$topical_all   = [ 'expectations', 'discovery_advice', 'browse_listings', 'compare_profiles' ];
+		$heading_roles = 1; // primary always takes one topical H2
+		foreach ( (array) ( $keyword_plan['roles'] ?? [] ) as $role ) {
+			if ( in_array( $role, [ 'heading_h2', 'heading_secondary', 'heading_tertiary' ], true ) ) { $heading_roles++; }
+		}
+		$hosts_needed = min( $heading_roles, count( $topical_all ) );
+		$have_topical = count( array_intersect( $middle, $topical_all ) );
+		if ( $have_topical < $hosts_needed ) {
+			$missing = array_values( array_diff( $topical_all, $middle ) );
+			// Replace non-topical, non-pinned sections from the END of the
+			// scored pick order (the weakest picks) first.
+			for ( $i = count( $middle ) - 1; $i >= 0 && $have_topical < $hosts_needed && ! empty( $missing ); $i-- ) {
+				$candidate = $middle[ $i ];
+				if ( in_array( $candidate, $topical_all, true ) ) { continue; }
+				if ( in_array( $candidate, $pinned, true ) ) { continue; }
+				$middle[ $i ] = (string) array_shift( $missing );
+				$have_topical++;
+			}
+			// Pool still short (middle smaller than hosts_needed): append.
+			while ( $have_topical < $hosts_needed && ! empty( $missing ) ) {
+				$middle[] = (string) array_shift( $missing );
+				$have_topical++;
+			}
+		}
+
 		// Deterministic order shuffle of the middle sections, with one
 		// coherence constraint: 'expectations' (context-setting) always
 		// precedes 'compare_profiles' and 'discovery_advice' when present.
@@ -261,21 +294,38 @@ class CategoryContentPlanner {
 			$map[ $has_primary ] = [ 'heading' => $headings[ $has_primary ], 'keyword' => $primary, 'role' => 'primary_h2' ];
 		}
 
-		// 2. Supporting keyword headings from the assigned roles.
-		$roles = (array) ( $keyword_plan['roles'] ?? [] );
-		$hosts = array_values( array_diff( $topical, [ $has_primary ] ) );
+		// 2. Supporting keyword headings from the assigned roles (v5.9.10:
+		// heading_tertiary joins the two existing roles so up to THREE
+		// supporting keywords each carry one topical H2). A heading-role
+		// keyword that finds no host (or whose rendered heading would
+		// duplicate the primary H2 or an already-used heading) is recorded
+		// under the reserved '__unplaced' key — the pipeline demotes it to
+		// an FAQ question so its subheading placement is never silently lost.
+		$roles     = (array) ( $keyword_plan['roles'] ?? [] );
+		$hosts     = array_values( array_diff( $topical, [ $has_primary ] ) );
+		$unplaced  = [];
+		$used_head = [ strtolower( (string) ( $headings[ $has_primary ] ?? '' ) ) => true ];
 		foreach ( $roles as $kw => $role ) {
-			if ( $role !== 'heading_h2' && $role !== 'heading_secondary' ) { continue; }
-			if ( empty( $hosts ) ) { break; }
+			if ( ! in_array( $role, [ 'heading_h2', 'heading_secondary', 'heading_tertiary' ], true ) ) { continue; }
 			$pool = array_values( (array) ( $templates['supporting'] ?? [] ) );
-			if ( empty( $pool ) ) { break; }
-			$section  = (string) array_shift( $hosts );
-			$template = (string) $pool[ self::seed( $seed . '~' . $kw ) % count( $pool ) ];
-			$heading  = str_replace( '{{kw}}', self::title_case( (string) $kw ), $template );
-			// Never let a supporting heading duplicate the primary heading.
-			if ( strcasecmp( $heading, (string) ( $headings[ $has_primary ] ?? '' ) ) === 0 ) { continue; }
+			if ( empty( $hosts ) || empty( $pool ) ) { $unplaced[] = (string) $kw; continue; }
+			$section = (string) array_shift( $hosts );
+			$heading = '';
+			$n       = count( $pool );
+			$start   = self::seed( $seed . '~' . $kw ) % $n;
+			for ( $i = 0; $i < $n; $i++ ) {
+				$candidate = str_replace( '{{kw}}', self::title_case( (string) $kw ), (string) $pool[ ( $start + $i ) % $n ] );
+				if ( isset( $used_head[ strtolower( $candidate ) ] ) ) { continue; }
+				$heading = $candidate;
+				break;
+			}
+			if ( $heading === '' ) { $unplaced[] = (string) $kw; array_unshift( $hosts, $section ); continue; }
+			$used_head[ strtolower( $heading ) ] = true;
 			$headings[ $section ] = $heading;
 			$map[ $section ]      = [ 'heading' => $heading, 'keyword' => (string) $kw, 'role' => $role ];
+		}
+		if ( ! empty( $unplaced ) ) {
+			$map['__unplaced'] = [ 'heading' => '', 'keyword' => implode( '|', $unplaced ), 'role' => 'unplaced' ];
 		}
 
 		return $map;

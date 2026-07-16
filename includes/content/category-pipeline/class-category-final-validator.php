@@ -210,12 +210,45 @@ class CategoryFinalValidator {
 		// ── v5.9.9 — every active supporting keyword must actually appear
 		// (heading, body, or FAQ). Roles are assigned in Stage 3; a page
 		// that drops one silently would break the keyword plan.
+		// ── v5.9.10 — subheading contract: Rank Math's "Focus Keyword found
+		// in the subheading(s)" check scans H2-H6. Each active supporting
+		// keyword's coverage is measured against ALL subheadings (topical
+		// H2s and FAQ H3 questions both count, exactly as the analyzer
+		// counts them); at least TWO active supporting keywords must land
+		// in subheadings, and every keyword holding a heading/faq_heading
+		// role must actually appear in one. The PRIMARY keyword's topical
+		// requirement above remains H2-only and is never satisfied by FAQ.
+		$subheadings = [];
+		if ( preg_match_all( '/<h([2-6])[^>]*>(.*?)<\/h\1>/isu', $html, $shm ) ) {
+			foreach ( $shm[2] as $h ) { $subheadings[] = CategoryQualityGuard::visible( (string) $h ); }
+		}
+		$subheading_text  = implode( "\n", $subheadings );
+		$roles            = (array) ( $keyword_plan['roles'] ?? [] );
+		$support_coverage = [];
+		$in_subheading    = 0;
 		foreach ( (array) ( $keyword_plan['body_use'] ?? [] ) as $support_kw ) {
 			$support_kw = trim( (string) $support_kw );
 			if ( $support_kw === '' ) { continue; }
-			if ( ! preg_match( '/(?<![\p{L}\p{N}])' . preg_quote( $support_kw, '/' ) . '(?![\p{L}\p{N}])/iu', $visible ) ) {
+			$kw_pattern = '/(?<![\p{L}\p{N}])' . preg_quote( $support_kw, '/' ) . '(?![\p{L}\p{N}])/iu';
+			$body_hits  = (int) preg_match_all( $kw_pattern, $visible );
+			$in_sub     = (bool) preg_match( $kw_pattern, $subheading_text );
+			if ( $body_hits < 1 ) {
 				$reasons[] = 'supporting_keyword_missing:' . $support_kw;
 			}
+			$role = (string) ( $roles[ $support_kw ] ?? 'body' );
+			if ( $in_sub ) { $in_subheading++; }
+			if ( ! $in_sub && in_array( $role, [ 'heading_h2', 'heading_secondary', 'heading_tertiary', 'faq_heading' ], true ) ) {
+				$reasons[] = 'supporting_keyword_not_in_subheading:' . $support_kw . ':' . $role;
+			}
+			$support_coverage[ $support_kw ] = [
+				'role'          => $role,
+				'visible_count' => $body_hits,
+				'in_subheading' => $in_sub,
+			];
+		}
+		$active_supports = count( $support_coverage );
+		if ( $active_supports > 0 && $in_subheading < min( 2, $active_supports ) ) {
+			$reasons[] = 'too_few_supporting_keywords_in_subheadings:' . $in_subheading;
 		}
 
 		// v5.9.8 — grammar must be clean at validation time.
@@ -264,6 +297,8 @@ class CategoryFinalValidator {
 				'heading_count'    => count( $headings ),
 				'headings'         => $headings,
 				'faq_count'        => $faq_count,
+				'supporting_coverage'          => $support_coverage ?? [],
+				'supporting_in_subheadings'    => $in_subheading ?? 0,
 				'intent_paragraphs'=> isset( $extra['specificity'] ) ? (int) ( $extra['specificity']['intent_paragraphs'] ?? 0 ) : null,
 				'max_paragraph_similarity' => isset( $extra['uniqueness'] ) ? ( $extra['uniqueness']['max_paragraph'] ?? null ) : null,
 			],

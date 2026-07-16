@@ -81,11 +81,24 @@ namespace TMWSEO\Engine\Tests {
         }
 
         public function test_category_meta_description_builder_starts_with_focus_keyword_and_has_no_internal_wording(): void {
-            $meta = $this->invoke('build_category_page_meta_description', ['Amateur Webcam Models', 'Top-Models.Webcam']);
+            // v5.9.10 contract: primary first, length budget, NO catalog-wide
+            // identical sentence (the audited "browse webcam model profiles…"
+            // template repeated verbatim on every category), one supporting
+            // keyword woven in when supplied, deterministic per slug.
+            $meta = $this->invoke('build_category_page_meta_description', ['Amateur Webcam Models', 'Top-Models.Webcam', 'amateur-webcam-models', ['amateur cam chat']]);
             $this->assertStringStartsWith('Amateur Webcam Models', $meta);
-            $this->assertStringContainsString('browse webcam model profiles', $meta);
+            $this->assertLessThanOrEqual(160, mb_strlen($meta));
+            $this->assertStringNotContainsString('browse webcam model profiles, related videos, and nearby categories across the full directory', $meta);
+            $this->assertStringContainsString('amateur cam chat', $meta);
             $this->assertStringNotContainsString('manual' . ' review', strtolower($meta));
             $this->assertStringNotContainsString('neutral browsing context', $meta);
+
+            // Deterministic per slug…
+            $again = $this->invoke('build_category_page_meta_description', ['Amateur Webcam Models', 'Top-Models.Webcam', 'amateur-webcam-models', ['amateur cam chat']]);
+            $this->assertSame($meta, $again);
+            // …and no single sentence repeated across neighbouring categories.
+            $other = $this->invoke('build_category_page_meta_description', ['Blonde Cam Models', 'Top-Models.Webcam', 'blonde-cam-models', ['blonde cams']]);
+            $this->assertNotSame(str_replace('Amateur Webcam Models', 'Blonde Cam Models', $meta), $other);
         }
 
         public function test_category_body_starts_with_focus_keyword_and_contains_required_headings(): void {

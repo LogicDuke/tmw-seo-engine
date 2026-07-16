@@ -802,7 +802,16 @@ class ContentEngine {
         }
 
         $seo_title        = self::build_category_page_seo_title($category_term, $year, $post_id, (string) $post->post_name);
-        $meta_description = self::build_category_page_meta_description($category_term, $brand);
+        // v5.9.10: description variants are seeded by slug and may carry ONE
+        // active Rank Math supporting keyword (see builder docblock).
+        $supporting_for_desc = [];
+        foreach (['rankmath_additional', 'additional', 'content_terms'] as $pack_key) {
+            if (!empty($keyword_pack[$pack_key]) && is_array($keyword_pack[$pack_key])) {
+                $supporting_for_desc = array_slice(array_values(array_filter(array_map('strval', $keyword_pack[$pack_key]))), 0, 4);
+                break;
+            }
+        }
+        $meta_description = self::build_category_page_meta_description($category_term, $brand, (string) $post->post_name, $supporting_for_desc);
 
         $manual_pool_allowed = ! empty($keyword_pack['_manual_cat_generate']);
 
@@ -1337,7 +1346,7 @@ class ContentEngine {
     /**
      * Split saved Rank Math keywords into tracking-only and natural body-use sets.
      * Closely overlapping terms share a root family, so category copy never has
-     * to repeat every exact variant (for example free cam chat / free webcam chat
+     * to repeat every exact variant (for example two cam/webcam spellings of one phrase
      * / cam to cam chat / webcam chat rooms).
      *
      * @param string[] $extras
@@ -1803,14 +1812,14 @@ class ContentEngine {
      * Pool templates and the FAQ pool each carry the {{category_name}}
      * placeholder, so an assembled page can repeat the exact focus keyword
      * 15–20+ times (Rank Math flagged 21 occurrences / 2.54% density for
-     * Big Boob Cam). This pass keeps the keyword where it matters — first
+     * an audited trait category). This pass keeps the keyword where it matters — first
      * occurrence (intro), first occurrence inside the FAQ block, and the
      * final occurrence (closing) — and rewrites the other exact occurrences
      * with rotating neutral phrases ("this category", "this archive", ...).
      *
      * Grammar safety: a match is only replaced when the word that follows it
      * is punctuation, a tag boundary, or a common verb/connector — so
-     * attributive uses like "Big Boob Cam performers" are left untouched
+     * attributive uses like "<category name> performers" are left untouched
      * rather than mangled. Only text nodes are rewritten; tags, attributes,
      * URLs, and block comments are never modified, so links and the CTA
      * block survive unchanged. If the page already uses the keyword 5 times
@@ -1884,7 +1893,7 @@ class ContentEngine {
             'may', 'should', 'would', 'in', 'on', 'for', 'with', 'from', 'to', 'at',
         ];
         // Never substitute "this …" straight after an article/possessive —
-        // "the Free Cam Chat archive" must not become "the this category archive".
+        // "the <category name> archive" must not become "the this category archive".
         $blocked_preceding = [
             'the', 'a', 'an', 'its', 'their', 'our', 'your', 'this', 'that',
             'each', 'every', 'his', 'her',
@@ -2305,11 +2314,75 @@ class ContentEngine {
         return TitleFixer::shorten($category_term . ' – Discover Popular Live Models & Videos', 70);
     }
 
-    private static function build_category_page_meta_description(string $category_term, string $brand): string {
+    /**
+     * v5.9.10 — category meta descriptions.
+     *
+     * Root cause fixed: ONE hard-coded template produced the identical
+     * sentence on every category page ("… category on {brand}: browse
+     * webcam model profiles, related videos, and nearby categories across
+     * the full directory."), the catalog-wide repetition the audit PDF
+     * flags. Replaced by a deterministic variant pool:
+     *
+     *  - the PRIMARY keyword appears exactly once, at the front;
+     *  - ONE active supporting keyword is woven in when it fits the length
+     *    budget naturally (a Rank Math "Focus Keyword used inside SEO Meta
+     *    Description" check for that supporting keyword);
+     *  - the variant choice is seeded by slug, so the same category always
+     *    gets the same description while neighbours get different ones;
+     *  - no unsupported superlatives (best/verified/trusted/top/official).
+     */
+    private static function build_category_page_meta_description(string $category_term, string $brand, string $slug = '', array $supporting = []): string {
         $category_term = trim($category_term) !== '' ? trim($category_term) : 'Webcam Models';
         $brand = trim($brand) !== '' ? trim($brand) : 'Top-Models.Webcam';
+        $seed  = abs(crc32('catdesc|' . ($slug !== '' ? $slug : strtolower($category_term))));
 
-        return TitleFixer::shorten($category_term . ' category on ' . $brand . ': browse webcam model profiles, related videos, and nearby categories across the full directory.', 160);
+        // First natural supporting keyword that is not a case-variant of the
+        // primary and keeps the sentence inside the length budget.
+        $support = '';
+        foreach ($supporting as $kw) {
+            $kw = trim((string) $kw);
+            if ($kw === '' || strcasecmp($kw, $category_term) === 0) continue;
+            if (mb_strlen($kw) > 40) continue;
+            $support = $kw;
+            break;
+        }
+
+        $with_support = [
+            '%1$s on %3$s: compare the matching model profiles and clips — %2$s searches land on this page too.',
+            '%1$s listings on %3$s, models and videos side by side; the page answers %2$s as well.',
+            '%1$s on %3$s — profiles, clips, and related themes, with %2$s covered on the same page.',
+            '%1$s gathers matching models and videos on %3$s; %2$s browsing starts here too.',
+            '%1$s on %3$s: one page for the matching profiles and clips, including %2$s listings.',
+            '%1$s on %3$s pairs model profiles with recorded clips, and %2$s fits the same shortlist.',
+            '%1$s collects the theme\'s models and videos on %3$s — %2$s is answered here as well.',
+            '%1$s on %3$s: scan the matching listings, compare their pages, and find %2$s in the same field.',
+        ];
+        $without_support = [
+            '%1$s on %2$s: compare the matching model profiles and related videos, then follow the nearby categories for adjacent themes.',
+            '%1$s gathers the matching model and video listings on %2$s onto one page, with related categories covering the adjacent ground.',
+            '%1$s listings on %2$s, from performer profiles to recorded clips, with links into the full directory and neighbouring themes.',
+            '%1$s on %2$s — one page for the matching profiles and videos, plus the related categories that continue the same search.',
+            '%1$s collects the matching performers and clips on %2$s; the related categories linked here cover the neighbouring themes.',
+            '%1$s on %2$s pairs model profiles with recorded clips and points sideways into the adjacent categories.',
+            '%1$s brings this theme\'s models and videos together on %2$s, one scan away from the related categories.',
+            '%1$s on %2$s: scan the matching listings, compare their own pages, and continue through the neighbouring themes.',
+        ];
+
+        if ($support !== '') {
+            // Seeded order: try each variant until one fits the budget, so a
+            // long category name degrades to a shorter variant before losing
+            // the supporting keyword entirely.
+            $n = count($with_support);
+            for ($i = 0; $i < $n; $i++) {
+                $tpl  = $with_support[($seed + $i) % $n];
+                $desc = sprintf($tpl, $category_term, $support, $brand);
+                if (mb_strlen($desc) <= 160) {
+                    return $desc;
+                }
+            }
+        }
+        $tpl = $without_support[$seed % count($without_support)];
+        return TitleFixer::shorten(sprintf($tpl, $category_term, $brand), 160);
     }
 
     /** @return array<string,string> */
@@ -4138,7 +4211,31 @@ class ContentEngine {
 
     private static function maybe_clear_rank_math_noindex(\WP_Post $post): void {
         // We keep noindex by default until you explicitly enable auto-indexing.
-        if ((int) Settings::get('auto_clear_rank_math_noindex', 0) !== 1) {
+        //
+        // v5.9.10 — three verified noindex root causes fixed here
+        // ([TMW-NOINDEX-SOURCE] audit, release-blocking):
+        //
+        //  1. SETTINGS-KEY MISMATCH. The dashboard toggle and sanitizer store
+        //     'auto_clear_noindex' but this method read
+        //     'auto_clear_rank_math_noindex' — a key that nothing ever
+        //     writes. Enabling the toggle therefore did NOTHING. Both keys
+        //     are now read (canonical first, legacy fallback).
+        //  2. INVERTED GENERATED-FLAG GUARD. `if (_tmwseo_generated) return`
+        //     blocked exactly the pages this method exists to serve: pages
+        //     the engine generated and validated. Optimised category pages
+        //     could therefore never be auto-indexed. The guard is removed;
+        //     the real gates (explicit toggle + _tmwseo_ready_to_index=1 +
+        //     publish status + owned post types) all remain.
+        //  3. DELETE → THEME FALLBACK NOINDEX. The child theme's category
+        //     bridge maps the public taxonomy archive's robots to this CPT
+        //     post's rank_math_robots meta and falls back to
+        //     ['noindex','follow'] when the meta is EMPTY. Deleting the meta
+        //     therefore re-noindexed the public URL. An EXPLICIT
+        //     ['index','follow'] is now written instead, which the bridge,
+        //     the Rank Math editor, and the IndexReadinessGate all honor.
+        $enabled = (int) Settings::get('auto_clear_noindex', 0) === 1
+            || (int) Settings::get('auto_clear_rank_math_noindex', 0) === 1;
+        if (!$enabled) {
             return;
         }
         if ((string) get_post_meta($post->ID, '_tmwseo_ready_to_index', true) !== '1') {
@@ -4146,9 +4243,12 @@ class ContentEngine {
         }
         if ($post->post_status !== 'publish') return;
         if (!in_array($post->post_type, ['model', 'tmw_category_page'], true)) return;
-        if (get_post_meta($post->ID, '_tmwseo_generated', true)) return;
 
-        delete_post_meta($post->ID, 'rank_math_robots');
+        update_post_meta($post->ID, 'rank_math_robots', ['index', 'follow']);
+        Logs::info('content', '[TMW-NOINDEX-SOURCE] cleared: explicit index,follow written', [
+            'post_id'   => (int) $post->ID,
+            'post_type' => (string) $post->post_type,
+        ]);
     }
 
     private static function upsert_ai_block(string $content, string $html): string {
