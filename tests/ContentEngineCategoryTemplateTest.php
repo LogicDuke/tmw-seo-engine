@@ -101,6 +101,23 @@ namespace TMWSEO\Engine\Tests {
             $this->assertNotSame(str_replace('Amateur Webcam Models', 'Blonde Cam Models', $meta), $other);
         }
 
+        public function test_category_meta_description_tries_later_supporting_keyword_when_first_fits_no_template(): void {
+            $category = 'Extremely Detailed Premium International Webcam Performer Directory';
+            $brand = 'Top-Models.Webcam';
+            $slug = 'extremely-detailed-premium-international-webcam-performer-directory';
+            $long_support = 'international webcam directory listings';
+            $short_support = 'cams';
+
+            $long_only = $this->invoke('build_category_page_meta_description', [$category, $brand, $slug, [$long_support]]);
+            $meta = $this->invoke('build_category_page_meta_description', [$category, $brand, $slug, [$long_support, $short_support]]);
+
+            $this->assertLessThanOrEqual(160, mb_strlen($meta));
+            $this->assertStringContainsString($short_support, $meta);
+            $this->assertStringNotContainsString($long_support, $meta);
+            $this->assertStringNotContainsString($short_support, $long_only);
+            $this->assertSame($meta, $this->invoke('build_category_page_meta_description', [$category, $brand, $slug, [$long_support, $short_support]]));
+        }
+
         public function test_category_body_starts_with_focus_keyword_and_contains_required_headings(): void {
             $post = new \WP_Post(['ID' => 11, 'post_title' => 'Amateur Webcam Models']);
             $payload = $this->invoke('build_category_page_template_preview', [$post, 'Amateur Webcam Models', ['longtail' => ['Blonde Webcam Models']]]);

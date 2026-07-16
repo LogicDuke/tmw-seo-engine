@@ -2336,15 +2336,12 @@ class ContentEngine {
         $brand = trim($brand) !== '' ? trim($brand) : 'Top-Models.Webcam';
         $seed  = abs(crc32('catdesc|' . ($slug !== '' ? $slug : strtolower($category_term))));
 
-        // First natural supporting keyword that is not a case-variant of the
-        // primary and keeps the sentence inside the length budget.
-        $support = '';
+        $eligible_supporting = [];
         foreach ($supporting as $kw) {
             $kw = trim((string) $kw);
             if ($kw === '' || strcasecmp($kw, $category_term) === 0) continue;
             if (mb_strlen($kw) > 40) continue;
-            $support = $kw;
-            break;
+            $eligible_supporting[] = $kw;
         }
 
         $with_support = [
@@ -2368,16 +2365,19 @@ class ContentEngine {
             '%1$s on %2$s: scan the matching listings, compare their own pages, and continue through the neighbouring themes.',
         ];
 
-        if ($support !== '') {
-            // Seeded order: try each variant until one fits the budget, so a
-            // long category name degrades to a shorter variant before losing
-            // the supporting keyword entirely.
+        if (!empty($eligible_supporting)) {
+            // Seeded template order stays deterministic per slug, while every
+            // eligible supporting keyword is attempted before falling back to a
+            // primary-only description. This keeps a long first support from
+            // blocking a later shorter support that can satisfy Rank Math.
             $n = count($with_support);
-            for ($i = 0; $i < $n; $i++) {
-                $tpl  = $with_support[($seed + $i) % $n];
-                $desc = sprintf($tpl, $category_term, $support, $brand);
-                if (mb_strlen($desc) <= 160) {
-                    return $desc;
+            foreach ($eligible_supporting as $support) {
+                for ($i = 0; $i < $n; $i++) {
+                    $tpl  = $with_support[($seed + $i) % $n];
+                    $desc = sprintf($tpl, $category_term, $support, $brand);
+                    if (mb_strlen($desc) <= 160) {
+                        return $desc;
+                    }
                 }
             }
         }
