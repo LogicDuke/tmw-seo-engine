@@ -124,6 +124,7 @@ class CategoryDensityPolicy {
 			$max_density = (float) apply_filters( 'tmwseo_category_max_combined_density', $max_density );
 		}
 		$min_count = (int) ceil( $word_count * $min_density / 100 );
+		$min_count = max( 1, $min_count );
 		$max_count = (int) floor( $word_count * $max_density / 100 );
 		// A degenerate tiny article can invert the bounds; keep them sane.
 		if ( $max_count < $min_count ) { $max_count = $min_count; }
@@ -131,7 +132,7 @@ class CategoryDensityPolicy {
 			'word_count'  => $word_count,
 			'min_density' => $min_density,
 			'max_density' => $max_density,
-			'min_count'   => max( 1, $min_count ),
+			'min_count'   => $min_count,
 			'max_count'   => $max_count,
 		];
 	}

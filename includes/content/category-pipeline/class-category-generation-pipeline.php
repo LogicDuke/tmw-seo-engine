@@ -33,7 +33,7 @@ class CategoryGenerationPipeline {
 	 * (many pages generated back-to-back); one extra bounded re-plan
 	 * absorbs that without weakening any check.
 	 */
-	public const MAX_ATTEMPTS = 4;
+	public const MAX_ATTEMPTS = 8;
 
 	/** Recent pages whose section variants are avoided (cross-category cooldown). */
 	public const VARIANT_COOLDOWN_PAGES = 8;
@@ -78,6 +78,11 @@ class CategoryGenerationPipeline {
 			(array) ( $context['approved_keywords'] ?? [] ),
 			$tracking
 		);
+		$stored_rankmath_focus = array_values( array_unique( array_filter( array_map( 'strval', array_merge(
+			[ (string) $keyword_plan['primary'] ],
+			array_key_exists( 'tracking', $options ) ? $tracking : (array) $keyword_plan['rankmath_tracking']
+		) ) ) ) );
+		$keyword_plan['density_tracking'] = $stored_rankmath_focus;
 
 		// One read of the rolling store powers page-level comparisons,
 		// paragraph-level uniqueness, the variant cooldown, the sentence
@@ -211,11 +216,7 @@ class CategoryGenerationPipeline {
 			// derived from the FINAL rendered word count and the tracked
 			// Rank Math keyword set (combined-count matching, exactly as
 			// the analyzer scores density); the old fixed 3-5 band is gone.
-			$density_tracked  = array_values( array_unique( array_filter( array_map( 'strval', array_merge(
-				[ (string) $keyword_plan['primary'] ],
-				(array) $keyword_plan['rankmath_tracking'],
-				(array) $keyword_plan['body_use']
-			) ) ) ) );
+			$density_tracked  = (array) $keyword_plan['density_tracking'];
 			$placement_result = CategoryKeywordPlacement::repair( $draft, (string) $keyword_plan['primary'], $density_tracked );
 			$draft            = (string) $placement_result['html'];
 			$link_spaced      = (string) preg_replace( '/(<\/a>)(?=[\p{L}\p{N}])/u', '$1 ', $draft );

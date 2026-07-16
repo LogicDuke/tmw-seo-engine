@@ -77,10 +77,9 @@ class CategoryFinalValidator {
 			// combined-count matching. A generation whose combined density
 			// stays below the global minimum is NOT successful; above the
 			// safe maximum it is rejected as stuffing.
-			$density_tracked = array_values( array_unique( array_filter( array_map( 'strval', array_merge(
+			$density_tracked = ! empty( $keyword_plan['density_tracking'] ) ? (array) $keyword_plan['density_tracking'] : array_values( array_unique( array_filter( array_map( 'strval', array_merge(
 				[ $primary ],
-				(array) ( $keyword_plan['rankmath_tracking'] ?? [] ),
-				(array) ( $keyword_plan['body_use'] ?? [] )
+				(array) ( $keyword_plan['rankmath_tracking'] ?? [] )
 			) ) ) ) );
 			$density_metrics = CategoryDensityPolicy::evaluate( $html, $density_tracked );
 			if ( $density_metrics['status'] === 'below' ) {

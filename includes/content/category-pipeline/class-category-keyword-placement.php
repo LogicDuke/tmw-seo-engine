@@ -44,6 +44,7 @@ class CategoryKeywordPlacement {
 	private const NEUTRAL_REFERENCES = [
 		'this category', 'this theme', 'this page',
 		'the category', 'the theme', 'this label', 'the label', 'this grouping',
+		'this field', 'the field', 'the same ground',
 	];
 
 	/**
@@ -132,31 +133,33 @@ class CategoryKeywordPlacement {
 		if ( $primary === '' ) {
 			return [ 'html' => $html, 'actions' => $actions, 'density' => [] ];
 		}
+		$density_requested = ! empty( $tracked );
 		if ( empty( $tracked ) ) { $tracked = [ $primary ]; }
 
 		$density = CategoryDensityPolicy::evaluate( $html, $tracked );
-		$metrics = self::analyze( $html, $primary );
-		$count   = (int) $metrics['count'];
+		$html    = self::repair_first_paragraph( $html, $primary, $actions );
+		$html    = self::repair_topical_h2( $html, $primary, $actions );
+		$density = CategoryDensityPolicy::evaluate( $html, $tracked );
 
-		// 1. Overshoot: reduce combined density by demoting PRIMARY uses
-		// only (supporting placements are contractual), keeping the
-		// structural floor intact.
-		if ( $density['excess'] > 0 ) {
-			$reducible = max( 0, $count - self::MIN_PRIMARY_USES );
-			$html      = self::demote_in_paragraphs( $html, $primary, min( (int) $density['excess'], $reducible ), $actions );
-			$density   = CategoryDensityPolicy::evaluate( $html, $tracked );
+		$guard = 0;
+		while ( $density_requested && $density['status'] === 'above' && $guard++ < 40 ) {
 			$count     = (int) self::analyze( $html, $primary )['count'];
+			$reducible = max( 0, $count - self::MIN_PRIMARY_USES );
+			if ( $reducible <= 0 ) { break; }
+			$before = $html;
+			$html   = self::demote_in_paragraphs( $html, $primary, 1, $actions );
+			if ( $html === $before ) { break; }
+			$density = CategoryDensityPolicy::evaluate( $html, $tracked );
 		}
 
-		// 2. Undershoot: the density gap is promoted only within the safe
-		// ceiling's headroom; the primary's STRUCTURAL floor (first
-		// paragraph + H2 + minimum body presence) is promoted regardless —
-		// it is a hard page contract, not a density preference.
-		$structural_gap = max( 0, self::MIN_PRIMARY_USES - $count );
-		$headroom       = max( 0, (int) $density['max_count'] - (int) $density['combined_count'] );
-		$needed         = max( $structural_gap, min( (int) $density['needed'], $headroom ) );
-		if ( $needed > 0 ) {
-			$html    = self::promote_in_paragraphs( $html, $primary, $needed, $actions );
+		$guard = 0;
+		while ( ( $density['status'] === 'below' || (int) self::analyze( $html, $primary )['count'] < self::MIN_PRIMARY_USES ) && $guard++ < 40 ) {
+			$headroom = max( 0, (int) $density['max_count'] - (int) $density['combined_count'] );
+			if ( $density_requested && $density['status'] === 'below' && $headroom <= 0 ) { break; }
+			$needed = 1;
+			$before = $html;
+			$html   = self::promote_in_paragraphs( $html, $primary, $needed, $actions );
+			if ( $html === $before ) { break; }
 			$density = CategoryDensityPolicy::evaluate( $html, $tracked );
 		}
 
@@ -188,6 +191,31 @@ class CategoryKeywordPlacement {
 				// offsets after this block shift; re-scan
 				$blocks = self::paragraph_offsets( $html, true );
 			}
+		}
+		return $html;
+	}
+
+	private static function repair_first_paragraph( string $html, string $primary, array &$actions ): string {
+		if ( self::analyze( $html, $primary )['in_first_paragraph'] ) { return $html; }
+		$blocks = self::paragraph_offsets( $html, true );
+		if ( empty( $blocks ) ) { return $html; }
+		[ $start, $len ] = $blocks[0];
+		$inner = substr( $html, $start, $len );
+		$new   = self::inject_via_neutral_reference( $inner, $primary ) ?? self::inject_via_attributive_noun( $inner, $primary );
+		if ( $new === null || $new === $inner ) { return $html; }
+		$actions[] = 'repaired_primary_first_paragraph';
+		return substr_replace( $html, $new, $start, $len );
+	}
+
+	private static function repair_topical_h2( string $html, string $primary, array &$actions ): string {
+		if ( self::analyze( $html, $primary )['in_h2'] ) { return $html; }
+		if ( ! preg_match_all( '/<h2([^>]*)>(.*?)<\/h2>/isu', $html, $m, PREG_OFFSET_CAPTURE ) ) { return $html; }
+		foreach ( $m[0] as $i => $full ) {
+			$text = CategoryQualityGuard::visible( (string) $m[2][ $i ][0] );
+			if ( preg_match( '/Frequently Asked Questions/iu', $text ) ) { continue; }
+			$replacement = '<h2' . $m[1][ $i ][0] . '>' . self::escape_html_text( $primary . ' ' . trim( $text ) ) . '</h2>';
+			$actions[] = 'repaired_primary_h2';
+			return substr_replace( $html, $replacement, (int) $full[1], strlen( (string) $full[0] ) );
 		}
 		return $html;
 	}
@@ -311,16 +339,23 @@ class CategoryKeywordPlacement {
 	 * noun-phrase keyword), outside anchor tags only.
 	 */
 	private static function inject_via_attributive_noun( string $inner, string $primary ): ?string {
-		// "a" only precedes a consonant-initial keyword and "an" only a
-		// vowel-initial one — the injected article must stay grammatical.
-		$vowel_initial = (bool) preg_match( '/^[aeiou]/i', $primary );
-		$dets          = [ 'the', 'these', 'its', 'each', 'every', $vowel_initial ? 'an' : 'a' ];
+		$dets = [ 'the', 'these', 'its', 'each', 'every', 'a', 'an' ];
 		foreach ( self::ATTRIBUTIVE_NOUNS as $noun ) {
 			$np  = '/(?<![\\p{L}\\p{N}])(' . implode( '|', $dets ) . ')(\\s+)(' . preg_quote( $noun, '/' ) . ')(?![\\p{L}\\p{N}])/iu';
-			$new = self::replace_first_outside_anchors( $inner, $np, '$1$2' . self::escape_replacement( $primary ) . ' $3' );
+			$new = self::replace_first_outside_anchors( $inner, $np, static function ( array $m ) use ( $primary ): string {
+				$det = preg_match( '/^(?:a|an)$/iu', (string) $m[1] ) ? self::article_for( $primary ) : (string) $m[1];
+				return $det . (string) $m[2] . $primary . ' ' . (string) $m[3];
+			} );
 			if ( $new !== null ) { return $new; }
 		}
 		return null;
+	}
+
+	private static function article_for( string $phrase ): string {
+		$first = strtolower( (string) strtok( trim( $phrase ), " \t\r\n" ) );
+		if ( preg_match( '/^(hour|honest|honor|heir)/', $first ) ) { return 'an'; }
+		if ( preg_match( '/^(euro|user|uni([^nmd]|$)|useful|one\b)/', $first ) ) { return 'a'; }
+		return preg_match( '/^[aeiou]/', $first ) ? 'an' : 'a';
 	}
 
 	/** Escape $ and \\ so a keyword can never inject regex backreferences. */
@@ -333,18 +368,28 @@ class CategoryKeywordPlacement {
 	 * $inner. Returns the new string, or null when no match exists outside
 	 * anchors (URLs, hrefs, and anchor text are never modified).
 	 */
-	private static function replace_first_outside_anchors( string $inner, string $pattern, string $replacement ): ?string {
-		$parts = preg_split( '/(<a\\b[^>]*>.*?<\\/a>)/isu', $inner, -1, PREG_SPLIT_DELIM_CAPTURE );
+	private static function replace_first_outside_anchors( string $inner, string $pattern, $replacement ): ?string {
+		$parts = self::html_tokens( $inner );
 		if ( ! is_array( $parts ) ) { return null; }
 		foreach ( $parts as $i => $part ) {
 			$part = (string) $part;
-			if ( $part === '' || preg_match( '/^<a\\b[^>]*>.*?<\\/a>$/isu', $part ) === 1 ) { continue; }
+			if ( $part === '' || $part[0] === '<' ) { continue; }
 			if ( preg_match( $pattern, $part ) ) {
-				$parts[ $i ] = (string) preg_replace( $pattern, $replacement, $part, 1 );
+				$parts[ $i ] = is_callable( $replacement )
+					? (string) preg_replace_callback( $pattern, $replacement, $part, 1 )
+					: (string) preg_replace( $pattern, (string) $replacement, $part, 1 );
 				return implode( '', $parts );
 			}
 		}
 		return null;
+	}
+
+	private static function html_tokens( string $html ): array {
+		return preg_split( '/(<a\\b[^>]*>.*?<\\/a>|<!--.*?-->|<[^>]*>)/isu', $html, -1, PREG_SPLIT_DELIM_CAPTURE ) ?: [ $html ];
+	}
+
+	private static function escape_html_text( string $text ): string {
+		return htmlspecialchars( $text, ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8' );
 	}
 
 	/**
@@ -372,17 +417,18 @@ class CategoryKeywordPlacement {
 	/** Replace up to $limit LAST matches of $pattern in $text with $replacement. */
 	private static function replace_last_matches( string $text, string $pattern, string $replacement, int $limit, ?int &$replaced ): string {
 		$replaced = 0;
-		if ( ! preg_match_all( $pattern, $text, $m, PREG_OFFSET_CAPTURE ) ) { return $text; }
-		$matches = $m[0];
-		// Never remove the only occurrence in a paragraph's first sentence?
-		// Bounded rule: leave the paragraph's first occurrence, demote later ones;
-		// if the paragraph has a single occurrence it may still be demoted
-		// (the page-level minimum is enforced by the caller's budget).
-		for ( $i = count( $matches ) - 1; $i >= 0 && $replaced < $limit; $i-- ) {
-			[ $match, $offset ] = $matches[ $i ];
-			$text = substr_replace( $text, $replacement, (int) $offset, strlen( (string) $match ) );
-			$replaced++;
+		$parts = self::html_tokens( $text );
+		for ( $pi = count( $parts ) - 1; $pi >= 0 && $replaced < $limit; $pi-- ) {
+			$part = (string) $parts[ $pi ];
+			if ( $part === '' || $part[0] === '<' || ! preg_match_all( $pattern, $part, $m, PREG_OFFSET_CAPTURE ) ) { continue; }
+			$matches = $m[0];
+			for ( $i = count( $matches ) - 1; $i >= 0 && $replaced < $limit; $i-- ) {
+				[ $match, $offset ] = $matches[ $i ];
+				$part = substr_replace( $part, $replacement, (int) $offset, strlen( (string) $match ) );
+				$replaced++;
+			}
+			$parts[ $pi ] = $part;
 		}
-		return $text;
+		return implode( '', $parts );
 	}
 }

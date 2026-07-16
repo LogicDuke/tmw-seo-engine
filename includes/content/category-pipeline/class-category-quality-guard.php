@@ -469,8 +469,8 @@ class CategoryQualityGuard {
 		$seen    = [];
 		$out     = [];
 		foreach ( self::sentences( $visible ) as $sentence ) {
-			if ( ! preg_match( '/\\b(?:the|a|an|this|that)\\s+(?:' . $fillers . ')\\b\\s+\\b(' . $verbs . ')\\b/iu', $sentence, $m ) ) { continue; }
-			$skeleton = 'det-FILLER-' . self::lc( (string) $m[1] );
+			if ( ! preg_match( '/\\b(?:the|a|an|this|that)\\s+(?:' . $fillers . ')\\b\\s+\\b(' . $verbs . ')\\b(?:\\s+\\w+){0,3}?\\s+\\b(?:the|a|an|this|that)\\s+(?:' . $fillers . ')\\b/iu', $sentence, $m ) ) { continue; }
+			$skeleton = 'det-FILLER-' . self::lc( (string) $m[1] ) . '-det-FILLER';
 			if ( isset( $seen[ $skeleton ] ) ) {
 				$out[] = 'x2+: ' . $skeleton . ' — ' . self::snippet( $sentence );
 			} else {

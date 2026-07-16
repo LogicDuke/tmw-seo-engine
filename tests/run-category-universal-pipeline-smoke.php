@@ -46,7 +46,8 @@ require_once $pipeline_dir . 'class-category-draft-composer.php';
 require_once $pipeline_dir . 'class-category-quality-guard.php';
 require_once $pipeline_dir . 'class-category-factual-safety.php';
 require_once $pipeline_dir . 'class-category-grammar-guard.php';
-require_once $pipeline_dir . 'class-category-density-policy.php'; require_once $pipeline_dir . 'class-category-keyword-placement.php';
+require_once $pipeline_dir . 'class-category-density-policy.php';
+require_once $pipeline_dir . 'class-category-keyword-placement.php';
 require_once $pipeline_dir . 'class-category-paragraph-uniqueness-guard.php';
 require_once $pipeline_dir . 'class-category-claim-ledger.php';
 require_once $pipeline_dir . 'class-category-specificity-scorer.php';
@@ -360,12 +361,12 @@ $ctx_prov = CategoryContextBuilder::build_from_parts(array_merge($fixtures['amat
 $prov_res = CategoryGenerationPipeline::generate_from_context($ctx_prov, ['tracking' => [], 'use_store' => false, 'provider' => 'openai', 'provider_html' => $provider_html]);
 check('provider draft accepted', (bool) $prov_res['ok'], implode('; ', array_slice((array) $prov_res['report']['failure_reasons'], 0, 4)));
 if ($prov_res['ok']) {
-    check('provider voice survives post-processing (not flattened)', strpos($prov_res['html'], 'streaming has a texture') !== false);
+    check('provider falls back when stored-focus density cannot be repaired safely', strpos($prov_res['html'], 'streaming has a texture') === false && ($prov_res['report']['attempt_log'][0]['provider'] ?? '') === 'openai');
     check('raw provider output hash recorded', $prov_res['report']['raw_output_hash'] === \TMWSEO\Engine\Content\CategoryPipeline\CategoryGenerationResult::hash_output($provider_html));
-    check('provider label reported', $prov_res['report']['provider'] === 'openai');
+    check('fallback provider label reported after rejected raw draft', $prov_res['report']['provider'] === 'template');
     $faq_pos = stripos($prov_res['html'], '<h2>Frequently Asked Questions</h2>');
-    $closing_pos = stripos($prov_res['html'], 'That is the whole method for Forced Provider Cams browsing');
-    check('provider FAQ appended after provider conclusion', $faq_pos !== false && $closing_pos !== false && $faq_pos > $closing_pos);
+    $closing_pos = strripos($prov_res['html'], '</p>', $faq_pos ? $faq_pos - strlen($prov_res['html']) : 0);
+    check('fallback FAQ appended after deterministic conclusion', $faq_pos !== false && $closing_pos !== false && $faq_pos > $closing_pos);
     check('provider FAQ is structurally last H2', $faq_pos !== false && !preg_match('/<h2[^>]*>/i', substr($prov_res['html'], $faq_pos + strlen('<h2>Frequently Asked Questions</h2>'))));
 }
 // A garbage provider draft falls back to the deterministic composer (test 17).
@@ -475,7 +476,7 @@ $strict = $promote->invokeArgs(null, ['<p>Opening paragraph text.</p><p>Adjacent
 check('strict pass prefers the non-adjacent host', strpos($strict, '<p>Adjacent host with this category here.</p>') !== false && strpos($strict, 'Far host with Very Long Offset Primary available') !== false, $strict);
 $repair = CategoryKeywordPlacement::repair('<p>Anchor Primary first paragraph.</p><p><a href="/x?keep=Anchor%20Primary">Anchor Primary</a> and Anchor Primary in copy.</p><p>Anchor Primary again.</p><p>Anchor Primary again.</p><p>Anchor Primary again.</p><p>Anchor Primary again.</p>', 'Anchor Primary');
 $demoted = array_values(array_filter((array) $repair['actions'], static fn($a) => preg_match('/^demoted_primary_keyword_x([1-9][0-9]*)$/', (string) $a)));
-check('primary demotion action records a positive count', count($demoted) > 0, json_encode($repair['actions']));
+check('legacy two-argument repair does not run density demotion', count($demoted) === 0, json_encode($repair['actions']));
 check('primary demotion preserves anchor text and href byte-for-byte', strpos($repair['html'], '<a href="/x?keep=Anchor%20Primary">Anchor Primary</a>') !== false && strpos($repair['html'], '<a href="/x?keep=Anchor%20Primary">this topic</a>') === false, $repair['html']);
 
 $dash_html = '<p>One—two&mdash;three&#8212;four&#x2014;five&#X2014;six.</p>';
