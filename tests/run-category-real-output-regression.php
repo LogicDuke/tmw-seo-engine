@@ -7,7 +7,8 @@
  * (activity, language, ambiguous), and asserts the full on-page contract
  * that the audit showed the live pages failing:
  *
- *   words 620-950 · primary 3-5 exact + first paragraph + exact-in-H2 ·
+ *   words 620-950 · primary >=3 exact + dynamic combined-density band
+ *   (v5.9.11) + first paragraph + exact-in-H2 ·
  *   four active supporting keywords where four valid ones exist, each
  *   rendered, two in headings · ≥2 real internal <a href> links, natural
  *   anchors, zero raw URLs · FAQ 3-5 and LAST (no orphan paragraph after
@@ -36,7 +37,7 @@ $pipeline_dir = dirname(__DIR__) . '/includes/content/category-pipeline/';
 foreach ([
     'class-category-context-builder', 'class-category-intent-classifier', 'class-category-keyword-planner',
     'class-category-content-planner', 'class-category-draft-composer', 'class-category-quality-guard',
-    'class-category-factual-safety', 'class-category-grammar-guard', 'class-category-keyword-placement',
+    'class-category-factual-safety', 'class-category-grammar-guard', 'class-category-density-policy', 'class-category-keyword-placement',
     'class-category-paragraph-uniqueness-guard', 'class-category-claim-ledger', 'class-category-specificity-scorer',
     'class-category-faq-reuse-guard', 'class-category-generation-result', 'class-category-differentiation-scorer',
     'class-category-faq-planner', 'class-category-final-validator', 'class-category-generation-pipeline',
@@ -166,9 +167,14 @@ foreach ($fixtures as $slug => $fx) {
     $v_words = (int) ($report['metrics']['word_count'] ?? $words);
     check("[$slug] words $v_words in 620-950", $v_words >= 620 && $v_words <= 950);
 
-    // 3. Primary keyword placement
+    // 3. Primary keyword placement — v5.9.11 dynamic density contract:
+    // the fixed 3-5 band is replaced by a target derived from the FINAL
+    // word count (structural floor 3, combined density in the safe band).
     $pl = CategoryKeywordPlacement::analyze($html, $primary);
-    check("[$slug] primary {$pl['count']}x in 3-5", $pl['count'] >= 3 && $pl['count'] <= 5);
+    check("[$slug] primary {$pl['count']}x >= structural floor 3", $pl['count'] >= 3);
+    $den = (array) ($report['metrics']['density'] ?? []);
+    check("[$slug] combined density {$den['density']} in dynamic band ({$den['combined_count']}/{$den['min_count']}-{$den['max_count']})",
+        ($den['status'] ?? '') === 'within');
     check("[$slug] primary in first paragraph", (bool) $pl['in_first_paragraph']);
     check("[$slug] primary exact in >=1 H2", (bool) $pl['in_h2']);
     check("[$slug] primary in body beyond opening", (bool) $pl['in_body_beyond_opening']);

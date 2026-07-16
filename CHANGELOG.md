@@ -1,5 +1,22 @@
 # Changelog
 
+## 5.9.11-dynamic-primary-density-v1.0.0 — 2026-07-16
+
+Universal dynamic primary-keyword density system, driven by the live Big Boob Cam WordPress test (684 visible words, 5 exact primary uses, Rank Math density 0.73% — orange "fair" band). No category-specific fix: one policy for every current and future category, derived from runtime inputs only.
+
+### Dynamic density (replaces the fixed 3-5 exact-primary-use contract)
+- NEW `CategoryDensityPolicy`: targets calculated AFTER final HTML composition from the final visible word count — `min_count = ceil(words × 1.0%)`, `max_count = floor(words × 2.2%)` (filterable via `tmwseo_category_min/max_combined_density`). Rank Math-faithful counting verified in the shipped analyzer source: density scores the COMBINED matches of ALL stored keywords through one alternation regex (longest-first, words joined by non-word separators, boundary-guarded — "cam" never counts inside "webcam"); shipped buckets: <0.5 fail, [0.5,0.75) fair (the audited orange), [0.76,1.0) good, [1.0,2.5] best, >2.5 fail. Policy floor targets the "best" band; the ceiling stays under the 2.5 fail line.
+- `CategoryKeywordPlacement::repair()` is now density-driven: promotes exact PRIMARY uses when the combined count is below the dynamic minimum (never supporting keywords), demotes primary uses above the safe maximum (structural floor of 3 + first paragraph + topical H2 kept). Two alternating grammar-safe mechanisms — neutral-reference promotion and attributive noun-phrase injection ("the listings" → "the {primary} listings", article-aware a/an) — over anchor-safe segments; two-phase distribution (strict pass never adds adjacent to a primary-bearing paragraph; a bounded relaxed pass covers only the residual need and labels its actions); first paragraph never a target; FAQ region, headings, anchors, hrefs, and attributes never modified; one addition per paragraph.
+- `CategoryFinalValidator`: fixed band replaced by `combined_density_below_minimum` / `combined_density_above_maximum` reasons; new `metrics.density` block (word_count, combined_count, density, min/max_count, needed, excess, status). A generation below the global minimum is NOT successful.
+- All generation paths under one contract: composed drafts, accepted provider drafts, rejected/garbage provider fallback, regenerated and synthetic categories.
+
+### Natural-language improvement (structural, not a blacklist)
+- `CategoryQualityGuard` gains `abstract_filler_structure` and `repeated_filler_skeleton` detection: determiner-FILLER…VERB…determiner-FILLER skeletons (destination/field/route/side/fit/visit/signal/shortlist/ground/session/trait/label…) and filler-saturated short sentences trip unless the sentence carries a concrete anchor (performer/model/video/page/listing/platform/price/terms, a digit, or an exact tracked keyword). Both audited live sentences ("The destination shapes the session", "the trait gathers the field") trip structurally; the current universal libraries scan clean (the v5.9.9 rebuild had already purged those patterns — the audited text predates it).
+
+### Tests
+- NEW `tests/run-category-dynamic-density-smoke.php` (96 checks): policy math at ≈500/684/750/1000 words; Rank Math counting contract; end-to-end fixtures for 1/2/3-word and long-name primaries incl. the live Big Boob Cam regression case and synthetic categories unknown to the template data; provider + garbage-fallback density contract; repair mechanics (anchors byte-identical, FAQ/headings untouched, labelled relaxed pass); no category names in the generation surface and no slug/name parameters in DensityPolicy.
+- Obsolete fixed-band assertions updated to the dynamic contract in `run-category-real-output-regression.php` and `run-category-universal-pipeline-smoke.php`.
+
 ## 5.9.10-supporting-keyword-subheadings-v1.0.0 — 2026-07-16
 
 Rank Math additional keywords now land in subheadings, the catalog-wide identical meta description is retired, and the three verified noindex root causes are fixed. Driven by the July 2026 audit PDF (five audited category pages: additional-keyword tabs orange, one meta-description sentence repeated verbatim on every category, "Noindex robots meta is enabled" on every page intended for SEO).
