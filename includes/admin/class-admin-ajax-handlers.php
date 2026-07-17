@@ -452,6 +452,18 @@ class AdminAjaxHandlers {
                 ], 409 );
             }
 
+            // The transaction returns a precise blocker (including legacy final
+            // document validation), never collapse it to the historical generic
+            // "no content was written" message.
+            if ( is_array( $save_result ) && ! empty( $save_result['failure_code'] ) ) {
+                $failure_code = (string) $save_result['failure_code'];
+                $failure_reasons = array_values( array_map( 'strval', (array) ( $save_result['reasons'] ?? [] ) ) );
+                $message = $failure_reasons[0] ?? $failure_code;
+                update_post_meta( $post_id, '_tmwseo_category_generation_status', 'error' );
+                update_post_meta( $post_id, '_tmwseo_category_generation_error', $message );
+                wp_send_json_error( array_merge( $save_result, [ 'success' => false, 'status' => 'error', 'message' => $message, 'failure_code' => $failure_code, 'reasons' => $failure_reasons ] ), 409 );
+            }
+
             if ( ! $content_changed && ! $preview_changed ) {
                 update_post_meta( $post_id, '_tmwseo_category_generation_status', 'error' );
                 update_post_meta( $post_id, '_tmwseo_category_generation_error', 'empty_generated_content' );
