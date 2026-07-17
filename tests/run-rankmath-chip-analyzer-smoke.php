@@ -212,15 +212,20 @@ $fcc_report = RM::analyze( [
 	'description'  => 'Free Cam Chat on top-models.webcam: scan the matching listings, compare their pages, and find free cam to cam chat in the same field.',
 	'url_slug'     => 'free-cam-chat',
 	'site_domain'  => 'top-models.webcam',
+	'keywords_csv' => $fcc_kw,
 ] );
 $fcc_secondary_colors = [];
 foreach ( $fcc_report['keywords'] as $row ) {
 	if ( $row['role'] === 'secondary' ) { $fcc_secondary_colors[ $row['keyword'] ] = $row['predicted_chip']; }
 }
-check( ! in_array( 'green', $fcc_secondary_colors, true ),
+check( count($fcc_report['keywords']) === 5 && count($fcc_secondary_colors) === 4,
+	'F3a Free Cam Chat report includes primary and every supporting keyword',
+	json_encode( $fcc_secondary_colors ) );
+check( ! empty($fcc_secondary_colors) && ! in_array( 'green', $fcc_secondary_colors, true ),
 	'F3 Free Cam Chat: with density in the good band, NO secondary chip can be green (matches live PDF: all orange)',
 	json_encode( $fcc_secondary_colors ) );
 foreach ( $fcc_report['keywords'] as $row ) {
+	if ( $row['role'] !== 'secondary' ) { continue; }
 	check( $row['ceiling_percent'] <= 82,
 		'F4 ceiling ≤82% for "' . $row['keyword'] . '" at this word count / no TOC / no number',
 		'got ' . $row['ceiling_percent'] );
@@ -233,6 +238,7 @@ $bbc_report = RM::analyze( [
 	'description' => 'Big Boob Cam collects the theme\'s models and videos on top-models.webcam — big breast webcam is answered here as well.',
 	'url_slug'    => 'big-boob-cam',
 	'site_domain' => 'top-models.webcam',
+	'keywords_csv'=> $bbc_kw,
 ] );
 foreach ( $bbc_report['keywords'] as $row ) {
 	if ( $row['keyword'] === 'big breast webcam' ) {
