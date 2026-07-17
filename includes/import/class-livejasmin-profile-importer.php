@@ -14,7 +14,7 @@ if ( ! defined( 'ABSPATH' ) ) {
 }
 
 final class LiveJasminProfileImporter implements ProfileImporter {
-    private const PROFILE_PATH_PATTERN = '#^/[a-z]{2}/girl/([A-Za-z0-9][A-Za-z0-9_-]{0,63})/?$#';
+    private const PROFILE_PATH_PATTERN = '#^/(?:en/)?chat/([A-Za-z0-9][A-Za-z0-9_-]{0,63})/?$#';
 
     public function provider_name(): string {
         return 'livejasmin';
@@ -38,7 +38,7 @@ final class LiveJasminProfileImporter implements ProfileImporter {
         return new ImportResult( [
             'status'      => ImportResult::STATUS_OK,
             'provider'    => $this->provider_name(),
-            'source_url'  => $url,
+            'source_url'  => $this->canonical_url( $username ),
             'username'    => $username,
             'diagnostics' => [ 'profile_fetching' => 'not_implemented' ],
             'message'     => 'This LiveJasmin profile URL is supported, but profile fetching is not implemented yet.',
@@ -65,5 +65,9 @@ final class LiveJasminProfileImporter implements ProfileImporter {
         }
 
         return $matches[1];
+    }
+
+    private function canonical_url( string $username ): string {
+        return 'https://www.livejasmin.com/en/chat/' . $username;
     }
 }

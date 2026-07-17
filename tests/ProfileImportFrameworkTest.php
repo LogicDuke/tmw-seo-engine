@@ -108,7 +108,7 @@ final class ProfileImportFrameworkTest extends TestCase {
         $result = $importer->import_profile( $url );
         self::assertSame( ImportResult::STATUS_OK, $result->status );
         self::assertSame( 'livejasmin', $result->provider );
-        self::assertSame( $url, $result->source_url );
+        self::assertSame( 'https://www.livejasmin.com/en/chat/' . $username, $result->source_url );
         self::assertSame( $username, $result->username );
         self::assertSame( 'not_implemented', $result->diagnostics['profile_fetching'] );
         self::assertSame( $before_meta, $GLOBALS['_tmw_test_post_meta'] );
@@ -119,8 +119,10 @@ final class ProfileImportFrameworkTest extends TestCase {
     /** @return array<string,array{string,string}> */
     public static function supportedLiveJasminProfileUrls(): array {
         return [
-            'www host' => [ 'https://www.livejasmin.com/en/girl/Model_Name', 'Model_Name' ],
-            'apex host' => [ 'https://livejasmin.com/de/girl/Model-Name?ref=profile', 'Model-Name' ],
+            'www canonical URL' => [ 'https://www.livejasmin.com/en/chat/AbbyMurray', 'AbbyMurray' ],
+            'apex host' => [ 'https://livejasmin.com/en/chat/Anisyia', 'Anisyia' ],
+            'www short route' => [ 'https://www.livejasmin.com/chat/MiaCollie', 'MiaCollie' ],
+            'uppercase host' => [ 'https://WWW.LIVEJASMIN.COM/en/chat/TestUser', 'TestUser' ],
         ];
     }
 
@@ -134,10 +136,14 @@ final class ProfileImportFrameworkTest extends TestCase {
     /** @return array<string,array{string}> */
     public static function unsupportedLiveJasminUrls(): array {
         return [
-            'wrong host' => [ 'https://livejasmin.com.example/en/girl/model' ],
-            'wrong path' => [ 'https://www.livejasmin.com/en/chat/model' ],
-            'missing username' => [ 'https://www.livejasmin.com/en/girl/' ],
-            'unsupported port' => [ 'https://www.livejasmin.com:8443/en/girl/model' ],
+            'wrong host' => [ 'https://livejasmin.com.example/en/chat/model' ],
+            'unsupported subdomain' => [ 'https://profiles.livejasmin.com/en/chat/model' ],
+            'girl route regression' => [ 'https://www.livejasmin.com/en/girl/AbbyMurray' ],
+            'extra path segment' => [ 'https://www.livejasmin.com/en/chat/model/extra' ],
+            'empty username' => [ 'https://www.livejasmin.com/en/chat/' ],
+            'encoded slash' => [ 'https://www.livejasmin.com/en/chat/model%2Fextra' ],
+            'encoded backslash' => [ 'https://www.livejasmin.com/en/chat/model%5Cextra' ],
+            'unsupported port' => [ 'https://www.livejasmin.com:8443/en/chat/model' ],
         ];
     }
 
@@ -160,23 +166,23 @@ final class ProfileImportFrameworkTest extends TestCase {
 
     public function test_ajax_response_logic_is_candidate_only_and_does_not_persist(): void {
         $before = $GLOBALS['_tmw_test_post_meta'];
-        $valid = \TMWSEO\Engine\Admin\ModelHelper::public_profile_import_response( 'https://WWW.LiveJasmin.COM/en/girl/Model_Name' );
+        $valid = \TMWSEO\Engine\Admin\ModelHelper::public_profile_import_response( 'https://www.livejasmin.com/en/chat/AbbyMurray' );
         self::assertSame( 'ok', $valid['status'] );
         self::assertSame( 'livejasmin', $valid['provider'] );
-        self::assertSame( 'https://www.livejasmin.com/en/girl/Model_Name', $valid['source_url'] );
-        self::assertSame( 'Model_Name', $valid['username'] );
-        self::assertSame( 'invalid', \TMWSEO\Engine\Admin\ModelHelper::public_profile_import_response( 'http://example.com' )['status'] );
+        self::assertSame( 'https://www.livejasmin.com/en/chat/AbbyMurray', $valid['source_url'] );
+        self::assertSame( 'AbbyMurray', $valid['username'] );
+        self::assertSame( 'invalid', \TMWSEO\Engine\Admin\ModelHelper::public_profile_import_response( 'http://www.livejasmin.com/en/chat/AbbyMurray' )['status'] );
         self::assertSame( $before, $GLOBALS['_tmw_test_post_meta'] );
     }
 
-    public function test_ajax_handler_returns_unsupported_without_persistence(): void {
+    public function test_ajax_handler_returns_livejasmin_candidate_without_persistence(): void {
         $before = $GLOBALS['_tmw_test_post_meta'];
-        $_POST = [ 'post_id' => '42', 'nonce' => 'test_nonce', 'source_url' => 'https://www.livejasmin.com/en/girl/Model_Name' ];
+        $_POST = [ 'post_id' => '42', 'nonce' => 'test_nonce', 'source_url' => 'https://www.livejasmin.com/en/chat/AbbyMurray' ];
         \TMWSEO\Engine\Admin\ModelHelper::ajax_public_profile_import();
         self::assertTrue( $GLOBALS['_tmw_test_last_json']['success'] );
         self::assertSame( 'ok', $GLOBALS['_tmw_test_last_json']['data']['status'] );
         self::assertSame( 'livejasmin', $GLOBALS['_tmw_test_last_json']['data']['provider'] );
-        self::assertSame( 'Model_Name', $GLOBALS['_tmw_test_last_json']['data']['username'] );
+        self::assertSame( 'AbbyMurray', $GLOBALS['_tmw_test_last_json']['data']['username'] );
         self::assertSame( $before, $GLOBALS['_tmw_test_post_meta'] );
         $_POST = [];
     }
