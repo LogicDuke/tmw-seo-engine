@@ -31,6 +31,7 @@ class Loader {
      */
     public static function load_all(): void {
         self::load_core();
+        self::load_import();
         self::load_services();
         self::load_keywords();
         self::load_content();
@@ -64,6 +65,18 @@ class Loader {
         tmwseo_safe_require( $p . 'includes/ai/class-ai-router.php' );
         tmwseo_safe_require( $p . 'includes/schema/class-schema-generator.php' );
         tmwseo_safe_require( $p . 'includes/export/class-csv-exporter.php' );
+    }
+
+    // ── Public profile import (candidate-only framework) ────────────────────
+
+    private static function load_import(): void {
+        $p = TMWSEO_ENGINE_PATH . 'includes/import/';
+        tmwseo_safe_require( $p . 'class-import-result.php' );
+        tmwseo_safe_require( $p . 'class-source-validation-result.php' );
+        tmwseo_safe_require( $p . 'interface-profile-importer.php' );
+        tmwseo_safe_require( $p . 'class-source-validator.php' );
+        tmwseo_safe_require( $p . 'class-null-importer.php' );
+        tmwseo_safe_require( $p . 'class-import-manager.php' );
     }
 
     // ── Services ──────────────────────────────────────────────────────────────

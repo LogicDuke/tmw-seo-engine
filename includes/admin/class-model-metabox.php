@@ -145,6 +145,9 @@ class ModelMetabox {
              . '🔍 ' . esc_html__( 'Full Audit', 'tmwseo' ) . '</button>';
         echo '</div>';
 
+        // Candidate-only import framework. This does not fetch or persist data.
+        ModelHelper::render_public_profile_import( $post->ID );
+
         // ── Research Now: progress bar + synchronous XHR ──────────────────────
         // HONESTY RULE: the progress bar and animation only appear after the button
         // is clicked and the XHR is confirmed in-flight. If the page loads with

@@ -32,6 +32,7 @@ use TMWSEO\Engine\Model\ModelContextAwareProvider;
 use TMWSEO\Engine\Platform\PlatformRegistry;
 use TMWSEO\Engine\Platform\PlatformProfiles;
 use TMWSEO\Engine\Logs;
+use TMWSEO\Engine\Import\SourceValidator;
 
 if ( ! defined( 'ABSPATH' ) ) { exit; }
 
@@ -422,6 +423,48 @@ final class ModelResearchPipeline {
 // ── ModelHelper — hooks, metabox, list enhancements ──────────────────────────
 
 class ModelHelper {
+
+    /**
+     * Render the candidate-only public-profile import control.
+     *
+     * The submitted URL is deliberately kept only for this request: this
+     * framework validates it locally and reports that no importer is available.
+     * It neither fetches nor saves profile data.
+     */
+    public static function render_public_profile_import( int $post_id ): void {
+        $source_url = '';
+        $message    = __( 'No profile importer is currently available.', 'tmwseo' );
+        $is_error   = false;
+
+        if (
+            isset( $_POST['tmwseo_public_profile_import'], $_POST['tmwseo_model_research_nonce'] )
+            && current_user_can( 'edit_post', $post_id )
+            && wp_verify_nonce(
+                sanitize_text_field( wp_unslash( (string) $_POST['tmwseo_model_research_nonce'] ) ),
+                'tmwseo_model_research_save_' . $post_id
+            )
+        ) {
+            $source_url = isset( $_POST['tmwseo_public_profile_source_url'] )
+                ? sanitize_text_field( wp_unslash( (string) $_POST['tmwseo_public_profile_source_url'] ) )
+                : '';
+            $validation = ( new SourceValidator() )->validate( $source_url );
+            if ( ! $validation->is_valid ) {
+                $message  = $validation->message;
+                $is_error = true;
+            } else {
+                $source_url = $validation->normalized_url;
+            }
+        }
+
+        echo '<div style="margin:16px 0;padding:12px;border:1px solid #dcdcde;border-radius:4px;">';
+        echo '<strong>' . esc_html__( 'Public Profile Import', 'tmwseo' ) . '</strong>';
+        echo '<p style="margin:6px 0;color:#50575e;">' . esc_html__( 'Validate a public HTTPS profile URL. Importers return candidate data only and none are configured yet.', 'tmwseo' ) . '</p>';
+        echo '<label for="tmwseo_public_profile_source_url" class="screen-reader-text">' . esc_html__( 'Source URL', 'tmwseo' ) . '</label>';
+        echo '<input type="url" id="tmwseo_public_profile_source_url" name="tmwseo_public_profile_source_url" value="' . esc_attr( $source_url ) . '" placeholder="https://example.com/profile" class="regular-text" /> ';
+        echo '<button type="submit" name="tmwseo_public_profile_import" value="1" class="button">' . esc_html__( 'Import', 'tmwseo' ) . '</button>';
+        echo '<p style="margin:8px 0 0;"' . ( $is_error ? ' role="alert"' : '' ) . '>' . esc_html( $message ) . '</p>';
+        echo '</div>';
+    }
 
     // ── Meta key constants ────────────────────────────────────────────────
 
