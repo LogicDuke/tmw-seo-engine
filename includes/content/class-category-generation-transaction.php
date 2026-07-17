@@ -13,9 +13,10 @@ final class CategoryGenerationTransaction {
     /** Canonical form used for the intended/readback hash comparison. */
     public static function canonical_content( string $content ): string {
         $content = str_replace( [ "\r\n", "\r" ], "\n", $content );
-        // WordPress may only vary insignificant whitespace around block comments.
-        $content = preg_replace( '/[ \t]+\n/', "\n", $content ) ?? $content;
-        return trim( $content );
+        // Do not trim lines or terminal whitespace: it is meaningful in
+        // <pre>, code blocks, and editor HTML blocks. CRLF is the only
+        // transport-level representation difference we accept.
+        return $content;
     }
 
     public static function hash( string $content ): string {

@@ -315,6 +315,7 @@ class AdminAjaxHandlers {
             update_post_meta( $post_id, '_tmwseo_category_generation_status', 'queued' );
             delete_post_meta( $post_id, '_tmwseo_category_generation_error' );
             delete_post_meta( $post_id, '_tmwseo_category_last_save_result' );
+            delete_post_meta( $post_id, '_tmwseo_category_transaction_result' );
 
             Logs::info( 'admin', '[TMW-CAT-GEN] queued', [
                 'post_id'              => $post_id,
@@ -394,6 +395,9 @@ class AdminAjaxHandlers {
             // readiness: it is a deliberate post-save transaction outcome.
             $transaction_raw = (string) get_post_meta( $post_id, '_tmwseo_category_transaction_result', true );
             $transaction = $transaction_raw !== '' ? json_decode( $transaction_raw, true ) : [];
+            if ( is_array( $transaction ) && (string) ( $transaction['run_id'] ?? '' ) !== $run_id ) {
+                $transaction = []; // Never let an older request control this response.
+            }
             $save_result_raw = (string) get_post_meta( $post_id, '_tmwseo_category_last_save_result', true );
             $save_result     = $save_result_raw !== '' ? json_decode( $save_result_raw, true ) : [];
             $save_written    = is_array( $save_result ) && ! empty( $save_result['content_written'] );
@@ -407,7 +411,7 @@ class AdminAjaxHandlers {
             // without $save_written the AJAX handler would falsely report "no content was written".
             $after_content_non_empty = trim( $after_content ) !== '';
             $content_differs         = trim( $after_content ) !== trim( $before_content );
-            $content_changed         = $insert_block && $after_content_non_empty && ( $content_differs || $save_written );
+            $content_changed         = $insert_block && $after_content_non_empty && ( $content_differs || $save_written || ( is_array( $transaction ) && !empty( $transaction['verified'] ) ) );
             $preview_changed = ! $insert_block && trim( $after_preview ) !== '' && trim( $after_preview ) !== trim( $before_preview );
 
             if ( $after_done === 'blocked_content_gate' ) {

@@ -2797,6 +2797,7 @@ class ContentEngine {
         if (!is_array($payload)) {
             $payload = [];
         }
+        $category_run_id = (string)($payload['run_id'] ?? '');
 
         $insert_block = (int)($payload['insert_block'] ?? 1) === 1;
         $keywords_only = (int)($payload['keywords_only'] ?? 0) === 1 || (int)($payload['refresh_keywords_only'] ?? 0) === 1;
@@ -3026,7 +3027,7 @@ class ContentEngine {
             // It validates the exact marker/CTA document, saves it, verifies
             // canonical readback, and only then writes generated metadata.
             if ($post->post_type === 'tmw_category_page' && $insert_block) {
-                self::commit_category_generation_transaction($post, $generated_content, $final_content, $keyword_pack, $focus_kw, $seo_title, $meta_desc, $strategy);
+                self::commit_category_generation_transaction($post, $generated_content, $final_content, $keyword_pack, $focus_kw, $seo_title, $meta_desc, $strategy, $category_run_id);
                 return;
             }
             if ($insert_block) {
@@ -3523,7 +3524,7 @@ class ContentEngine {
         }
 
         if ($post->post_type === 'tmw_category_page' && $insert_block) {
-            self::commit_category_generation_transaction($post, $generated_content, $new_content, $keyword_pack, $focus_kw, $seo_title, $meta_desc, $strategy);
+            self::commit_category_generation_transaction($post, $generated_content, $new_content, $keyword_pack, $focus_kw, $seo_title, $meta_desc, $strategy, $category_run_id);
             return;
         }
 
@@ -3643,22 +3644,11 @@ class ContentEngine {
         $pack = self::build_category_keyword_pack($post, $payload);
         $post_id = (int) $post->ID;
 
-        if ($pack['primary'] !== '') {
-            update_post_meta($post_id, '_tmwseo_keyword', $pack['primary']);
-        }
-
-        $confidence_raw = get_post_meta($post_id, '_tmwseo_keyword_confidence', true);
-        if ($confidence_raw === '' || $confidence_raw === false || (float) $confidence_raw < 10.0) {
-            update_post_meta($post_id, '_tmwseo_keyword_confidence', 80);
-        }
-
-        if ($pack['primary'] !== '' && trim((string) get_post_meta($post_id, 'rank_math_focus_keyword', true)) === '') {
-            update_post_meta($post_id, 'rank_math_focus_keyword', $pack['primary']);
-        }
-
-        self::apply_category_rankmath_extras($post_id, $pack);
-
-        update_post_meta($post_id, '_tmwseo_keyword_pack', wp_json_encode($pack));
+        // This is deliberately an in-memory proposal. The previous version
+        // wrote keyword/confidence/Rank Math/pack metadata before a fragment
+        // had passed persistence verification, making blocked runs observable.
+        // The authoritative transaction persists required fields only after
+        // verified post_content readback.
 
         return $pack;
     }
@@ -3672,9 +3662,9 @@ class ContentEngine {
      * readiness and robots. A failed content write restores the pre-run
      * document and generated metadata before returning a structured result.
      */
-    private static function commit_category_generation_transaction(\WP_Post $post, string $fragment, string $final_content, array $keyword_pack, string $focus_kw, string $seo_title, string $meta_desc, string $strategy): array {
+    private static function commit_category_generation_transaction(\WP_Post $post, string $fragment, string $final_content, array $keyword_pack, string $focus_kw, string $seo_title, string $meta_desc, string $strategy, string $expected_run_id): array {
         $post_id = (int) $post->ID;
-        $run_id = (string) get_post_meta($post_id, '_tmwseo_category_generation_run_id', true);
+        $run_id = $expected_run_id;
         $keys = [
             '_tmwseo_quality_score', '_tmwseo_quality_score_data', '_tmwseo_content_quality_score',
             'rank_math_title', 'rank_math_description', 'rank_math_focus_keyword', 'rank_math_additional_keywords',
@@ -3686,16 +3676,31 @@ class ContentEngine {
         foreach ($keys as $key) { $snapshot['meta'][$key] = get_post_meta($post_id, $key, true); }
         $robots_before = $snapshot['meta']['rank_math_robots'];
         $result = [
-            'ok' => false, 'written' => false, 'run_id' => $run_id, 'post_id' => $post_id,
+            'ok' => false, 'written' => false, 'content_written' => false, 'verified' => false, 'rollback_status' => 'not_needed', 'run_id' => $run_id, 'post_id' => $post_id,
             'strategy' => $strategy, 'provider' => $strategy === 'template' ? 'template' : $strategy,
             'failure_code' => '', 'reasons' => [],
             'old_content_hash' => \TMWSEO\Engine\Content\CategoryGenerationTransaction::hash($snapshot['content']),
             'fragment_hash' => \TMWSEO\Engine\Content\CategoryGenerationTransaction::hash($fragment),
             'intended_content_hash' => \TMWSEO\Engine\Content\CategoryGenerationTransaction::hash($final_content),
-            'persisted_readback_hash' => '', 'save_result' => null, 'finalization_status' => 'skipped',
+            'persisted_content_hash' => '', 'persisted_readback_hash' => '', 'save_result' => null, 'finalization_status' => 'skipped',
             'readiness' => ['evaluated' => false, 'reasons' => []], 'robots_before' => $robots_before, 'robots_after' => $robots_before,
         ];
-        $fail = static function (string $code, array $reasons) use (&$result, $post_id, $snapshot): array {
+        if ($run_id === '' || (string)get_post_meta($post_id, '_tmwseo_category_generation_run_id', true) !== $run_id) {
+            $result['failure_code'] = 'transaction_superseded'; $result['reasons'] = ['request run ID is no longer active'];
+            update_post_meta($post_id, '_tmwseo_category_transaction_result', wp_json_encode($result));
+            return $result;
+        }
+        $lock_key = '_tmwseo_category_generation_lock';
+        if (!add_post_meta($post_id, $lock_key, $run_id, true)) {
+            $result['failure_code'] = 'transaction_lock_failed'; $result['reasons'] = ['another category transaction holds the post lock'];
+            update_post_meta($post_id, '_tmwseo_category_transaction_result', wp_json_encode($result));
+            return $result;
+        }
+        $fail = static function (string $code, array $reasons) use (&$result, $post_id, $snapshot, $run_id, $lock_key): array {
+            if ((string)get_post_meta($post_id, '_tmwseo_category_generation_run_id', true) !== $run_id || (string)get_post_meta($post_id, $lock_key, true) !== $run_id) {
+                $result['failure_code'] = 'transaction_ownership_lost'; $result['reasons'] = ['newer request owns this post; rollback skipped']; $result['rollback_status'] = 'skipped_ownership_lost';
+                return $result;
+            }
             // Content is restored even if a database/filter layer partially wrote it.
             $current = (string) get_post_field('post_content', $post_id);
             if ($current !== $snapshot['content']) { wp_update_post(['ID' => $post_id, 'post_content' => $snapshot['content']], true); }
@@ -3704,6 +3709,8 @@ class ContentEngine {
                 else { update_post_meta($post_id, $key, $value); }
             }
             clean_post_cache($post_id);
+            $result['rollback_status'] = ((string)get_post_field('post_content', $post_id) === $snapshot['content']) ? 'verified' : 'rollback_verification_failed';
+            if ($result['rollback_status'] === 'rollback_verification_failed') { $code = 'rollback_verification_failed'; $reasons[] = 'post_content restoration did not verify'; }
             $result['failure_code'] = $code;
             $result['reasons'] = array_values($reasons);
             update_post_meta($post_id, '_tmwseo_category_last_save_result', wp_json_encode($result));
@@ -3711,6 +3718,7 @@ class ContentEngine {
             update_post_meta($post_id, '_tmwseo_category_generation_error', $code . ': ' . implode('; ', $reasons));
             update_post_meta($post_id, '_tmwseo_optimize_done', $code);
             Logs::warn('content', '[TMW-CAT-VERIFY] transaction rolled back', ['post_id' => $post_id, 'failure_code' => $code, 'reasons' => $reasons]);
+            delete_post_meta($post_id, $lock_key);
             return $result;
         };
         Logs::info('content', '[TMW-CAT-BUILD] final document built', ['post_id' => $post_id, 'run_id' => $run_id, 'old_content_hash' => $result['old_content_hash'], 'fragment_hash' => $result['fragment_hash'], 'intended_content_hash' => $result['intended_content_hash']]);
@@ -3730,6 +3738,7 @@ class ContentEngine {
         clean_post_cache($post_id);
         $readback = (string)get_post_field('post_content', $post_id);
         $result['persisted_readback_hash'] = \TMWSEO\Engine\Content\CategoryGenerationTransaction::hash($readback);
+        $result['persisted_content_hash'] = $result['persisted_readback_hash'];
         if ($result['persisted_readback_hash'] !== $result['intended_content_hash']) { return $fail('persisted_readback_mismatch', ['canonical intended and persisted document hashes differ']); }
         // No generated metadata is touched above this line.
         try {
@@ -3744,11 +3753,12 @@ class ContentEngine {
             $result['readiness'] = ['evaluated' => true, 'ready' => !empty($gate['ready']), 'reasons' => (array)($gate['reasons'] ?? [])];
             self::maybe_clear_rank_math_noindex(get_post($post_id));
         } catch (\Throwable $e) { return $fail('metadata_finalize_failed', [$e->getMessage()]); }
-        $result['ok'] = true; $result['written'] = true; $result['finalization_status'] = 'complete';
+        $result['ok'] = true; $result['written'] = true; $result['content_written'] = true; $result['verified'] = true; $result['finalization_status'] = 'complete';
         $result['robots_after'] = get_post_meta($post_id, 'rank_math_robots', true);
         update_post_meta($post_id, '_tmwseo_category_last_save_result', wp_json_encode($result));
         update_post_meta($post_id, '_tmwseo_category_transaction_result', wp_json_encode($result));
         update_post_meta($post_id, '_tmwseo_optimize_done', 'category_transaction_complete');
+        delete_post_meta($post_id, $lock_key);
         Logs::info('content', '[TMW-CAT-FINALIZE] transaction complete', ['post_id' => $post_id, 'run_id' => $run_id, 'readiness' => $result['readiness'], 'robots_after' => $result['robots_after']]);
         return $result;
     }
@@ -3758,12 +3768,12 @@ class ContentEngine {
         $post_id = (int)$post->ID;
         $old = (string)get_post_field('post_content', $post_id);
         $result = [
-            'ok' => false, 'written' => false, 'post_id' => $post_id,
+            'ok' => false, 'written' => false, 'content_written' => false, 'verified' => false, 'rollback_status' => 'not_needed', 'post_id' => $post_id,
             'run_id' => (string)get_post_meta($post_id, '_tmwseo_category_generation_run_id', true),
             'strategy' => $strategy, 'provider' => $strategy === 'template' ? 'template' : $strategy,
             'failure_code' => $code, 'reasons' => array_values(array_map('strval', $reasons)),
             'old_content_hash' => \TMWSEO\Engine\Content\CategoryGenerationTransaction::hash($old),
-            'fragment_hash' => '', 'intended_content_hash' => '', 'persisted_readback_hash' => '',
+            'fragment_hash' => '', 'intended_content_hash' => '', 'persisted_content_hash' => '', 'persisted_readback_hash' => '',
             'save_result' => null, 'finalization_status' => 'skipped',
             'readiness' => ['evaluated' => false, 'reasons' => ['not_evaluated_generation_failed']],
             'robots_before' => get_post_meta($post_id, 'rank_math_robots', true),
