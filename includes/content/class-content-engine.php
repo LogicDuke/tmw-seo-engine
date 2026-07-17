@@ -2780,6 +2780,11 @@ class ContentEngine {
     }
 
     public static function run_optimize_job(array $job): void {
+        // v5.9.13: never let a previous job's final-document density context
+        // leak into this one (multi-post cron/batch safety).
+        if (class_exists('\\TMWSEO\\Engine\\Content\\CategoryPipeline\\CategoryDensityPolicy')) {
+            \TMWSEO\Engine\Content\CategoryPipeline\CategoryDensityPolicy::clear_final_context();
+        }
         $post_id = (int)($job['entity_id'] ?? 0);
         $dry = (int) Settings::get('tmwseo_dry_run_mode', 0);
         if ($post_id <= 0) {
@@ -2831,6 +2836,21 @@ class ContentEngine {
             // v5.9.0: carry the manual-generate intent into the template builder
             // so the pool guard log can report the real flag rather than a hardcoded value.
             $keyword_pack['_manual_cat_generate'] = true;
+
+            // v5.9.13 ROOT-CAUSE FIX (divergent live densities): every
+            // strategy composes and validates a FRAGMENT, but Rank Math
+            // analyzes the FULL persisted document (existing content
+            // before the AI marker + fragment + preserved affiliate CTA)
+            // with its own tokenizer. Register that surrounding context
+            // once, here, at the single category entry point, so the
+            // density policy targets and validates the exact word count
+            // and combined match count the live editor will display.
+            // Cleared in finalize_category_generation and on every early
+            // return via clear_category_density_context().
+            if (class_exists('\\TMWSEO\\Engine\\Content\\CategoryPipeline\\CategoryDensityPolicy')) {
+                [$ctx_prefix, $ctx_suffix] = self::compute_category_final_context($post, $insert_block);
+                \TMWSEO\Engine\Content\CategoryPipeline\CategoryDensityPolicy::set_final_context($ctx_prefix, $ctx_suffix);
+            }
         }
 
         if ($keywords_only) {
@@ -3679,6 +3699,105 @@ class ContentEngine {
         if (class_exists('\\TMWSEO\\Engine\\Content\\CategorySeoVerification')) {
             CategorySeoVerification::verify_and_store($post_id);
         }
+
+        // v5.9.13 — the two audited category root causes, fixed at the
+        // single post-save finalization point (both save paths run here):
+        //
+        // (1) NOINDEX: the docblock above always CLAIMED "Finalization
+        //     calculates _tmwseo_ready_to_index", but nothing on the
+        //     category path ever called the readiness gate — the only
+        //     writers were a manual metabox checkbox and the AJAX
+        //     handler's revert. maybe_clear_rank_math_noindex() then
+        //     silently returned at its `ready !== '1'` gate on every
+        //     generation, so rank_math_robots kept 'noindex' and the
+        //     editor kept showing "Noindex robots meta is enabled".
+        //     The gate now runs HERE, against the persisted final state,
+        //     and its decision + reasons are logged loudly. All safety
+        //     gates (toggle off, draft, quality/uniqueness/confidence
+        //     thresholds, approval) still preserve noindex.
+        //
+        // (2) CHIPS: the engine's own placement contract passed while the
+        //     real editor stayed orange. The Rank Math-faithful chip
+        //     analyzer (built from the shipped analyzer.js) now scores
+        //     every stored chip against the persisted READBACK content +
+        //     real SEO title/description/slug and stores the per-keyword
+        //     report — including each chip's achievable ceiling, which
+        //     makes page-level caps (600-999 words = 2/8 lengthContent,
+        //     no TOC plugin = 0/2, no number in title = 0/1) visible
+        //     instead of silently blamed on keyword placement.
+        clean_post_cache($post_id);
+        $final_post = get_post($post_id);
+        $final_html = $final_post instanceof \WP_Post ? (string) $final_post->post_content : '';
+
+        if (class_exists('\\TMWSEO\\Engine\\Content\\IndexReadinessGate')) {
+            $gate = IndexReadinessGate::evaluate_post($post_id);
+            Logs::info('content', '[TMW-CAT-READY] readiness evaluated at category finalization', [
+                'post_id' => $post_id,
+                'ready'   => ! empty($gate['ready']),
+                'reasons' => (array) ($gate['reasons'] ?? []),
+            ]);
+        }
+
+        if ($final_html !== '' && class_exists('\\TMWSEO\\Engine\\Content\\RankMathChipAnalyzer')) {
+            $site_host = (string) parse_url((string) home_url(), PHP_URL_HOST);
+            $report = RankMathChipAnalyzer::analyze([
+                'content'       => $final_html,
+                'title'         => (string) get_post_meta($post_id, 'rank_math_title', true),
+                'description'   => (string) get_post_meta($post_id, 'rank_math_description', true),
+                'url_slug'      => (string) ($final_post->post_name ?? ''),
+                'site_domain'   => $site_host,
+                'keywords_csv'  => (string) get_post_meta($post_id, 'rank_math_focus_keyword', true),
+                'has_thumbnail' => has_post_thumbnail($post_id),
+            ]);
+            update_post_meta($post_id, '_tmwseo_rankmath_chip_report', wp_json_encode($report));
+
+            $chip_summary = [];
+            foreach ((array) ($report['keywords'] ?? []) as $kw_row) {
+                $chip_summary[] = sprintf(
+                    '%s=%s(%d%%/cap %d%%)',
+                    (string) $kw_row['keyword'],
+                    (string) $kw_row['predicted_chip'],
+                    (int) $kw_row['percent'],
+                    (int) $kw_row['ceiling_percent']
+                );
+            }
+            Logs::info('content', '[TMW-CAT-CHIPS] Rank Math-faithful chip prediction on persisted content', [
+                'post_id'  => $post_id,
+                'words'    => (int) ($report['word_count'] ?? 0),
+                'density'  => (float) ($report['combined']['density'] ?? 0),
+                'band'     => (string) ($report['combined']['band'] ?? ''),
+                'chips'    => $chip_summary,
+            ]);
+        }
+
+        // The final-document density context belongs to this generation only.
+        if (class_exists('\\TMWSEO\\Engine\\Content\\CategoryPipeline\\CategoryDensityPolicy')) {
+            \TMWSEO\Engine\Content\CategoryPipeline\CategoryDensityPolicy::clear_final_context();
+        }
+    }
+
+    /**
+     * v5.9.13: the document Rank Math will actually analyze is
+     * prefix + generated fragment + suffix. Compute prefix/suffix from the
+     * CURRENT post content and the AI-marker composition rules used by
+     * upsert_ai_block() / append_category_affiliate_cta_html().
+     *
+     * @return array{0:string,1:string} [prefix_html, suffix_html]
+     */
+    private static function compute_category_final_context(\WP_Post $post, bool $insert_block): array {
+        if (! $insert_block) {
+            return ['', ''];
+        }
+        $content = (string) $post->post_content;
+        $marker  = '<!-- TMWSEO:AI -->';
+        if (strpos($content, $marker) !== false) {
+            $parts  = explode($marker, $content, 2);
+            $prefix = rtrim((string) $parts[0]);
+            $suffix = self::extract_category_affiliate_slot_block((string) ($parts[1] ?? ''));
+            return [$prefix, $suffix];
+        }
+        // Marker absent: upsert appends the fragment after existing content.
+        return [rtrim($content), ''];
     }
 
     /**

@@ -1,5 +1,26 @@
 # Changelog
 
+## 5.9.13-production-pipeline-root-cause-v1.0.0 — 2026-07-17
+
+Production root-cause release, built from a full audit of the LIVE execution path (live ZIPs proven byte-identical to repo main — 642 files, zero diffs) plus a reverse-engineering of the shipped Rank Math 1.0.274.1 JS analyzer. Fixes the two symptoms that survived four previous repair releases on the five regenerated category pages: the persistent "Noindex robots meta is enabled" warning and the orange supporting chips with divergent densities (1.90 / 1.54 / 1.00 / 0.87 / 0.89).
+
+### Root causes (all proven in code, none category-specific)
+1. READINESS NEVER PERSISTED + AJAX REVERT — `finalize_category_generation()`'s docblock claimed it computed `_tmwseo_ready_to_index`, but no category-path code ever called `IndexReadinessGate::evaluate_post()`. Worse, the AJAX generate wrapper REVERTED `_tmwseo_ready_to_index` to its pre-generation value after every job, and `EditorAiMetabox::save_metabox()` deleted it on any editor Update without the checkbox. `maybe_clear_rank_math_noindex()` therefore silently returned at its `ready !== '1'` gate on every generation — noindex could never clear.
+2. FRAGMENT vs FULL DOCUMENT — every strategy validated density on the generated FRAGMENT with the engine's own word counter and boundary-guarded matching, while Rank Math analyzes the FULL persisted document (content before the AI marker + fragment + preserved affiliate CTA) with its own tokenizer and SUBSTRING matching over the full stored chip CSV (1 primary + up to 8 extras). The engine passed its own contract at "≥1.0%" while the live editor computed 0.87% on more words — orange by construction.
+3. NO CHIP-SCORE MODEL — no previous release modeled the actual per-chip score: round(Σscore/Σmax×100) over the shipped 14-test secondary list (max 49), green only above 80%. At 600–999 words (lengthContent 2/8), with no TOC plugin (0/2) and no number in the title (0/1), the ceiling is 40/49 = 82%: ONE additional miss (density band "good" not "best", assets < 6, phrase absent from a subheading) forces orange. The five live pages sat exactly in this regime.
+
+### Fixes (universal, shared pipeline only)
+- NEW `includes/content/class-rank-math-chip-analyzer.php` — faithful server-side model of the shipped Rank Math analyzer: tokenizer, substring matching, combined-density alternation in stored CSV order with the exact band table (incl. the 0.75/1.0 inRange quirks), subheading regex, the exact secondary/primary test lists with en-locale maxima, per-chip score/color prediction and achievable-ceiling reporting.
+- `CategoryDensityPolicy` — final-document context: when the engine registers the surrounding prefix/suffix (single category entry point in `run_optimize_job`), `evaluate()` computes word count and combined matches with the faithful analyzer over the exact document Rank Math will analyze. Placement/repair now targets the number the editor displays. Historical behavior preserved when no context is set.
+- `finalize_category_generation()` — now does what its docblock always claimed: runs `IndexReadinessGate::evaluate_post()` against the persisted final state (fail-closed quality/uniqueness/confidence gates intact, `[TMW-CAT-READY]` log), then stores a full Rank Math-faithful chip report (`_tmwseo_rankmath_chip_report`, `[TMW-CAT-CHIPS]` log with per-chip color + ceiling) computed from the post READBACK.
+- `AdminAjaxHandlers` — the readiness revert is removed; the gate is authoritative and changes are logged (`[TMW-CAT-GEN]`).
+- `EditorAiMetabox` — editor saves no longer delete gate-computed category readiness (checkbox force-on still works; other post types unchanged).
+- `IndexReadinessGate::init()` — log-only `rank_math_robots` write/delete watcher (`[TMW-NOINDEX-SOURCE]`) attributing every robots write with request context, so a stale Gutenberg Update replaying editor noindex state is detected instead of silently winning.
+
+### Verification
+- NEW `tests/run-rankmath-chip-analyzer-smoke.php` (33 assertions): shipped band-table quirks, substring-vs-boundary semantics, secondary-chip ceiling math (82/76/78%), subheading regex, and EXACT reproduction of two live cases from the supplied PDF — Big Boob Cam: 13 matches / 684 words / 1.90% best (live: identical); Free Cam Chat: 6 / 690 / 0.87% good (live: identical).
+- Existing suites, zero regressions: real-output regression 236, dynamic density 96, quality hardening 183, seo repair 90, stored chips 140, universal pipeline 112. (`run-category-supporting-heading-smoke` cannot run in the sandbox on unmodified main either — missing WP shim, pre-existing.)
+
 ## 5.9.12-exact-rankmath-chips-v1.0.0 — 2026-07-16
 
 Exact stored Rank Math chip contract, driven by the live WordPress test: the stored additional keywords (big breast webcam / big boobs webcam / biggest boobs webcam / massive boob webcam) stayed orange while the generated page carried approved-pool substitutes ("Enormous Boobs Webcam" style) that Rank Math never analyzes. Plus the two remaining live symptoms: "Noindex robots meta is enabled" and the audited boilerplate sentences surviving persistence.

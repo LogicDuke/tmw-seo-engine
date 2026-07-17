@@ -46,6 +46,41 @@ class CategoryDensityPolicy {
 	public const PRIMARY_STRUCTURAL_MIN = 3;
 
 	/**
+	 * v5.9.13 — FINAL-DOCUMENT CONTEXT (root cause of the divergent live
+	 * densities). The pipeline composes and validates a FRAGMENT, but the
+	 * persisted post_content is prefix (existing content before the AI
+	 * marker) + fragment + suffix (preserved affiliate CTA block), and
+	 * Rank Math analyzes THAT full document with its own tokenizer. The
+	 * engine therefore validated 1.0%+ on ~600 self-counted words while
+	 * the live editor reported 0.87% on 690 Rank Math-counted words.
+	 *
+	 * When a final context is set (production generation paths only —
+	 * tests that don't set it keep the historical behavior), evaluate()
+	 * computes word count and combined matches with the Rank Math-
+	 * faithful analyzer over prefix + fragment + suffix, so the pipeline
+	 * targets and validates the exact number the editor will display.
+	 */
+	private static string $context_prefix = '';
+	private static string $context_suffix = '';
+	private static bool   $context_set    = false;
+
+	public static function set_final_context( string $prefix_html, string $suffix_html ): void {
+		self::$context_prefix = $prefix_html;
+		self::$context_suffix = $suffix_html;
+		self::$context_set    = true;
+	}
+
+	public static function clear_final_context(): void {
+		self::$context_prefix = '';
+		self::$context_suffix = '';
+		self::$context_set    = false;
+	}
+
+	public static function has_final_context(): bool {
+		return self::$context_set;
+	}
+
+	/**
 	 * Visible word count of rendered HTML — the same counting the final
 	 * validator uses, so policy and validation can never disagree.
 	 */
@@ -149,10 +184,21 @@ class CategoryDensityPolicy {
 	 * }
 	 */
 	public static function evaluate( string $html, array $tracked ): array {
-		$words    = self::word_count( $html );
-		$targets  = self::targets( $words );
-		$combined = self::combined_matches( $html, $tracked );
-		$density  = $words > 0 ? round( ( $combined / $words ) * 100, 2 ) : 0.0;
+		if ( self::$context_set && class_exists( '\\TMWSEO\\Engine\\Content\\RankMathChipAnalyzer' ) ) {
+			// Production paths: count exactly like the shipped Rank Math
+			// analyzer, over the exact document it will analyze.
+			$full     = self::$context_prefix . "\n" . $html . "\n" . self::$context_suffix;
+			$words    = \TMWSEO\Engine\Content\RankMathChipAnalyzer::word_count( $full );
+			$rm       = \TMWSEO\Engine\Content\RankMathChipAnalyzer::combined_density( $full, $tracked );
+			$combined = (int) $rm['matches'];
+			$targets  = self::targets( $words );
+			$density  = (float) $rm['density'];
+		} else {
+			$words    = self::word_count( $html );
+			$targets  = self::targets( $words );
+			$combined = self::combined_matches( $html, $tracked );
+			$density  = $words > 0 ? round( ( $combined / $words ) * 100, 2 ) : 0.0;
+		}
 
 		$status = 'within';
 		if ( $combined < $targets['min_count'] ) { $status = 'below'; }

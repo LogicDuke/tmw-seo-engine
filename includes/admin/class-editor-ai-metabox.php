@@ -514,6 +514,18 @@ class Editor_AI_Metabox {
             return;
         }
 
+        // v5.9.13: for category pages the readiness meta is computed by
+        // IndexReadinessGate::evaluate_post() at generation finalization and
+        // is the noindex-clearing authority. The metabox checkbox renders
+        // from PRE-generation state, so a routine editor Update used to POST
+        // without the checkbox and silently DELETE the gate's fresh '1' —
+        // one of the writers that made the noindex warning persist. Editor
+        // saves no longer clear gate-computed category readiness; operators
+        // can still force it off via the Content Review page.
+        if ($post_type === 'tmw_category_page') {
+            return;
+        }
+
         delete_post_meta($post_id, '_tmwseo_ready_to_index');
     }
 

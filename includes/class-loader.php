@@ -223,6 +223,7 @@ class Loader {
         tmwseo_safe_require( $p . 'class-video-content-builder.php' );
         tmwseo_safe_require( $p . 'class-audit-trail.php' );
         tmwseo_safe_require( $p . 'class-rank-math-mapper.php' );
+        tmwseo_safe_require( $p . 'class-rank-math-chip-analyzer.php' ); // v5.9.13 — faithful chip/density model of the shipped Rank Math JS.
         tmwseo_safe_require( $p . 'class-rank-math-reader.php' );
         tmwseo_safe_require( $p . 'class-rank-math-checklist.php' );
         tmwseo_safe_require( $p . 'class-content-generation-gate.php' );
