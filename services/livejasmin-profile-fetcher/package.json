@@ -1,0 +1,1 @@
+{"name":"tmw-livejasmin-profile-fetcher","version":"1.0.0","private":true,"engines":{"node":">=20.0.0"},"scripts":{"start":"node src/server.js","test":"node --test"},"dependencies":{"playwright":"1.55.0"}}

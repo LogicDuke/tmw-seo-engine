@@ -13,6 +13,11 @@ class Settings {
             // Enabling this runs hourly scrapes of external cam platforms.
             // Only enable after reviewing the Terms of Service of each platform.
             'model_discovery_enabled' => 0,
+            // Explicitly staging-only; Safe Mode always disables this remote client.
+            'livejasmin_profile_fetch_enabled' => 0,
+            'livejasmin_profile_fetch_endpoint' => '',
+            'livejasmin_profile_fetch_secret' => '',
+            'livejasmin_profile_fetch_timeout' => 15,
 
             // Phase 1 policy
             // Manual Control Mode disables all cron + automatic post optimizations.
@@ -148,6 +153,7 @@ class Settings {
             'google_ads_developer_token',
             'google_ads_client_secret',
             'google_ads_refresh_token',
+            'livejasmin_profile_fetch_secret',
         ];
     }
 
