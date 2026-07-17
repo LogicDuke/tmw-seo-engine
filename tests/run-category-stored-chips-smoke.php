@@ -180,6 +180,15 @@ require_once dirname(__DIR__) . '/includes/content/class-content-engine.php';
 $engine_src = file_get_contents(dirname(__DIR__) . '/includes/content/class-content-engine.php');
 check('category-page exclusion REMOVED from the save path', strpos($engine_src, "if (\$post->post_type !== 'tmw_category_page') {\n            self::maybe_clear_rank_math_noindex(\$post);") === false);
 check('post-write verification present (read-back of saved robots)', strpos($engine_src, 'cleared+verified') !== false);
+$template_start = strpos($engine_src, "if (\$strategy === 'template' || !OpenAI::is_configured()) {");
+$template_end = strpos($engine_src, "\n        \$context =", $template_start);
+$template_save_path = substr($engine_src, $template_start, $template_end - $template_start);
+$template_finalize = strpos($template_save_path, 'self::finalize_category_generation($post_id, $post, $keyword_pack);');
+$template_clear = strpos($template_save_path, 'self::maybe_clear_rank_math_noindex($post);', $template_finalize);
+check('ready template categories clear noindex after finalization', $template_finalize !== false && $template_clear !== false && $template_clear > $template_finalize);
+$ai_start = strpos($engine_src, '$html      = wp_kses_post(trim($html));');
+$ai_save_path = substr($engine_src, $ai_start);
+check('AI path still clears noindex after saving', strpos($ai_save_path, 'self::maybe_clear_rank_math_noindex($post);') !== false);
 $clear_ref = new ReflectionMethod('\TMWSEO\Engine\Content\ContentEngine', 'maybe_clear_rank_math_noindex');
 $clear_ref->setAccessible(true);
 $mk = static function (int $id, string $type = 'tmw_category_page', string $status = 'publish'): \WP_Post {
@@ -201,6 +210,9 @@ check('gate holds: toggle OFF → untouched', get_post_meta(1202, 'rank_math_rob
 $reset(1203, ['auto_clear_noindex' => 1], ['rank_math_robots' => ['noindex']]);
 $clear_ref->invokeArgs(null, [$mk(1203)]);
 check('gate holds: not ready_to_index → untouched', get_post_meta(1203, 'rank_math_robots', true) === ['noindex']);
+$reset(1204, ['auto_clear_noindex' => 1], ['_tmwseo_ready_to_index' => '1', 'rank_math_robots' => ['noindex']]);
+$clear_ref->invokeArgs(null, [$mk(1204, 'tmw_category_page', 'draft')]);
+check('gate holds: draft status → untouched', get_post_meta(1204, 'rank_math_robots', true) === ['noindex']);
 
 echo "\n== F. Persistence boilerplate gate on the FINAL HTML ==\n";
 $gate_ref = new ReflectionMethod('\TMWSEO\Engine\Content\ContentEngine', 'enforce_category_persistence_guard');
@@ -214,6 +226,15 @@ check('repaired HTML passes the structural guard', empty(array_filter(CategoryQu
 $novel = '<p>The signal settles the shortlist quite fast today.</p><p>Every performer page states its own format clearly.</p>';
 $g2 = (array) $gate_ref->invokeArgs(null, [$novel, [], 1302]);
 check('novel filler-on-filler sentence removed structurally (not a string blacklist)', stripos((string) $g2['html'], 'settles the shortlist') === false, (string) $g2['html']);
+
+$ai_start = strpos($engine_src, '$html      = wp_kses_post(trim($html));');
+$ai_gate = strpos($engine_src, 'self::enforce_category_persistence_guard($new_content, $gate_keywords, $post_id);', $ai_start);
+$ai_blocked_return = strpos($engine_src, 'return;', $ai_gate);
+$ai_metadata = strpos($engine_src, 'AssistedDraftEnrichmentService::persist_quality_score(', $ai_start);
+$ai_mapping = strpos($engine_src, 'RankMathMapper::sync_to_rank_math(', $ai_start);
+$ai_blocked_path = substr($engine_src, $ai_gate, $ai_blocked_return - $ai_gate);
+check('blocked persistence guard runs before generated quality and Rank Math metadata', $ai_gate !== false && $ai_metadata !== false && $ai_mapping !== false && $ai_gate < $ai_metadata && $ai_gate < $ai_mapping);
+check('blocked persistence leaves old content and generated metadata unchanged', strpos($ai_blocked_path, 'wp_update_post(') === false && strpos($ai_blocked_path, 'persist_quality_score(') === false && strpos($ai_blocked_path, 'rank_math_title') === false && strpos($ai_blocked_path, 'rank_math_description') === false && strpos($ai_blocked_path, 'RankMathMapper::sync_to_rank_math(') === false);
 
 echo "\n== G. No category-specific production logic ==\n";
 $prod = '';

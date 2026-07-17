@@ -3021,8 +3021,6 @@ class ContentEngine {
                     $final_content = self::append_category_affiliate_cta_html($final_content, $post);
                 }
             }
-            AssistedDraftEnrichmentService::persist_quality_score($post_id, $generated_content, $post, $focus_kw, $keyword_pack);
-
             if ($insert_block) {
                 // v5.9.12 — persistence-time structural guard (category only).
                 if ($post->post_type === 'tmw_category_page') {
@@ -3044,6 +3042,9 @@ class ContentEngine {
                     }
                     $final_content = (string) $persist_gate['html'];
                 }
+                // Keep generated quality metadata aligned with content that
+                // passed the category persistence guard.
+                AssistedDraftEnrichmentService::persist_quality_score($post_id, $generated_content, $post, $focus_kw, $keyword_pack);
                 $before_save_content = (string) get_post_field('post_content', $post_id);
                 $update_result = wp_update_post([
                     'ID'           => $post_id,
@@ -3091,6 +3092,7 @@ class ContentEngine {
                     ]);
                 }
             } else {
+                AssistedDraftEnrichmentService::persist_quality_score($post_id, $generated_content, $post, $focus_kw, $keyword_pack);
                 update_post_meta($post_id, '_tmwseo_ai_preview_content', $generated_content);
                 update_post_meta($post_id, '_tmwseo_ai_preview_generated_at', current_time('mysql'));
                 update_post_meta($post_id, '_tmwseo_preview_content_html', $generated_content);
@@ -3131,15 +3133,15 @@ class ContentEngine {
                 AssistedDraftEnrichmentService::update_model_secondary_keywords_for_post($post, $focus_kw);
             }
 
-            // Don't automatically remove noindex for category-page generation; manual index review remains required.
-            if ($post->post_type !== 'tmw_category_page') {
-                self::maybe_clear_rank_math_noindex($post);
-            }
-
             // v5.9.5: image metadata + per-keyword verification (apply mode only).
             if ($post->post_type === 'tmw_category_page' && $insert_block) {
                 self::finalize_category_generation($post_id, $post, $keyword_pack);
             }
+
+            // Finalization calculates _tmwseo_ready_to_index for category
+            // pages. Clear noindex only afterwards; this method retains the
+            // toggle, publish-status, and readiness safety gates.
+            self::maybe_clear_rank_math_noindex($post);
 
             delete_post_meta($post_id, '_tmwseo_optimize_enqueued');
             update_post_meta($post_id, '_tmwseo_optimize_done', ($strategy === 'template') ? 'template' : 'template_fallback');
@@ -3486,21 +3488,6 @@ class ContentEngine {
         $generated_content = $html;
         if ($debug) { error_log('TMW run_optimize_job CONTENT_LENGTH=' . strlen($generated_content)); }
 
-        AssistedDraftEnrichmentService::persist_quality_score($post_id, $generated_content, $post, $focus_kw, $keyword_pack);
-
-        if ($seo_title !== '') update_post_meta($post_id, 'rank_math_title', $seo_title);
-        if ($meta_desc !== '') update_post_meta($post_id, 'rank_math_description', $meta_desc);
-        if ($focus_kw !== '') {
-            // Patch 2: use centralized RankMathMapper (focus + 4 extras cap).
-            if (!empty($keyword_pack) && class_exists('\\TMWSEO\\Engine\\Content\\RankMathMapper')) {
-                RankMathMapper::sync_to_rank_math($post_id, $keyword_pack, true);
-            } elseif (!get_post_meta($post_id, 'rank_math_focus_keyword', true)) {
-                update_post_meta($post_id, 'rank_math_focus_keyword', $focus_kw);
-            }
-            update_post_meta($post_id, '_tmwseo_keyword', $focus_kw);
-            AssistedDraftEnrichmentService::update_model_secondary_keywords_for_post($post, $focus_kw);
-        }
-
         // Update content via a dedicated marker block (optional).
         $new_content = $insert_block ? self::upsert_ai_block((string)$post->post_content, $html) : $html;
         // v5.9.12 — persistence-time structural guard (AI path, category only).
@@ -3524,6 +3511,24 @@ class ContentEngine {
         }
         if ($post->post_type === 'tmw_category_page' && $insert_block) {
             $new_content = self::append_category_affiliate_cta_html($new_content, $post);
+        }
+
+        // Generated metadata must describe only content that passed the
+        // category persistence gate above. A blocked draft leaves both the
+        // existing post content and its SEO metadata untouched.
+        AssistedDraftEnrichmentService::persist_quality_score($post_id, $generated_content, $post, $focus_kw, $keyword_pack);
+
+        if ($seo_title !== '') update_post_meta($post_id, 'rank_math_title', $seo_title);
+        if ($meta_desc !== '') update_post_meta($post_id, 'rank_math_description', $meta_desc);
+        if ($focus_kw !== '') {
+            // Patch 2: use centralized RankMathMapper (focus + 4 extras cap).
+            if (!empty($keyword_pack) && class_exists('\\TMWSEO\\Engine\\Content\\RankMathMapper')) {
+                RankMathMapper::sync_to_rank_math($post_id, $keyword_pack, true);
+            } elseif (!get_post_meta($post_id, 'rank_math_focus_keyword', true)) {
+                update_post_meta($post_id, 'rank_math_focus_keyword', $focus_kw);
+            }
+            update_post_meta($post_id, '_tmwseo_keyword', $focus_kw);
+            AssistedDraftEnrichmentService::update_model_secondary_keywords_for_post($post, $focus_kw);
         }
 
         // Only update post if content actually changed.
