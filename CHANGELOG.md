@@ -1,5 +1,25 @@
 # Changelog
 
+## 5.9.12-exact-rankmath-chips-v1.0.0 — 2026-07-16
+
+Exact stored Rank Math chip contract, driven by the live WordPress test: the stored additional keywords (big breast webcam / big boobs webcam / biggest boobs webcam / massive boob webcam) stayed orange while the generated page carried approved-pool substitutes ("Enormous Boobs Webcam" style) that Rank Math never analyzes. Plus the two remaining live symptoms: "Noindex robots meta is enabled" and the audited boilerplate sentences surviving persistence.
+
+### Root causes (all verified in code, none category-specific)
+1. SILENT SUBSTITUTION — `build_category_keyword_pack()` read the stored `rank_math_focus_keyword` CSV only as loose candidates, then the CategoryApprovedKeywordResolver OVERWROTE the additional-keyword set with approved-pool phrases. The pipeline planned and placed pool phrases; Rank Math scored the stored chips. Orange chips by construction.
+2. NOINDEX EXCLUSION — the main optimize/save path contained `if ($post->post_type !== 'tmw_category_page') { maybe_clear_rank_math_noindex(...) }`: category pages were EXPLICITLY excluded from the clearing that v5.9.10 repaired, so the toggle+readiness path could never fire for the pages it was built for.
+3. BOILERPLATE AT PERSISTENCE — structural filler detection lived inside the generation pipeline only; content persisted by non-pipeline routes (TemplatePool, legacy builder, previously saved drafts) reached `post_content` without ever passing the structural guard.
+
+### Fixes (universal, shared pipeline only)
+- Stored CSV is the source of truth: when `rank_math_focus_keyword` carries extras, those EXACT chips become the pack's additional/rankmath_additional set (`rankmath_source=stored_rank_math_csv`); the approved pool contributes content vocabulary only and may define chips only on initial population (empty CSV). No synonyms, no variants, no reordering, no singular/plural mutation.
+- Stored chips travel verbatim: pack → `CategoryContextBuilder` (`stored_chips`) → `CategoryKeywordPlanner::plan(..., $enforce_all=true)` — EVERY chip activates (near-duplicate collapse bypassed for stored chips; it still governs what gets stored initially), first three take topical H2 roles, every remaining chip takes one exact-phrase FAQ H3 question (Rank Math counts H2–H6). Density tracking follows the stored set.
+- Exact validation + reporting: `CategoryFinalValidator` adds `stored_keyword_report` (per stored phrase: visible_count, subheading_count, body_count, pass, reason — boundary-guarded exact matching, no partial-token credit) and FAILS the generation (`stored_chip_failed:<phrase>:<reason>`) when any stored chip is absent from visible content or from an H2–H6 subheading.
+- Noindex: the category exclusion is removed from the save path (regeneration of EXISTING pages now reaches the clearing); `maybe_clear_rank_math_noindex()` verifies after persistence — reads the saved `rank_math_robots` back, logs `[TMW-NOINDEX-SOURCE] cleared+verified`, or a loud verification failure. All safety gates unchanged (explicit toggle, `_tmwseo_ready_to_index === '1'`, publish, owned post types); explicit `['index','follow']` means the theme's empty-meta fallback cannot re-noindex.
+- Persistence boilerplate gate: `ContentEngine::enforce_category_persistence_guard()` runs on the FINAL HTML immediately before `post_content` writes on BOTH category save paths (template + AI). `CategoryQualityGuard::repair()` now drops structural abstract-filler sentences (det-FILLER…VERB…det-FILLER with no concrete anchor — catches novel sentences, not just the two audited strings); if structural filler survives repair, the save is BLOCKED and logged (`[TMW-CAT-GUARD]`), never persisted silently.
+
+### Tests
+- NEW `tests/run-category-stored-chips-smoke.php` (135 checks): the exact live regression fixture (all four stored chips verbatim in content and H2–H6, all four simulated chips green, singular "massive boob webcam" never satisfied by the plural), four other real categories + synthetics under the same flow, planner/validator no-substitution proofs, exact reporting, the noindex save-path fix with all gates, and the persistence gate (repair + hard block + novel-sentence structural proof).
+- All seven category suites green; zero new PHPUnit-lite failures vs main baseline.
+
 ## 5.9.11-dynamic-primary-density-v1.0.0 — 2026-07-16
 
 Universal dynamic primary-keyword density system, driven by the live Big Boob Cam WordPress test (684 visible words, 5 exact primary uses, Rank Math density 0.73% — orange "fair" band). No category-specific fix: one policy for every current and future category, derived from runtime inputs only.

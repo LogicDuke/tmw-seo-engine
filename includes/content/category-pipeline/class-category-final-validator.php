@@ -270,6 +270,47 @@ class CategoryFinalValidator {
 			$reasons[] = 'too_few_supporting_keywords_in_subheadings:' . $in_subheading;
 		}
 
+		// ── v5.9.12 — EXACT stored-chip report. Every phrase in the stored
+		// Rank Math focus-keyword set (primary + additional) is compared
+		// against the final HTML as its EXACT phrase — boundary-guarded,
+		// no partial-token credit, no singular/plural mutation, no synonym
+		// credit. A stored additional keyword absent from visible content or
+		// absent from an H2-H6 subheading is a generation FAILURE.
+		$stored_keyword_report = [];
+		$stored_set = ! empty( $keyword_plan['density_tracking'] )
+			? (array) $keyword_plan['density_tracking']
+			: (array) ( $keyword_plan['rankmath_tracking'] ?? [] );
+		$body_only  = trim( (string) preg_replace( '/<h[1-6][^>]*>.*?<\/h[1-6]>/isu', ' ', $html ) );
+		$body_text  = CategoryQualityGuard::visible( $body_only );
+		foreach ( array_values( array_unique( array_filter( array_map( 'strval', $stored_set ) ) ) ) as $stored_kw ) {
+			$stored_kw = trim( $stored_kw );
+			if ( $stored_kw === '' ) { continue; }
+			$is_primary = ( strcasecmp( $stored_kw, $primary ) === 0 );
+			$kp         = '/(?<![\p{L}\p{N}])' . preg_quote( $stored_kw, '/' ) . '(?![\p{L}\p{N}])/iu';
+			$vis_count  = (int) preg_match_all( $kp, $visible );
+			$sub_count  = (int) preg_match_all( $kp, $subheading_text );
+			$body_count = (int) preg_match_all( $kp, $body_text );
+			$reason     = '';
+			if ( $vis_count < 1 ) {
+				$reason = 'absent_from_visible_content';
+			} elseif ( $sub_count < 1 ) {
+				$reason = 'absent_from_h2_h6_subheadings';
+			}
+			$passed = ( $reason === '' );
+			if ( ! $passed && ! $is_primary && ! empty( $keyword_plan['enforced_stored_chips'] ) ) {
+				$reasons[] = 'stored_chip_failed:' . $stored_kw . ':' . $reason;
+			}
+			$stored_keyword_report[ $stored_kw ] = [
+				'stored_phrase'    => $stored_kw,
+				'is_primary'       => $is_primary,
+				'visible_count'    => $vis_count,
+				'subheading_count' => $sub_count,
+				'body_count'       => $body_count,
+				'pass'             => $passed,
+				'reason'           => $reason,
+			];
+		}
+
 		// v5.9.8 — grammar must be clean at validation time.
 		foreach ( CategoryGrammarGuard::analyze( $html ) as $issue ) {
 			$reasons[] = 'grammar:' . $issue['type'] . ':' . $issue['detail'];
@@ -318,6 +359,7 @@ class CategoryFinalValidator {
 				'headings'         => $headings,
 				'faq_count'        => $faq_count,
 				'supporting_coverage'          => $support_coverage ?? [],
+				'stored_keyword_report'        => $stored_keyword_report ?? [],
 				'supporting_in_subheadings'    => $in_subheading ?? 0,
 				'intent_paragraphs'=> isset( $extra['specificity'] ) ? (int) ( $extra['specificity']['intent_paragraphs'] ?? 0 ) : null,
 				'max_paragraph_similarity' => isset( $extra['uniqueness'] ) ? ( $extra['uniqueness']['max_paragraph'] ?? null ) : null,
