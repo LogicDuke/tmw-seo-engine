@@ -36,12 +36,18 @@ final class LiveJasminProfileImporter implements ProfileImporter {
         }
 
         return new ImportResult( [
-            'status'      => ImportResult::STATUS_OK,
+            'status'      => ImportResult::STATUS_UNSUPPORTED,
             'provider'    => $this->provider_name(),
             'source_url'  => $this->canonical_url( $username ),
             'username'    => $username,
-            'diagnostics' => [ 'profile_fetching' => 'not_implemented' ],
-            'message'     => 'This LiveJasmin profile URL is supported, but profile fetching is not implemented yet.',
+            'raw_fields'  => [],
+            'attributes'  => [],
+            'diagnostics' => [
+                'source_recognized' => true,
+                'fetch_implemented' => false,
+            ],
+            'warnings'    => [ 'Profile fetching is not implemented.' ],
+            'message'     => 'The LiveJasmin URL was recognized, but no profile data was fetched because profile fetching is not implemented.',
         ] );
     }
 
