@@ -44,9 +44,51 @@ class CategoryKeywordPlanner {
 	 * @param string[] $tracking  The Rank Math tracked extras (already capped at 8 upstream).
 	 * @return array<string,mixed>
 	 */
-	public static function plan( string $primary, array $approved, array $tracking = [] ): array {
+	public static function plan( string $primary, array $approved, array $tracking = [], bool $enforce_all = false ): array {
 		$primary = trim( $primary );
 		$primary_family = self::root_family( $primary );
+
+		// ── v5.9.12: STORED-CHIP MODE (no silent substitution). When the
+		// keywords are the exact additional keywords already stored in the
+		// Rank Math focus-keyword CSV, Rank Math will analyze EVERY one of
+		// them, so every one must be planned, placed, and validated as its
+		// exact phrase. The near-duplicate/family selection below exists to
+		// CHOOSE which candidates to store; it must never drop a chip the
+		// operator has already stored. Roles: the first three chips take the
+		// topical H2 roles, every remaining chip takes an faq_heading role
+		// (one exact-phrase FAQ H3 question each) — Rank Math counts H2-H6.
+		if ( $enforce_all ) {
+			$chips = [];
+			$seen  = [ self::lc( $primary ) => true ];
+			foreach ( $approved as $kw ) {
+				$kw  = trim( (string) $kw );
+				$key = self::lc( $kw );
+				if ( $kw === '' || isset( $seen[ $key ] ) ) { continue; }
+				$seen[ $key ] = true;
+				$chips[]      = $kw;
+			}
+			$roles         = [];
+			$heading_slots = [ 'heading_h2', 'heading_secondary', 'heading_tertiary' ];
+			foreach ( $chips as $kw ) {
+				$roles[ $kw ] = ! empty( $heading_slots ) ? (string) array_shift( $heading_slots ) : 'faq_heading';
+			}
+			return [
+				'primary'             => $primary,
+				'primary_family'      => $primary_family,
+				'rankmath_tracking'   => array_values( array_merge( $primary !== '' ? [ $primary ] : [], $chips ) ),
+				'body_use'            => $chips,
+				'heading_candidates'  => $chips,
+				'roles'               => $roles,
+				'semantic_support'    => self::semantic_support_terms( $primary, $chips ),
+				'unused'              => [],
+				'root_families'       => [],
+				'enforced_stored_chips' => true,
+				'density_budget'      => [
+					'max_family_density_pct'  => self::MAX_FAMILY_DENSITY,
+					'max_exacts_per_sentence' => self::MAX_EXACTS_PER_SENTENCE,
+				],
+			];
+		}
 
 		$candidates = [];
 		foreach ( $approved as $kw ) {

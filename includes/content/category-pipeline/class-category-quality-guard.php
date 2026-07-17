@@ -249,7 +249,13 @@ class CategoryQualityGuard {
 
 		// 1. Drop whole sentences that carry a banned phrase or pattern —
 		//    a sentence built around filler has no salvageable core.
-		$html = self::rewrite_text_nodes( $html, static function ( string $text ) use ( &$actions ): string {
+		//    v5.9.12: the STRUCTURAL abstract-filler detector is enforced
+		//    here too — a det-FILLER…VERB…det-FILLER sentence with no
+		//    concrete anchor is information-free by definition and is
+		//    dropped whole, so the persisted HTML can never carry the
+		//    audited boilerplate family regardless of which generator
+		//    produced the draft.
+		$html = self::rewrite_text_nodes( $html, static function ( string $text ) use ( $keywords, &$actions ): string {
 			$sentences = preg_split( '/(?<=[.!?])\s+/u', $text ) ?: [ $text ];
 			$kept      = [];
 			foreach ( $sentences as $sentence ) {
@@ -262,6 +268,11 @@ class CategoryQualityGuard {
 					foreach ( self::BANNED_PATTERNS as $pattern ) {
 						if ( preg_match( $pattern, $sentence ) ) { $banned = true; break; }
 					}
+				}
+				if ( ! $banned && ! empty( self::abstract_filler_sentences( $sentence, $keywords ) ) ) {
+					$banned    = true;
+					$actions[] = 'dropped_abstract_filler_sentence: ' . self::snippet( $sentence );
+					continue;
 				}
 				if ( $banned ) {
 					$actions[] = 'dropped_banned_sentence: ' . self::snippet( $sentence );

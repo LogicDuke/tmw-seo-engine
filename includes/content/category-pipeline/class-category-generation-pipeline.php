@@ -73,14 +73,30 @@ class CategoryGenerationPipeline {
 
 		$input_hash = CategoryGenerationResult::hash_input( $context, $tracking, $provider );
 
-		$keyword_plan = CategoryKeywordPlanner::plan(
-			(string) ( $context['primary_keyword'] ?? '' ),
-			(array) ( $context['approved_keywords'] ?? [] ),
-			$tracking
-		);
+		// v5.9.12 — stored Rank Math chips are the planning source of truth.
+		// When the context carries the exact stored additional keywords,
+		// EVERY chip is activated verbatim (no near-duplicate collapse, no
+		// pool substitution): three take topical H2 roles, the rest each
+		// take one exact-phrase FAQ H3 question. Rank Math analyzes exactly
+		// these phrases, so exactly these phrases are planned and validated.
+		$stored_chips = array_values( array_filter( array_map( 'strval', (array) ( $context['stored_chips'] ?? [] ) ), 'strlen' ) );
+		if ( ! empty( $stored_chips ) ) {
+			$keyword_plan = CategoryKeywordPlanner::plan(
+				(string) ( $context['primary_keyword'] ?? '' ),
+				$stored_chips,
+				$stored_chips,
+				true
+			);
+		} else {
+			$keyword_plan = CategoryKeywordPlanner::plan(
+				(string) ( $context['primary_keyword'] ?? '' ),
+				(array) ( $context['approved_keywords'] ?? [] ),
+				$tracking
+			);
+		}
 		$stored_rankmath_focus = array_values( array_unique( array_filter( array_map( 'strval', array_merge(
 			[ (string) $keyword_plan['primary'] ],
-			array_key_exists( 'tracking', $options ) ? $tracking : (array) $keyword_plan['rankmath_tracking']
+			! empty( $stored_chips ) ? $stored_chips : ( array_key_exists( 'tracking', $options ) ? $tracking : (array) $keyword_plan['rankmath_tracking'] )
 		) ) ) ) );
 		$keyword_plan['density_tracking'] = $stored_rankmath_focus;
 

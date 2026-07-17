@@ -59,6 +59,16 @@ class CategoryContextBuilder {
 			$approved[]   = $kw;
 		}
 
+		// v5.9.12 — stored Rank Math chips travel VERBATIM. When present,
+		// these exact phrases (the analyzer's own additional keywords) are
+		// what the planner must activate and place; nothing may substitute,
+		// reorder, or drop them.
+		$stored_chips = [];
+		foreach ( (array) ( $parts['stored_chips'] ?? [] ) as $kw ) {
+			$kw = trim( (string) $kw );
+			if ( $kw !== '' ) { $stored_chips[] = $kw; }
+		}
+
 		// Related categories: plain names (legacy) or {name,url} pairs
 		// (v5.9.9). A URL is kept only when it is verified internal â€” same
 		// host as the site's own models/videos URLs or protocol-relative to
@@ -91,6 +101,7 @@ class CategoryContextBuilder {
 			'description'        => trim( (string) ( $parts['description'] ?? '' ) ),
 			'primary_keyword'    => $primary,
 			'approved_keywords'  => $approved,
+			'stored_chips'       => $stored_chips,
 			'keywords_source'    => trim( (string) ( $parts['keywords_source'] ?? '' ) ),
 			'model_count'        => $model_count,
 			'video_count'        => $video_count,
@@ -142,6 +153,12 @@ class CategoryContextBuilder {
 			}
 		}
 		$parts['approved_keywords'] = $approved;
+		// v5.9.12 — the exact stored Rank Math chips (source of truth for
+		// planning + validation) when the pack was built from the stored CSV.
+		if ( (string) ( $keyword_pack['rankmath_source'] ?? '' ) === 'stored_rank_math_csv'
+			&& ! empty( $keyword_pack['rankmath_additional'] ) && is_array( $keyword_pack['rankmath_additional'] ) ) {
+			$parts['stored_chips'] = array_values( array_filter( array_map( 'strval', $keyword_pack['rankmath_additional'] ), 'strlen' ) );
+		}
 		$parts['keywords_source']   = (string) ( $keyword_pack['content_terms_source'] ?? ( isset( $keyword_pack['sources']['category_pool'] ) ? 'category_db_approved' : '' ) );
 
 		if ( function_exists( 'get_bloginfo' ) ) {

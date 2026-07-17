@@ -3024,6 +3024,26 @@ class ContentEngine {
             AssistedDraftEnrichmentService::persist_quality_score($post_id, $generated_content, $post, $focus_kw, $keyword_pack);
 
             if ($insert_block) {
+                // v5.9.12 — persistence-time structural guard (category only).
+                if ($post->post_type === 'tmw_category_page') {
+                    $gate_keywords = array_values(array_unique(array_filter(array_map('strval', array_merge(
+                        [$focus_kw],
+                        (array) ($keyword_pack['rankmath_additional'] ?? []),
+                        (array) ($keyword_pack['additional'] ?? [])
+                    )))));
+                    $persist_gate  = self::enforce_category_persistence_guard($final_content, $gate_keywords, $post_id);
+                    if (!$persist_gate['ok']) {
+                        Logs::warn('content', '[TMW-CAT-GUARD] save skipped: structural filler survived repair', ['post_id' => $post_id]);
+                        update_post_meta($post_id, '_tmwseo_category_last_save_result', wp_json_encode([
+                            'post_id' => $post_id, 'content_written' => false, 'blocked_by' => 'persistence_boilerplate_gate',
+                            'issues' => array_slice(array_map(static fn(array $i): string => $i['type'], $persist_gate['issues']), 0, 8),
+                        ]));
+                        delete_post_meta($post_id, '_tmwseo_optimize_enqueued');
+                        update_post_meta($post_id, '_tmwseo_optimize_done', 'blocked_boilerplate_gate');
+                        return;
+                    }
+                    $final_content = (string) $persist_gate['html'];
+                }
                 $before_save_content = (string) get_post_field('post_content', $post_id);
                 $update_result = wp_update_post([
                     'ID'           => $post_id,
@@ -3483,6 +3503,25 @@ class ContentEngine {
 
         // Update content via a dedicated marker block (optional).
         $new_content = $insert_block ? self::upsert_ai_block((string)$post->post_content, $html) : $html;
+        // v5.9.12 — persistence-time structural guard (AI path, category only).
+        if ($post->post_type === 'tmw_category_page') {
+            $gate_keywords = array_values(array_unique(array_filter(array_map('strval', array_merge(
+                [$focus_kw],
+                (array) ($keyword_pack['rankmath_additional'] ?? []),
+                (array) ($keyword_pack['additional'] ?? [])
+            )))));
+            $persist_gate = self::enforce_category_persistence_guard($new_content, $gate_keywords, $post_id);
+            if (!$persist_gate['ok']) {
+                Logs::warn('content', '[TMW-CAT-GUARD] AI save skipped: structural filler survived repair', ['post_id' => $post_id]);
+                update_post_meta($post_id, '_tmwseo_category_last_save_result', wp_json_encode([
+                    'post_id' => $post_id, 'content_written' => false, 'blocked_by' => 'persistence_boilerplate_gate',
+                ]));
+                delete_post_meta($post_id, '_tmwseo_optimize_enqueued');
+                update_post_meta($post_id, '_tmwseo_optimize_done', 'blocked_boilerplate_gate');
+                return;
+            }
+            $new_content = (string) $persist_gate['html'];
+        }
         if ($post->post_type === 'tmw_category_page' && $insert_block) {
             $new_content = self::append_category_affiliate_cta_html($new_content, $post);
         }
@@ -3537,9 +3576,16 @@ class ContentEngine {
         delete_post_meta($post_id, '_tmwseo_optimize_enqueued');
         update_post_meta($post_id, '_tmwseo_optimize_done', current_time('mysql'));
 
-        if ($post->post_type !== 'tmw_category_page') {
-            self::maybe_clear_rank_math_noindex($post);
-        }
+        // v5.9.12 ROOT-CAUSE FIX (live "Noindex robots meta is enabled"):
+        // this exclusion silently skipped CATEGORY pages on the main
+        // optimize/save path, so the v5.9.10-repaired clearing method was
+        // never even called for the pages it was built for. Regeneration of
+        // an EXISTING saved category page runs through here, so removing the
+        // exclusion is exactly what makes the controlled indexing path work
+        // on regeneration. All safety gates stay inside the method itself
+        // (explicit toggle, _tmwseo_ready_to_index === '1', publish status,
+        // owned post types only).
+        self::maybe_clear_rank_math_noindex($post);
 
         Logs::info('content', 'Optimized', ['post_id' => $post_id, 'context' => $context, 'model' => $model]);
     }
@@ -3754,6 +3800,13 @@ class ContentEngine {
         }
 
         $candidates = [];
+        // v5.9.12 — the stored Rank Math focus-keyword CSV is the SOURCE OF
+        // TRUTH. Rank Math analyzes exactly these chips; the pipeline must
+        // plan and place these exact phrases, never synonyms, pool variants,
+        // or semantic substitutes. The live audit proved the failure mode:
+        // the four stored chips stayed orange while the page carried pool
+        // phrase variants that Rank Math never analyzes.
+        $stored_csv_extras = [];
         foreach (['rank_math_focus_keyword', '_tmwseo_keyword'] as $meta_key) {
             $raw = trim((string) get_post_meta($post_id, $meta_key, true));
             if ($raw === '') {
@@ -3763,6 +3816,9 @@ class ContentEngine {
             if ($primary === '' && !empty($parts)) {
                 $primary = (string) $parts[0];
                 $sources['primary'] = $meta_key;
+            }
+            if ($meta_key === 'rank_math_focus_keyword' && count($parts) > 1) {
+                $stored_csv_extras = array_slice($parts, 1, 8);
             }
             $candidates = array_merge($candidates, $parts);
         }
@@ -3831,8 +3887,26 @@ class ContentEngine {
             }
 
             if ( $pool_count > 0 ) {
-                $additional               = $resolver_result['rankmath_extras'];
-                $longtail                 = $additional;
+                // v5.9.12 — NO SILENT SUBSTITUTION. When Rank Math already
+                // stores additional keywords, those exact chips are what the
+                // analyzer scores, so they are what the pipeline must place.
+                // The approved pool then contributes CONTENT vocabulary only
+                // (content_terms); it may define the chips only on initial
+                // population, when the stored CSV has no extras yet.
+                if ( ! empty( $stored_csv_extras ) ) {
+                    $additional                 = $stored_csv_extras;
+                    $longtail                   = $additional;
+                    $sources['rankmath_source'] = 'stored_rank_math_csv';
+                    Logs::info( 'content', sprintf(
+                        '[TMW-CAT-KW] stored Rank Math chips are authoritative post_id=%d chips=%s (pool extras used for content_terms only)',
+                        $post_id,
+                        implode( '|', $additional )
+                    ) );
+                } else {
+                    $additional                 = $resolver_result['rankmath_extras'];
+                    $longtail                   = $additional;
+                    $sources['rankmath_source'] = 'approved_pool_initial';
+                }
                 $content_terms            = $resolver_result['content_terms'];
                 $content_terms_source     = 'category_db_approved';
                 $sources['category_pool'] = $resolver_result['source'];
@@ -3857,6 +3931,15 @@ class ContentEngine {
             }
         }
         // END CategoryApprovedKeywordResolver
+
+        // v5.9.12 — stored chips stay authoritative on the no-pool path too:
+        // the label-derived candidate soup must never dilute or reorder the
+        // exact phrases Rank Math analyzes.
+        if ( ! empty( $stored_csv_extras ) && ( $sources['rankmath_source'] ?? '' ) !== 'stored_rank_math_csv' ) {
+            $additional                 = $stored_csv_extras;
+            $longtail                   = $additional;
+            $sources['rankmath_source'] = 'stored_rank_math_csv';
+        }
 
         // PR B (v5.9.x): deterministic Layer 2 semantic/supporting keyword fallback.
         // content_terms is normally populated above from a real DataForSEO-approved
@@ -3891,6 +3974,7 @@ class ContentEngine {
             'content_terms'        => $content_terms,
             'content_terms_source' => $content_terms_source,
             'pool_status_counts'   => $pool_status_counts,
+            'rankmath_source'      => (string) ( $sources['rankmath_source'] ?? '' ),
             'sources'              => $sources,
         ];
     }
@@ -4209,6 +4293,49 @@ class ContentEngine {
     }
 
 
+    /**
+     * v5.9.12 — persistence-time boilerplate gate for category pages.
+     *
+     * The live audit proved detection inside the generation pipeline is not
+     * enough: the SAVED page still carried "The destination shapes the
+     * session" / "the trait gathers the field" because content persisted by
+     * older or non-pipeline routes (TemplatePool, legacy builder, previously
+     * saved AI drafts) never passed through the structural guard. This gate
+     * runs on the FINAL HTML immediately before the post_content write, on
+     * EVERY category save path:
+     *
+     *  1. structural repair (drops abstract-filler sentences, banned
+     *     phrases/patterns — the guard is structural, not a string
+     *     blacklist);
+     *  2. re-analysis of the repaired HTML;
+     *  3. hard block when structural filler still remains — weak content is
+     *     never persisted silently.
+     *
+     * @return array{html:string,ok:bool,actions:string[],issues:array<int,array{type:string,detail:string}>}
+     */
+    private static function enforce_category_persistence_guard(string $html, array $keywords, int $post_id): array {
+        if (!class_exists('\\TMWSEO\\Engine\\Content\\CategoryPipeline\\CategoryQualityGuard')) {
+            return ['html' => $html, 'ok' => true, 'actions' => [], 'issues' => []];
+        }
+        $guard  = \TMWSEO\Engine\Content\CategoryPipeline\CategoryQualityGuard::repair($html, $keywords);
+        $html   = (string) $guard['html'];
+        $issues = array_values(array_filter(
+            \TMWSEO\Engine\Content\CategoryPipeline\CategoryQualityGuard::analyze($html, $keywords),
+            static function (array $issue): bool {
+                return in_array((string) $issue['type'], ['abstract_filler_structure', 'repeated_filler_skeleton', 'banned_phrase', 'banned_pattern'], true);
+            }
+        ));
+        $ok = empty($issues);
+        if (!empty($guard['actions']) || !$ok) {
+            Logs::info('content', '[TMW-CAT-GUARD] persistence gate ' . ($ok ? 'repaired' : 'BLOCKED'), [
+                'post_id' => $post_id,
+                'actions' => array_slice((array) $guard['actions'], 0, 8),
+                'issues'  => array_slice(array_map(static fn(array $i): string => $i['type'] . ':' . $i['detail'], $issues), 0, 8),
+            ]);
+        }
+        return ['html' => $html, 'ok' => $ok, 'actions' => (array) $guard['actions'], 'issues' => $issues];
+    }
+
     private static function maybe_clear_rank_math_noindex(\WP_Post $post): void {
         // We keep noindex by default until you explicitly enable auto-indexing.
         //
@@ -4245,10 +4372,27 @@ class ContentEngine {
         if (!in_array($post->post_type, ['model', 'tmw_category_page'], true)) return;
 
         update_post_meta($post->ID, 'rank_math_robots', ['index', 'follow']);
-        Logs::info('content', '[TMW-NOINDEX-SOURCE] cleared: explicit index,follow written', [
-            'post_id'   => (int) $post->ID,
-            'post_type' => (string) $post->post_type,
-        ]);
+
+        // v5.9.12 — verify-after-persistence. Read the SAVED value back and
+        // prove what Rank Math (and the theme's category bridge, which only
+        // falls back to noindex on an EMPTY meta) will actually see. A
+        // mismatch means another writer interfered and is logged loudly
+        // instead of silently claiming success.
+        clean_post_cache($post->ID);
+        $saved = get_post_meta($post->ID, 'rank_math_robots', true);
+        $saved_arr = is_array($saved) ? array_values(array_map('strval', $saved)) : [];
+        if (in_array('index', $saved_arr, true) && !in_array('noindex', $saved_arr, true)) {
+            Logs::info('content', '[TMW-NOINDEX-SOURCE] cleared+verified: explicit index,follow persisted', [
+                'post_id'   => (int) $post->ID,
+                'post_type' => (string) $post->post_type,
+                'saved'     => $saved_arr,
+            ]);
+        } else {
+            Logs::warn('content', '[TMW-NOINDEX-SOURCE] VERIFICATION FAILED: robots meta not index after write', [
+                'post_id' => (int) $post->ID,
+                'saved'   => $saved,
+            ]);
+        }
     }
 
     private static function upsert_ai_block(string $content, string $html): string {
