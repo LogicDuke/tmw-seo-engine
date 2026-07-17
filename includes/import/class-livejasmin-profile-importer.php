@@ -64,6 +64,7 @@ final class LiveJasminProfileImporter implements ProfileImporter {
             'provider'    => $fetch_result->provider !== '' ? $fetch_result->provider : $request->provider,
             'source_url'  => $fetch_result->source_url !== '' ? $fetch_result->source_url : $request->source_url,
             'username'    => $fetch_result->username !== '' ? $fetch_result->username : $request->username,
+            'display_name' => $fetch_result->display_name,
             'raw_fields'  => $fetch_result->raw_fields,
             'attributes'  => $fetch_result->attributes,
             'diagnostics' => $fetch_result->diagnostics,

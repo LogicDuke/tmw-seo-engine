@@ -20,6 +20,7 @@ final class ImportResult {
     public string $provider;
     public string $source_url;
     public string $username;
+    public string $display_name;
     /** @var array<string,mixed> */
     public array $raw_fields;
     /** @var array<string,mixed> */
@@ -36,6 +37,7 @@ final class ImportResult {
         $this->provider    = (string) ( $data['provider'] ?? '' );
         $this->source_url  = (string) ( $data['source_url'] ?? '' );
         $this->username    = (string) ( $data['username'] ?? '' );
+        $this->display_name = (string) ( $data['display_name'] ?? '' );
         $this->raw_fields  = is_array( $data['raw_fields'] ?? null ) ? $data['raw_fields'] : [];
         $this->attributes  = is_array( $data['attributes'] ?? null ) ? $data['attributes'] : [];
         $this->diagnostics = is_array( $data['diagnostics'] ?? null ) ? $data['diagnostics'] : [];

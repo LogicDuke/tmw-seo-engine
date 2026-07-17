@@ -1176,6 +1176,12 @@ class AdminDashboardV2 {
             self::settings_section( 'Safety Policies', [] );
             echo '<div class="td-notice td-notice-info"><strong>Manual Control Mode is permanently locked ON.</strong> The plugin only creates drafts and makes suggestions — it never publishes content or takes automated actions without your explicit approval. This cannot be changed.</div>';
             echo '<div class="td-field-row"><label class="td-label">Safe Mode</label><div class="td-input-wrap"><label class="td-toggle"><input type="checkbox" name="tmwseo_engine_settings[safe_mode]" value="1" ' . checked( ! empty( $opts['safe_mode'] ), true, false ) . '><span class="td-toggle-track"></span><span class="td-toggle-label">Enable safe mode</span></label><p class="td-field-hint">When ON: blocks Google Indexing API pings, OpenAI/AI calls, and PageSpeed cycles. Recommended until you are satisfied with your setup. Turn OFF to allow AI features and indexing submissions. Note: manual-only content safety is always enforced regardless of this setting.</p></div></div>';
+            self::settings_section( 'LiveJasmin Public Profile Fetcher (staging only)', [
+                self::strict_checkbox_field( 'livejasmin_profile_fetch_enabled', 'Enable isolated remote candidate fetcher', $opts, 'Safe Mode always disables this client. It never saves candidate data.' ),
+                self::text_field( 'livejasmin_profile_fetch_endpoint', 'HTTPS service endpoint', $opts, 'url', 'Example: https://fetcher.staging.example/v1/fetch-profile' ),
+                self::secret_field( 'livejasmin_profile_fetch_secret', 'Shared service token', 'Leave blank to keep the existing token. The stored token is never displayed.' ),
+                self::text_field( 'livejasmin_profile_fetch_timeout', 'Timeout (seconds)', $opts, 'number', 'Bounded to 3–30 seconds.' ),
+            ] );
             echo '<div class="td-field-row"><label class="td-label">Auto-clear noindex</label><div class="td-input-wrap"><label class="td-toggle"><input type="checkbox" name="tmwseo_engine_settings[auto_clear_noindex]" value="1" ' . checked( ! empty( $opts['auto_clear_noindex'] ), true, false ) . '><span class="td-toggle-track"></span><span class="td-toggle-label">Auto-clear RankMath noindex on optimised pages</span></label><p class="td-field-hint">Leave OFF until you are ready. This tells Google to index your optimised pages.</p></div></div>';
 
         elseif ( $stab === 'advanced' ) :
@@ -1503,6 +1509,19 @@ class AdminDashboardV2 {
         $inp = $type === 'password'
             ? "<input type=\"password\" name=\"tmwseo_engine_settings[{$key}]\" value=\"{$val}\" class=\"td-input\" autocomplete=\"off\">"
             : "<input type=\"{$type}\" name=\"tmwseo_engine_settings[{$key}]\" value=\"{$val}\" class=\"td-input\">";
+        return self::field_wrap( $label, $inp, $hint );
+    }
+
+    /** Emits an explicit false value so an unchecked fetcher toggle is saved as disabled. */
+    private static function strict_checkbox_field( string $key, string $label, array $opts, string $hint = '' ): string {
+        $chk = ! empty( $opts[ $key ] );
+        $inp = '<input type="hidden" name="tmwseo_engine_settings[' . esc_attr( $key ) . ']" value="0"><label class="td-toggle"><input type="checkbox" name="tmwseo_engine_settings[' . esc_attr( $key ) . ']" value="1" ' . checked( $chk, true, false ) . '><span class="td-toggle-track"></span><span class="td-toggle-label">' . esc_html( $label ) . '</span></label>';
+        return self::field_wrap( '', $inp, $hint );
+    }
+
+    /** Password values are intentionally never rendered back into admin HTML. */
+    private static function secret_field( string $key, string $label, string $hint = '' ): string {
+        $inp = '<input type="password" name="tmwseo_engine_settings[' . esc_attr( $key ) . ']" value="" class="td-input" autocomplete="new-password">';
         return self::field_wrap( $label, $inp, $hint );
     }
 

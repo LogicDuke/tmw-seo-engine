@@ -35,6 +35,7 @@ use TMWSEO\Engine\Logs;
 use TMWSEO\Engine\Import\ImportManager;
 use TMWSEO\Engine\Import\LiveJasminProfileImporter;
 use TMWSEO\Engine\Import\NullProfileFetchService;
+use TMWSEO\Engine\Import\LiveJasminRemoteProfileFetchService;
 
 if ( ! defined( 'ABSPATH' ) ) { exit; }
 
@@ -440,7 +441,8 @@ class ModelHelper {
 
     /** @return array{status:string,message:string,source_url:string} */
     public static function public_profile_import_response( string $source_url ): array {
-        $result = ( new ImportManager( null, [ new LiveJasminProfileImporter( new NullProfileFetchService() ) ] ) )->import_profile( $source_url );
+        $fetch_service = class_exists( LiveJasminRemoteProfileFetchService::class ) && LiveJasminRemoteProfileFetchService::is_configured() ? new LiveJasminRemoteProfileFetchService() : new NullProfileFetchService();
+        $result = ( new ImportManager( null, [ new LiveJasminProfileImporter( $fetch_service ) ] ) )->import_profile( $source_url );
         $message = $result->message;
         if ( $result->provider === 'livejasmin' && $result->status === 'unsupported' ) {
             $message = 'The LiveJasmin URL was recognized, but no profile data was fetched because profile fetching is not implemented. Nothing was saved.';
@@ -452,6 +454,11 @@ class ModelHelper {
             'message'    => __( $message, 'tmwseo' ),
             'source_url' => $result->source_url,
             'username'   => $result->username,
+            'display_name' => $result->display_name,
+            'raw_fields' => $result->raw_fields,
+            'attributes' => $result->attributes,
+            'warnings' => $result->warnings,
+            'diagnostics' => $result->diagnostics,
         ];
     }
 
