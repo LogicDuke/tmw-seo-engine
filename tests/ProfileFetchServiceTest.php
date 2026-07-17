@@ -91,11 +91,40 @@ final class ProfileFetchServiceTest extends TestCase {
         self::assertSame( 'https://www.livejasmin.com/en/chat/AbbyMurray', $service->requests[0]->source_url );
         self::assertSame( 'AbbyMurray', $service->requests[0]->username );
         self::assertSame( ImportResult::STATUS_OK, $result->status );
+        self::assertSame( 'livejasmin', $result->provider );
+        self::assertSame( 'https://www.livejasmin.com/en/chat/AbbyMurray', $result->source_url );
+        self::assertSame( 'AbbyMurray', $result->username );
         self::assertSame( [ 'bio' => 'Candidate bio' ], $result->raw_fields );
         self::assertSame( [ 'country' => 'US' ], $result->attributes );
         self::assertSame( [ 'candidate' => true ], $result->diagnostics );
         self::assertSame( [ 'Review candidate data.' ], $result->warnings );
         self::assertSame( 'Candidate data returned.', $result->message );
+    }
+
+    public function test_livejasmin_importer_preserves_request_identity_for_empty_fetch_result_values(): void {
+        $result = ( new LiveJasminProfileImporter( new FakeProfileFetchService( new ProfileFetchResult( [
+            'status'     => ProfileFetchResult::STATUS_OK,
+            'attributes' => [ 'country' => 'US' ],
+        ] ) ) ) )->import_profile( 'https://livejasmin.com/chat/AbbyMurray' );
+
+        self::assertSame( ImportResult::STATUS_OK, $result->status );
+        self::assertSame( 'livejasmin', $result->provider );
+        self::assertSame( 'https://www.livejasmin.com/en/chat/AbbyMurray', $result->source_url );
+        self::assertSame( 'AbbyMurray', $result->username );
+        self::assertSame( [ 'country' => 'US' ], $result->attributes );
+    }
+
+    public function test_livejasmin_importer_preserves_explicit_fetch_result_identity_overrides(): void {
+        $result = ( new LiveJasminProfileImporter( new FakeProfileFetchService( new ProfileFetchResult( [
+            'status'     => ProfileFetchResult::STATUS_OK,
+            'provider'   => 'candidate-provider',
+            'source_url' => 'https://example.com/candidate/AbbyMurray',
+            'username'   => 'CandidateAbby',
+        ] ) ) ) )->import_profile( 'https://livejasmin.com/chat/AbbyMurray' );
+
+        self::assertSame( 'candidate-provider', $result->provider );
+        self::assertSame( 'https://example.com/candidate/AbbyMurray', $result->source_url );
+        self::assertSame( 'CandidateAbby', $result->username );
     }
 
     public function test_not_implemented_fetch_maps_to_non_success_and_invalid_urls_are_not_fetched(): void {
