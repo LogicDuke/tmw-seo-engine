@@ -11,6 +11,7 @@ require_once __DIR__ . '/../includes/import/class-source-validation-result.php';
 require_once __DIR__ . '/../includes/import/interface-profile-importer.php';
 require_once __DIR__ . '/../includes/import/class-source-validator.php';
 require_once __DIR__ . '/../includes/import/class-null-importer.php';
+require_once __DIR__ . '/../includes/import/class-livejasmin-profile-importer.php';
 require_once __DIR__ . '/../includes/import/class-import-manager.php';
 require_once __DIR__ . '/../includes/model/class-model-context-aware-provider-interface.php';
 require_once __DIR__ . '/../includes/platform/class-platform-registry.php';
@@ -95,6 +96,51 @@ final class ProfileImportFrameworkTest extends TestCase {
         self::assertSame( $before, $GLOBALS['_tmw_test_post_meta'] );
     }
 
+    /** @dataProvider supportedLiveJasminProfileUrls */
+    public function test_livejasmin_importer_recognizes_public_profiles( string $url, string $username ): void {
+        $before_meta = $GLOBALS['_tmw_test_post_meta'];
+        $before_options = $GLOBALS['_tmw_test_options'];
+        $before_transients = $GLOBALS['_tmw_test_transients'];
+        $importer = new LiveJasminProfileImporter();
+
+        self::assertSame( 'livejasmin', $importer->provider_name() );
+        self::assertTrue( $importer->supports( $url ) );
+        $result = $importer->import_profile( $url );
+        self::assertSame( ImportResult::STATUS_OK, $result->status );
+        self::assertSame( 'livejasmin', $result->provider );
+        self::assertSame( $url, $result->source_url );
+        self::assertSame( $username, $result->username );
+        self::assertSame( 'not_implemented', $result->diagnostics['profile_fetching'] );
+        self::assertSame( $before_meta, $GLOBALS['_tmw_test_post_meta'] );
+        self::assertSame( $before_options, $GLOBALS['_tmw_test_options'] );
+        self::assertSame( $before_transients, $GLOBALS['_tmw_test_transients'] );
+    }
+
+    /** @return array<string,array{string,string}> */
+    public static function supportedLiveJasminProfileUrls(): array {
+        return [
+            'www host' => [ 'https://www.livejasmin.com/en/girl/Model_Name', 'Model_Name' ],
+            'apex host' => [ 'https://livejasmin.com/de/girl/Model-Name?ref=profile', 'Model-Name' ],
+        ];
+    }
+
+    /** @dataProvider unsupportedLiveJasminUrls */
+    public function test_livejasmin_importer_rejects_non_profile_urls( string $url ): void {
+        $importer = new LiveJasminProfileImporter();
+        self::assertFalse( $importer->supports( $url ), $url );
+        self::assertSame( ImportResult::STATUS_UNSUPPORTED, $importer->import_profile( $url )->status );
+    }
+
+    /** @return array<string,array{string}> */
+    public static function unsupportedLiveJasminUrls(): array {
+        return [
+            'wrong host' => [ 'https://livejasmin.com.example/en/girl/model' ],
+            'wrong path' => [ 'https://www.livejasmin.com/en/chat/model' ],
+            'missing username' => [ 'https://www.livejasmin.com/en/girl/' ],
+            'unsupported port' => [ 'https://www.livejasmin.com:8443/en/girl/model' ],
+        ];
+    }
+
     public function test_manager_validates_selects_and_returns_importer_result_without_persistence(): void {
         $before = $GLOBALS['_tmw_test_post_meta'];
         $importer = new FakeProfileImporter();
@@ -114,19 +160,23 @@ final class ProfileImportFrameworkTest extends TestCase {
 
     public function test_ajax_response_logic_is_candidate_only_and_does_not_persist(): void {
         $before = $GLOBALS['_tmw_test_post_meta'];
-        $valid = \TMWSEO\Engine\Admin\ModelHelper::public_profile_import_response( 'https://Example.COM/profile' );
-        self::assertSame( 'unsupported', $valid['status'] );
-        self::assertSame( 'https://example.com/profile', $valid['source_url'] );
+        $valid = \TMWSEO\Engine\Admin\ModelHelper::public_profile_import_response( 'https://WWW.LiveJasmin.COM/en/girl/Model_Name' );
+        self::assertSame( 'ok', $valid['status'] );
+        self::assertSame( 'livejasmin', $valid['provider'] );
+        self::assertSame( 'https://www.livejasmin.com/en/girl/Model_Name', $valid['source_url'] );
+        self::assertSame( 'Model_Name', $valid['username'] );
         self::assertSame( 'invalid', \TMWSEO\Engine\Admin\ModelHelper::public_profile_import_response( 'http://example.com' )['status'] );
         self::assertSame( $before, $GLOBALS['_tmw_test_post_meta'] );
     }
 
     public function test_ajax_handler_returns_unsupported_without_persistence(): void {
         $before = $GLOBALS['_tmw_test_post_meta'];
-        $_POST = [ 'post_id' => '42', 'nonce' => 'test_nonce', 'source_url' => 'https://example.com/profile' ];
+        $_POST = [ 'post_id' => '42', 'nonce' => 'test_nonce', 'source_url' => 'https://www.livejasmin.com/en/girl/Model_Name' ];
         \TMWSEO\Engine\Admin\ModelHelper::ajax_public_profile_import();
         self::assertTrue( $GLOBALS['_tmw_test_last_json']['success'] );
-        self::assertSame( 'unsupported', $GLOBALS['_tmw_test_last_json']['data']['status'] );
+        self::assertSame( 'ok', $GLOBALS['_tmw_test_last_json']['data']['status'] );
+        self::assertSame( 'livejasmin', $GLOBALS['_tmw_test_last_json']['data']['provider'] );
+        self::assertSame( 'Model_Name', $GLOBALS['_tmw_test_last_json']['data']['username'] );
         self::assertSame( $before, $GLOBALS['_tmw_test_post_meta'] );
         $_POST = [];
     }
