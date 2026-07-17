@@ -145,6 +145,9 @@ class ModelMetabox {
              . '🔍 ' . esc_html__( 'Full Audit', 'tmwseo' ) . '</button>';
         echo '</div>';
 
+        // Candidate-only import framework. This does not fetch or persist data.
+        ModelHelper::render_public_profile_import( $post->ID );
+
         // ── Research Now: progress bar + synchronous XHR ──────────────────────
         // HONESTY RULE: the progress bar and animation only appear after the button
         // is clicked and the XHR is confirmed in-flight. If the page loads with
@@ -1412,6 +1415,24 @@ class ModelMetabox {
         wp_localize_script( 'tmwseo-model-research-editor', 'TMWSEOModelResearch', [
             'ajaxUrl' => admin_url( 'admin-ajax.php' ),
             'nonce'   => wp_create_nonce( 'tmwseo_model_research_ajax' ),
+        ] );
+    }
+
+    /** Enqueue the isolated public-profile import control for model editors. */
+    public static function enqueue_public_profile_import_assets(): void {
+        if ( ! function_exists( 'get_current_screen' ) ) { return; }
+        $screen = get_current_screen();
+        if ( ! $screen || ( $screen->base ?? '' ) !== 'post' || ( $screen->post_type ?? '' ) !== 'model' ) { return; }
+
+        wp_enqueue_script(
+            'tmwseo-public-profile-import',
+            TMWSEO_ENGINE_URL . 'assets/js/public-profile-import.js',
+            [],
+            TMWSEO_ENGINE_VERSION,
+            true
+        );
+        wp_localize_script( 'tmwseo-public-profile-import', 'TMWSEOPublicProfileImport', [
+            'ajaxUrl' => admin_url( 'admin-ajax.php' ),
         ] );
     }
 
