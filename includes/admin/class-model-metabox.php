@@ -1418,6 +1418,24 @@ class ModelMetabox {
         ] );
     }
 
+    /** Enqueue the isolated public-profile import control for model editors. */
+    public static function enqueue_public_profile_import_assets(): void {
+        if ( ! function_exists( 'get_current_screen' ) ) { return; }
+        $screen = get_current_screen();
+        if ( ! $screen || ( $screen->base ?? '' ) !== 'post' || ( $screen->post_type ?? '' ) !== 'model' ) { return; }
+
+        wp_enqueue_script(
+            'tmwseo-public-profile-import',
+            TMWSEO_ENGINE_URL . 'assets/js/public-profile-import.js',
+            [],
+            TMWSEO_ENGINE_VERSION,
+            true
+        );
+        wp_localize_script( 'tmwseo-public-profile-import', 'TMWSEOPublicProfileImport', [
+            'ajaxUrl' => admin_url( 'admin-ajax.php' ),
+        ] );
+    }
+
     /**
      * AJAX handler: persist Model Research fields from the block editor.
      *

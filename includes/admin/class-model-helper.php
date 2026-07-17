@@ -424,46 +424,49 @@ final class ModelResearchPipeline {
 
 class ModelHelper {
 
-    /**
-     * Render the candidate-only public-profile import control.
-     *
-     * The submitted URL is deliberately kept only for this request: this
-     * framework validates it locally and reports that no importer is available.
-     * It neither fetches nor saves profile data.
-     */
+    /** Render the candidate-only public-profile import control. */
     public static function render_public_profile_import( int $post_id ): void {
-        $source_url = '';
-        $message    = __( 'No profile importer is currently available.', 'tmwseo' );
-        $is_error   = false;
-
-        if (
-            isset( $_POST['tmwseo_public_profile_import'], $_POST['tmwseo_model_research_nonce'] )
-            && current_user_can( 'edit_post', $post_id )
-            && wp_verify_nonce(
-                sanitize_text_field( wp_unslash( (string) $_POST['tmwseo_model_research_nonce'] ) ),
-                'tmwseo_model_research_save_' . $post_id
-            )
-        ) {
-            $source_url = isset( $_POST['tmwseo_public_profile_source_url'] )
-                ? sanitize_text_field( wp_unslash( (string) $_POST['tmwseo_public_profile_source_url'] ) )
-                : '';
-            $validation = ( new SourceValidator() )->validate( $source_url );
-            if ( ! $validation->is_valid ) {
-                $message  = $validation->message;
-                $is_error = true;
-            } else {
-                $source_url = $validation->normalized_url;
-            }
-        }
-
         echo '<div style="margin:16px 0;padding:12px;border:1px solid #dcdcde;border-radius:4px;">';
         echo '<strong>' . esc_html__( 'Public Profile Import', 'tmwseo' ) . '</strong>';
         echo '<p style="margin:6px 0;color:#50575e;">' . esc_html__( 'Validate a public HTTPS profile URL. Importers return candidate data only and none are configured yet.', 'tmwseo' ) . '</p>';
         echo '<label for="tmwseo_public_profile_source_url" class="screen-reader-text">' . esc_html__( 'Source URL', 'tmwseo' ) . '</label>';
-        echo '<input type="url" id="tmwseo_public_profile_source_url" name="tmwseo_public_profile_source_url" value="' . esc_attr( $source_url ) . '" placeholder="https://example.com/profile" class="regular-text" /> ';
-        echo '<button type="submit" name="tmwseo_public_profile_import" value="1" class="button">' . esc_html__( 'Import', 'tmwseo' ) . '</button>';
-        echo '<p style="margin:8px 0 0;"' . ( $is_error ? ' role="alert"' : '' ) . '>' . esc_html( $message ) . '</p>';
+        echo '<input type="url" id="tmwseo_public_profile_source_url" placeholder="https://example.com/profile" class="regular-text" /> ';
+        echo '<button type="button" id="tmwseo-public-profile-import" class="button" data-post-id="' . esc_attr( (string) $post_id ) . '" data-nonce="' . esc_attr( wp_create_nonce( 'tmwseo_public_profile_import' ) ) . '">' . esc_html__( 'Import', 'tmwseo' ) . '</button>';
+        echo '<p id="tmwseo-public-profile-import-result" style="margin:8px 0 0;" role="status" aria-live="polite">' . esc_html__( 'No profile importer is currently available.', 'tmwseo' ) . '</p>';
         echo '</div>';
+    }
+
+    /** @return array{status:string,message:string,source_url:string} */
+    public static function public_profile_import_response( string $source_url ): array {
+        $validation = ( new SourceValidator() )->validate( $source_url );
+        if ( ! $validation->is_valid ) {
+            return [ 'status' => 'invalid', 'message' => $validation->message, 'source_url' => '' ];
+        }
+        return [
+            'status'     => 'unsupported',
+            'message'    => __( 'No profile importer is currently available.', 'tmwseo' ),
+            'source_url' => $validation->normalized_url,
+        ];
+    }
+
+    /** Validate a candidate URL without fetching or persisting any data. */
+    public static function ajax_public_profile_import(): void {
+        $post_id = isset( $_POST['post_id'] ) ? max( 0, (int) $_POST['post_id'] ) : 0;
+        $nonce = isset( $_POST['nonce'] ) ? sanitize_text_field( wp_unslash( (string) $_POST['nonce'] ) ) : '';
+        if ( ! $post_id || ! wp_verify_nonce( $nonce, 'tmwseo_public_profile_import' ) ) {
+            wp_send_json_error( [ 'status' => 'error', 'message' => __( 'Invalid security token.', 'tmwseo' ) ], 403 );
+            return;
+        }
+        if ( ! current_user_can( 'edit_post', $post_id ) ) {
+            wp_send_json_error( [ 'status' => 'error', 'message' => __( 'You do not have permission to edit this model.', 'tmwseo' ) ], 403 );
+            return;
+        }
+        try {
+            $source_url = isset( $_POST['source_url'] ) ? sanitize_text_field( wp_unslash( (string) $_POST['source_url'] ) ) : '';
+            wp_send_json_success( self::public_profile_import_response( $source_url ) );
+        } catch ( \Throwable $exception ) {
+            wp_send_json_error( [ 'status' => 'error', 'message' => __( 'The profile import request could not be completed.', 'tmwseo' ) ], 500 );
+        }
     }
 
     // ── Meta key constants ────────────────────────────────────────────────
@@ -595,6 +598,8 @@ class ModelHelper {
         // does not submit classic metabox POST data (mirrors PlatformProfiles pattern).
         add_action( 'enqueue_block_editor_assets',              [ ModelMetabox::class, 'enqueue_editor_assets' ] );
         add_action( 'wp_ajax_tmwseo_save_model_research',       [ ModelMetabox::class, 'ajax_save_model_research' ] );
+        add_action( 'admin_enqueue_scripts',                     [ ModelMetabox::class, 'enqueue_public_profile_import_assets' ] );
+        add_action( 'wp_ajax_tmwseo_public_profile_import',      [ __CLASS__, 'ajax_public_profile_import' ] );
         // Full platform audit — synchronous exhaustive discovery
         add_action( 'wp_ajax_tmwseo_run_full_audit',            [ __CLASS__, 'ajax_run_full_audit' ] );
         // v5.3.0: Durable Full Audit — enqueues a background job that runs

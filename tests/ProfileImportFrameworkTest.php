@@ -12,6 +12,11 @@ require_once __DIR__ . '/../includes/import/interface-profile-importer.php';
 require_once __DIR__ . '/../includes/import/class-source-validator.php';
 require_once __DIR__ . '/../includes/import/class-null-importer.php';
 require_once __DIR__ . '/../includes/import/class-import-manager.php';
+require_once __DIR__ . '/../includes/model/class-model-context-aware-provider-interface.php';
+require_once __DIR__ . '/../includes/platform/class-platform-registry.php';
+require_once __DIR__ . '/../includes/platform/class-platform-profiles.php';
+require_once __DIR__ . '/../includes/db/class-logs.php';
+require_once __DIR__ . '/../includes/admin/class-model-helper.php';
 
 final class ProfileImportFrameworkTest extends TestCase {
     public function test_import_result_has_safe_defaults_and_accepts_data(): void {
@@ -51,6 +56,19 @@ final class ProfileImportFrameworkTest extends TestCase {
         self::assertSame( 'https://example.com/Profile?Ref=One', $result->normalized_url );
     }
 
+    /** @dataProvider publicIpv4Urls */
+    public function test_source_validator_accepts_public_ipv4_addresses( string $url ): void {
+        self::assertTrue( ( new SourceValidator() )->validate( $url )->is_valid, $url );
+    }
+
+    /** @return array<string,array{string}> */
+    public static function publicIpv4Urls(): array {
+        return [
+            'adjacent public range' => [ 'https://192.169.1.1/profile' ],
+            'public dns' => [ 'https://8.8.8.8/profile' ],
+        ];
+    }
+
     /** @dataProvider unsafeUrls */
     public function test_source_validator_rejects_unsafe_urls( string $url ): void {
         self::assertFalse( ( new SourceValidator() )->validate( $url )->is_valid, $url );
@@ -64,7 +82,7 @@ final class ProfileImportFrameworkTest extends TestCase {
             'localhost' => [ 'https://localhost/profile' ], 'localhost subdomain' => [ 'https://api.localhost/profile' ],
             'loopback ipv4' => [ 'https://127.0.0.1/profile' ], 'loopback ipv6' => [ 'https://[::1]/profile' ],
             'private ipv4' => [ 'https://192.168.1.10/profile' ], 'link local' => [ 'https://169.254.1.10/profile' ],
-            'reserved' => [ 'https://192.0.2.1/profile' ],
+            'reserved' => [ 'https://192.0.2.1/profile' ], 'documentation' => [ 'https://203.0.113.1/profile' ],
         ];
     }
 
@@ -92,6 +110,25 @@ final class ProfileImportFrameworkTest extends TestCase {
         self::assertSame( ImportResult::STATUS_UNSUPPORTED, ( new ImportManager() )->import_profile( 'https://example.com' )->status );
         $manager = new ImportManager( null, [ new ThrowingProfileImporter() ] );
         self::assertSame( ImportResult::STATUS_ERROR, $manager->import_profile( 'https://example.com' )->status );
+    }
+
+    public function test_ajax_response_logic_is_candidate_only_and_does_not_persist(): void {
+        $before = $GLOBALS['_tmw_test_post_meta'];
+        $valid = \TMWSEO\Engine\Admin\ModelHelper::public_profile_import_response( 'https://Example.COM/profile' );
+        self::assertSame( 'unsupported', $valid['status'] );
+        self::assertSame( 'https://example.com/profile', $valid['source_url'] );
+        self::assertSame( 'invalid', \TMWSEO\Engine\Admin\ModelHelper::public_profile_import_response( 'http://example.com' )['status'] );
+        self::assertSame( $before, $GLOBALS['_tmw_test_post_meta'] );
+    }
+
+    public function test_ajax_handler_returns_unsupported_without_persistence(): void {
+        $before = $GLOBALS['_tmw_test_post_meta'];
+        $_POST = [ 'post_id' => '42', 'nonce' => 'test_nonce', 'source_url' => 'https://example.com/profile' ];
+        \TMWSEO\Engine\Admin\ModelHelper::ajax_public_profile_import();
+        self::assertTrue( $GLOBALS['_tmw_test_last_json']['success'] );
+        self::assertSame( 'unsupported', $GLOBALS['_tmw_test_last_json']['data']['status'] );
+        self::assertSame( $before, $GLOBALS['_tmw_test_post_meta'] );
+        $_POST = [];
     }
 }
 

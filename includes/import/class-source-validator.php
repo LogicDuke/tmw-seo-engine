@@ -62,7 +62,7 @@ final class SourceValidator {
 
     private function is_unsafe_ip( string $ip ): bool {
         if ( filter_var( $ip, FILTER_VALIDATE_IP, FILTER_FLAG_IPV4 ) !== false ) {
-            $value = (int) sprintf( '%u', ip2long( $ip ) );
+            $value = ip2long( $ip );
             foreach ( [
                 [ '0.0.0.0', 8 ], [ '10.0.0.0', 8 ], [ '100.64.0.0', 10 ],
                 [ '127.0.0.0', 8 ], [ '169.254.0.0', 16 ], [ '172.16.0.0', 12 ],
@@ -70,8 +70,11 @@ final class SourceValidator {
                 [ '198.18.0.0', 15 ], [ '198.51.100.0', 24 ], [ '203.0.113.0', 24 ],
                 [ '224.0.0.0', 4 ], [ '240.0.0.0', 4 ],
             ] as [ $network, $prefix ] ) {
-                $network_value = (int) sprintf( '%u', ip2long( $network ) );
-                $mask = $prefix === 0 ? 0 : ( ( 0xffffffff << ( 32 - $prefix ) ) & 0xffffffff );
+                $network_value = ip2long( $network );
+                // Keep PHP's signed ip2long() representation. This avoids
+                // converting unsigned values through an overflowing int on
+                // 32-bit PHP while preserving the IPv4 bit pattern.
+                $mask = $prefix === 0 ? 0 : ~( ( 1 << ( 32 - $prefix ) ) - 1 );
                 if ( ( $value & $mask ) === ( $network_value & $mask ) ) {
                     return true;
                 }
