@@ -8,8 +8,12 @@ use PHPUnit\Framework\TestCase;
 
 require_once __DIR__ . '/../includes/import/class-import-result.php';
 require_once __DIR__ . '/../includes/import/class-source-validation-result.php';
+require_once __DIR__ . '/../includes/import/class-profile-fetch-request.php';
+require_once __DIR__ . '/../includes/import/class-profile-fetch-result.php';
 require_once __DIR__ . '/../includes/import/interface-profile-importer.php';
+require_once __DIR__ . '/../includes/import/interface-profile-fetch-service.php';
 require_once __DIR__ . '/../includes/import/class-source-validator.php';
+require_once __DIR__ . '/../includes/import/class-null-profile-fetch-service.php';
 require_once __DIR__ . '/../includes/import/class-null-importer.php';
 require_once __DIR__ . '/../includes/import/class-livejasmin-profile-importer.php';
 require_once __DIR__ . '/../includes/import/class-import-manager.php';
@@ -111,12 +115,12 @@ final class ProfileImportFrameworkTest extends TestCase {
         self::assertSame( 'livejasmin', $result->provider );
         self::assertSame( 'https://www.livejasmin.com/en/chat/' . $username, $result->source_url );
         self::assertSame( $username, $result->username );
-        self::assertTrue( $result->diagnostics['source_recognized'] );
+        self::assertFalse( $result->diagnostics['fetch_attempted'] );
         self::assertFalse( $result->diagnostics['fetch_implemented'] );
         self::assertSame( [], $result->raw_fields );
         self::assertSame( [], $result->attributes );
-        self::assertSame( [ 'Profile fetching is not implemented.' ], $result->warnings );
-        self::assertStringContainsString( 'no profile data was fetched', $result->message );
+        self::assertSame( [ 'Profile fetching is not implemented yet.' ], $result->warnings );
+        self::assertStringContainsString( 'remote profile fetching is not implemented yet', $result->message );
         self::assertSame( $before_meta, $GLOBALS['_tmw_test_post_meta'] );
         self::assertSame( $before_options, $GLOBALS['_tmw_test_options'] );
         self::assertSame( $before_transients, $GLOBALS['_tmw_test_transients'] );
@@ -178,6 +182,7 @@ final class ProfileImportFrameworkTest extends TestCase {
         self::assertSame( 'https://www.livejasmin.com/en/chat/AbbyMurray', $valid['source_url'] );
         self::assertSame( 'AbbyMurray', $valid['username'] );
         self::assertStringContainsString( 'no profile data was fetched', $valid['message'] );
+        self::assertStringContainsString( 'Nothing was saved', $valid['message'] );
         self::assertSame( 'invalid', \TMWSEO\Engine\Admin\ModelHelper::public_profile_import_response( 'http://www.livejasmin.com/en/chat/AbbyMurray' )['status'] );
         self::assertSame( $before, $GLOBALS['_tmw_test_post_meta'] );
     }

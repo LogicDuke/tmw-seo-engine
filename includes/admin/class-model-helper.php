@@ -34,6 +34,7 @@ use TMWSEO\Engine\Platform\PlatformProfiles;
 use TMWSEO\Engine\Logs;
 use TMWSEO\Engine\Import\ImportManager;
 use TMWSEO\Engine\Import\LiveJasminProfileImporter;
+use TMWSEO\Engine\Import\NullProfileFetchService;
 
 if ( ! defined( 'ABSPATH' ) ) { exit; }
 
@@ -439,12 +440,16 @@ class ModelHelper {
 
     /** @return array{status:string,message:string,source_url:string} */
     public static function public_profile_import_response( string $source_url ): array {
-        $result = ( new ImportManager( null, [ new LiveJasminProfileImporter() ] ) )->import_profile( $source_url );
+        $result = ( new ImportManager( null, [ new LiveJasminProfileImporter( new NullProfileFetchService() ) ] ) )->import_profile( $source_url );
+        $message = $result->message;
+        if ( $result->provider === 'livejasmin' && $result->status === 'unsupported' ) {
+            $message = 'The LiveJasmin URL was recognized, but no profile data was fetched because profile fetching is not implemented. Nothing was saved.';
+        }
 
         return [
             'status'     => $result->status,
             'provider'   => $result->provider,
-            'message'    => __( $result->message, 'tmwseo' ),
+            'message'    => __( $message, 'tmwseo' ),
             'source_url' => $result->source_url,
             'username'   => $result->username,
         ];
