@@ -167,6 +167,13 @@ class LiveJasminFetcherSettingsValidationTest extends SettingsValidationTest {
         self::assertNotSame( '', $result['livejasmin_profile_fetch_secret'] );
     }
 
+    public function test_fetcher_enabled_setting_honors_submitted_values(): void {
+        update_option( 'tmwseo_engine_settings', [ 'livejasmin_profile_fetch_enabled' => 1 ] );
+        self::assertSame( 1, Admin::sanitize_settings( [] )['livejasmin_profile_fetch_enabled'] );
+        self::assertSame( 1, Admin::sanitize_settings( [ 'livejasmin_profile_fetch_enabled' => '1' ] )['livejasmin_profile_fetch_enabled'] );
+        self::assertSame( 0, Admin::sanitize_settings( [ 'livejasmin_profile_fetch_enabled' => '0' ] )['livejasmin_profile_fetch_enabled'] );
+    }
+
     public function test_fetcher_blank_secret_preserves_existing_secret_and_timeout_is_bounded(): void {
         update_option( 'tmwseo_engine_settings', [ 'livejasmin_profile_fetch_secret' => 'existing-secret' ] );
         $result = Admin::sanitize_settings( [ 'livejasmin_profile_fetch_secret' => '', 'livejasmin_profile_fetch_timeout' => 999 ] );

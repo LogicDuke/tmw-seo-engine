@@ -171,7 +171,7 @@ class AdminSettingsSanitizer {
 
             // Isolated public-profile fetcher. This remains opt-in and Safe Mode
             // is enforced at service selection time; preserve it across other tabs.
-            'livejasmin_profile_fetch_enabled' => isset($input['livejasmin_profile_fetch_enabled']) && (string) $input['livejasmin_profile_fetch_enabled'] === '1' ? 1 : (int) ($existing['livejasmin_profile_fetch_enabled'] ?? 0),
+            'livejasmin_profile_fetch_enabled' => array_key_exists('livejasmin_profile_fetch_enabled', $input) ? ((string) $input['livejasmin_profile_fetch_enabled'] === '1' ? 1 : 0) : (int) ($existing['livejasmin_profile_fetch_enabled'] ?? 0),
             'livejasmin_profile_fetch_endpoint' => self::sanitize_profile_fetch_endpoint((string) ($input['livejasmin_profile_fetch_endpoint'] ?? $existing['livejasmin_profile_fetch_endpoint'] ?? '')),
             'livejasmin_profile_fetch_secret' => self::preserve_blank_secret($input, $existing, 'livejasmin_profile_fetch_secret'),
             'livejasmin_profile_fetch_timeout' => max(3, min(30, (int) ($input['livejasmin_profile_fetch_timeout'] ?? $existing['livejasmin_profile_fetch_timeout'] ?? 15))),
