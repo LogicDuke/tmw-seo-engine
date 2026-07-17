@@ -2986,6 +2986,7 @@ class ContentEngine {
             // reasons; nothing is written to post_content or preview meta.
             if ($post->post_type === 'tmw_category_page'
                 && (string)($cat_preview['_source'] ?? '') === 'category_generation_failed') {
+                self::record_category_transaction_blocked($post, $strategy, 'blocked_pipeline_validation', (array)($cat_preview['_failure_reasons'] ?? []));
                 delete_post_meta($post_id, '_tmwseo_optimize_enqueued');
                 update_post_meta($post_id, '_tmwseo_optimize_done', 'category_generation_failed');
                 error_log(sprintf(
@@ -3020,6 +3021,13 @@ class ContentEngine {
                     $final_content = self::upsert_ai_block((string)$post->post_content, $generated_content);
                     $final_content = self::append_category_affiliate_cta_html($final_content, $post);
                 }
+            }
+            // Every category strategy commits through this one transaction.
+            // It validates the exact marker/CTA document, saves it, verifies
+            // canonical readback, and only then writes generated metadata.
+            if ($post->post_type === 'tmw_category_page' && $insert_block) {
+                self::commit_category_generation_transaction($post, $generated_content, $final_content, $keyword_pack, $focus_kw, $seo_title, $meta_desc, $strategy);
+                return;
             }
             if ($insert_block) {
                 // v5.9.12 — persistence-time structural guard (category only).
@@ -3448,6 +3456,7 @@ class ContentEngine {
                         (int) ($pipe['report']['metrics']['word_count'] ?? 0)
                     ));
                 } else {
+                    self::record_category_transaction_blocked($post, $strategy, 'blocked_pipeline_validation', (array)($pipe['report']['failure_reasons'] ?? []));
                     error_log(sprintf(
                         '[TMW-CAT-PIPE] provider path FAILED post_id=%d provider=%s reasons=%s — save skipped',
                         $post_id,
@@ -3511,6 +3520,11 @@ class ContentEngine {
         }
         if ($post->post_type === 'tmw_category_page' && $insert_block) {
             $new_content = self::append_category_affiliate_cta_html($new_content, $post);
+        }
+
+        if ($post->post_type === 'tmw_category_page' && $insert_block) {
+            self::commit_category_generation_transaction($post, $generated_content, $new_content, $keyword_pack, $focus_kw, $seo_title, $meta_desc, $strategy);
+            return;
         }
 
         // Generated metadata must describe only content that passed the
@@ -3647,6 +3661,117 @@ class ContentEngine {
         update_post_meta($post_id, '_tmwseo_keyword_pack', wp_json_encode($pack));
 
         return $pack;
+    }
+
+    /**
+     * The only production persistence path for generated category documents.
+     *
+     * The caller has already selected a strategy and built its fragment. This
+     * method deliberately owns every write after that point: exact document
+     * validation, content save/readback verification, metadata, chips,
+     * readiness and robots. A failed content write restores the pre-run
+     * document and generated metadata before returning a structured result.
+     */
+    private static function commit_category_generation_transaction(\WP_Post $post, string $fragment, string $final_content, array $keyword_pack, string $focus_kw, string $seo_title, string $meta_desc, string $strategy): array {
+        $post_id = (int) $post->ID;
+        $run_id = (string) get_post_meta($post_id, '_tmwseo_category_generation_run_id', true);
+        $keys = [
+            '_tmwseo_quality_score', '_tmwseo_quality_score_data', '_tmwseo_content_quality_score',
+            'rank_math_title', 'rank_math_description', 'rank_math_focus_keyword', 'rank_math_additional_keywords',
+            '_tmwseo_keyword', '_tmwseo_model_secondary_keywords', '_tmwseo_category_seo_verification',
+            '_tmwseo_category_keyword_report', '_tmwseo_ready_to_index', 'rank_math_robots',
+            '_tmwseo_generated', '_tmwseo_generated_at', '_tmwseo_optimize_done',
+        ];
+        $snapshot = ['content' => (string) get_post_field('post_content', $post_id), 'meta' => []];
+        foreach ($keys as $key) { $snapshot['meta'][$key] = get_post_meta($post_id, $key, true); }
+        $robots_before = $snapshot['meta']['rank_math_robots'];
+        $result = [
+            'ok' => false, 'written' => false, 'run_id' => $run_id, 'post_id' => $post_id,
+            'strategy' => $strategy, 'provider' => $strategy === 'template' ? 'template' : $strategy,
+            'failure_code' => '', 'reasons' => [],
+            'old_content_hash' => \TMWSEO\Engine\Content\CategoryGenerationTransaction::hash($snapshot['content']),
+            'fragment_hash' => \TMWSEO\Engine\Content\CategoryGenerationTransaction::hash($fragment),
+            'intended_content_hash' => \TMWSEO\Engine\Content\CategoryGenerationTransaction::hash($final_content),
+            'persisted_readback_hash' => '', 'save_result' => null, 'finalization_status' => 'skipped',
+            'readiness' => ['evaluated' => false, 'reasons' => []], 'robots_before' => $robots_before, 'robots_after' => $robots_before,
+        ];
+        $fail = static function (string $code, array $reasons) use (&$result, $post_id, $snapshot): array {
+            // Content is restored even if a database/filter layer partially wrote it.
+            $current = (string) get_post_field('post_content', $post_id);
+            if ($current !== $snapshot['content']) { wp_update_post(['ID' => $post_id, 'post_content' => $snapshot['content']], true); }
+            foreach ($snapshot['meta'] as $key => $value) {
+                if ($value === '' || $value === false || $value === null) { delete_post_meta($post_id, $key); }
+                else { update_post_meta($post_id, $key, $value); }
+            }
+            clean_post_cache($post_id);
+            $result['failure_code'] = $code;
+            $result['reasons'] = array_values($reasons);
+            update_post_meta($post_id, '_tmwseo_category_last_save_result', wp_json_encode($result));
+            update_post_meta($post_id, '_tmwseo_category_transaction_result', wp_json_encode($result));
+            update_post_meta($post_id, '_tmwseo_category_generation_error', $code . ': ' . implode('; ', $reasons));
+            update_post_meta($post_id, '_tmwseo_optimize_done', $code);
+            Logs::warn('content', '[TMW-CAT-VERIFY] transaction rolled back', ['post_id' => $post_id, 'failure_code' => $code, 'reasons' => $reasons]);
+            return $result;
+        };
+        Logs::info('content', '[TMW-CAT-BUILD] final document built', ['post_id' => $post_id, 'run_id' => $run_id, 'old_content_hash' => $result['old_content_hash'], 'fragment_hash' => $result['fragment_hash'], 'intended_content_hash' => $result['intended_content_hash']]);
+        if (trim($fragment) === '' || trim($final_content) === '') { return $fail('empty_generated_fragment', ['generated fragment or final document is empty']); }
+        $guard_keywords = array_values(array_unique(array_filter(array_map('strval', array_merge([$focus_kw], (array)($keyword_pack['rankmath_additional'] ?? []), (array)($keyword_pack['additional'] ?? []))))));
+        $guard = self::enforce_category_persistence_guard($final_content, $guard_keywords, $post_id);
+        if (!$guard['ok']) {
+            $reasons = array_map(static fn(array $i): string => ($i['type'] ?? 'guard') . ': ' . ($i['detail'] ?? ''), (array)$guard['issues']);
+            return $fail('blocked_persistence_guard', $reasons ?: ['final document failed persistence guard']);
+        }
+        $final_content = (string)$guard['html'];
+        $result['intended_content_hash'] = \TMWSEO\Engine\Content\CategoryGenerationTransaction::hash($final_content);
+        Logs::info('content', '[TMW-CAT-SAVE] saving exact final document', ['post_id' => $post_id, 'intended_content_hash' => $result['intended_content_hash']]);
+        $save = wp_update_post(['ID' => $post_id, 'post_content' => $final_content], true);
+        $result['save_result'] = is_wp_error($save) ? ['wp_error' => $save->get_error_message()] : (int)$save;
+        if (is_wp_error($save) || (int)$save <= 0) { return $fail('save_wp_error', [is_wp_error($save) ? $save->get_error_message() : 'wp_update_post returned no post ID']); }
+        clean_post_cache($post_id);
+        $readback = (string)get_post_field('post_content', $post_id);
+        $result['persisted_readback_hash'] = \TMWSEO\Engine\Content\CategoryGenerationTransaction::hash($readback);
+        if ($result['persisted_readback_hash'] !== $result['intended_content_hash']) { return $fail('persisted_readback_mismatch', ['canonical intended and persisted document hashes differ']); }
+        // No generated metadata is touched above this line.
+        try {
+            AssistedDraftEnrichmentService::persist_quality_score($post_id, $fragment, $post, $focus_kw, $keyword_pack);
+            if ($seo_title !== '') { update_post_meta($post_id, 'rank_math_title', $seo_title); }
+            if ($meta_desc !== '') { update_post_meta($post_id, 'rank_math_description', $meta_desc); }
+            if (!empty($keyword_pack) && class_exists('\\TMWSEO\\Engine\\Content\\RankMathMapper')) { RankMathMapper::sync_to_rank_math($post_id, $keyword_pack, true); }
+            elseif ($focus_kw !== '') { update_post_meta($post_id, 'rank_math_focus_keyword', $focus_kw); }
+            if ($focus_kw !== '') { update_post_meta($post_id, '_tmwseo_keyword', $focus_kw); }
+            self::finalize_category_generation($post_id, get_post($post_id), $keyword_pack);
+            $gate = class_exists('\\TMWSEO\\Engine\\Content\\IndexReadinessGate') ? IndexReadinessGate::evaluate_post($post_id) : ['ready' => false, 'reasons' => ['readiness_gate_unavailable']];
+            $result['readiness'] = ['evaluated' => true, 'ready' => !empty($gate['ready']), 'reasons' => (array)($gate['reasons'] ?? [])];
+            self::maybe_clear_rank_math_noindex(get_post($post_id));
+        } catch (\Throwable $e) { return $fail('metadata_finalize_failed', [$e->getMessage()]); }
+        $result['ok'] = true; $result['written'] = true; $result['finalization_status'] = 'complete';
+        $result['robots_after'] = get_post_meta($post_id, 'rank_math_robots', true);
+        update_post_meta($post_id, '_tmwseo_category_last_save_result', wp_json_encode($result));
+        update_post_meta($post_id, '_tmwseo_category_transaction_result', wp_json_encode($result));
+        update_post_meta($post_id, '_tmwseo_optimize_done', 'category_transaction_complete');
+        Logs::info('content', '[TMW-CAT-FINALIZE] transaction complete', ['post_id' => $post_id, 'run_id' => $run_id, 'readiness' => $result['readiness'], 'robots_after' => $result['robots_after']]);
+        return $result;
+    }
+
+    /** Record a pre-save pipeline failure in the same AJAX-readable format. */
+    private static function record_category_transaction_blocked(\WP_Post $post, string $strategy, string $code, array $reasons): void {
+        $post_id = (int)$post->ID;
+        $old = (string)get_post_field('post_content', $post_id);
+        $result = [
+            'ok' => false, 'written' => false, 'post_id' => $post_id,
+            'run_id' => (string)get_post_meta($post_id, '_tmwseo_category_generation_run_id', true),
+            'strategy' => $strategy, 'provider' => $strategy === 'template' ? 'template' : $strategy,
+            'failure_code' => $code, 'reasons' => array_values(array_map('strval', $reasons)),
+            'old_content_hash' => \TMWSEO\Engine\Content\CategoryGenerationTransaction::hash($old),
+            'fragment_hash' => '', 'intended_content_hash' => '', 'persisted_readback_hash' => '',
+            'save_result' => null, 'finalization_status' => 'skipped',
+            'readiness' => ['evaluated' => false, 'reasons' => ['not_evaluated_generation_failed']],
+            'robots_before' => get_post_meta($post_id, 'rank_math_robots', true),
+            'robots_after' => get_post_meta($post_id, 'rank_math_robots', true),
+        ];
+        update_post_meta($post_id, '_tmwseo_category_transaction_result', wp_json_encode($result));
+        update_post_meta($post_id, '_tmwseo_category_last_save_result', wp_json_encode($result));
+        Logs::warn('content', '[TMW-CAT-BUILD] pipeline blocked before transaction save', ['post_id' => $post_id, 'failure_code' => $code, 'reasons' => $result['reasons']]);
     }
 
     /**

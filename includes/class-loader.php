@@ -207,6 +207,7 @@ class Loader {
         tmwseo_safe_require( $p . 'class-rank-math-reader.php' );
         tmwseo_safe_require( $p . 'class-rank-math-checklist.php' );
         tmwseo_safe_require( $p . 'class-content-generation-gate.php' );
+        tmwseo_safe_require( $p . 'class-category-generation-transaction.php' );
         // Model Research Evidence helper (v5.8.7) — simple 3-field evidence flow.
         // Replaces v5.8.0–v5.8.6 ExternalProfileEvidence + ExternalProfileEvidenceRenderer.
         tmwseo_safe_require( $p . 'class-model-research-evidence.php' );

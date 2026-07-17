@@ -326,7 +326,6 @@ class AdminAjaxHandlers {
             $before_content = (string) get_post_field( 'post_content', $post_id );
             $before_preview = (string) get_post_meta( $post_id, '_tmwseo_ai_preview_content', true );
             $before_status  = (string) get_post_status( $post_id );
-            $before_ready   = (string) get_post_meta( $post_id, '_tmwseo_ready_to_index', true );
 
             $job_payload['manual_category_generate']   = 1;
             $job_payload['explicit_category_generate'] = 1;
@@ -387,19 +386,14 @@ class AdminAjaxHandlers {
             $after_preview = (string) get_post_meta( $post_id, '_tmwseo_ai_preview_content', true );
             $after_done    = (string) get_post_meta( $post_id, '_tmwseo_optimize_done', true );
             $after_status  = (string) get_post_status( $post_id );
-            $after_ready   = (string) get_post_meta( $post_id, '_tmwseo_ready_to_index', true );
 
             if ( $after_status !== $before_status ) {
                 wp_update_post( [ 'ID' => $post_id, 'post_status' => $before_status ] );
             }
-            if ( $after_ready !== $before_ready ) {
-                if ( $before_ready === '' ) {
-                    delete_post_meta( $post_id, '_tmwseo_ready_to_index' );
-                } else {
-                    update_post_meta( $post_id, '_tmwseo_ready_to_index', $before_ready );
-                }
-            }
-
+            // Read the authoritative transaction result. Do not restore
+            // readiness: it is a deliberate post-save transaction outcome.
+            $transaction_raw = (string) get_post_meta( $post_id, '_tmwseo_category_transaction_result', true );
+            $transaction = $transaction_raw !== '' ? json_decode( $transaction_raw, true ) : [];
             $save_result_raw = (string) get_post_meta( $post_id, '_tmwseo_category_last_save_result', true );
             $save_result     = $save_result_raw !== '' ? json_decode( $save_result_raw, true ) : [];
             $save_written    = is_array( $save_result ) && ! empty( $save_result['content_written'] );
@@ -442,6 +436,21 @@ class AdminAjaxHandlers {
                 ], 409 );
             }
 
+            if ( is_array( $transaction ) && array_key_exists( 'ok', $transaction ) && empty( $transaction['ok'] ) ) {
+                $code = (string) ( $transaction['failure_code'] ?? 'category_transaction_failed' );
+                $reasons = array_values( array_map( 'strval', (array) ( $transaction['reasons'] ?? [] ) ) );
+                $message = 'Category generation blocked: ' . $code;
+                if ( ! empty( $reasons ) ) { $message .= '. ' . implode( '; ', $reasons ); }
+                $message .= ' [run ' . $run_id . ']';
+                update_post_meta( $post_id, '_tmwseo_category_generation_status', 'error' );
+                update_post_meta( $post_id, '_tmwseo_category_generation_error', $message );
+                wp_send_json_error( [
+                    'ok' => false, 'written' => false, 'run_id' => $run_id, 'post_id' => $post_id,
+                    'strategy' => $strategy, 'failure_code' => $code, 'reasons' => $reasons,
+                    'transaction' => $transaction, 'message' => $message,
+                ], 409 );
+            }
+
             if ( ! $content_changed && ! $preview_changed ) {
                 update_post_meta( $post_id, '_tmwseo_category_generation_status', 'error' );
                 update_post_meta( $post_id, '_tmwseo_category_generation_error', 'empty_generated_content' );
@@ -456,7 +465,7 @@ class AdminAjaxHandlers {
                     'success' => false,
                     'run_id'  => $run_id,
                     'status'  => 'error',
-                    'message' => __( 'Category generation finished but no content was written. Check logs.', 'tmwseo' ),
+                    'message' => __( 'Category generation blocked: no verified content transaction was recorded.', 'tmwseo' ) . ' [run ' . $run_id . ']',
                 ], 500 );
             }
 
@@ -489,6 +498,7 @@ class AdminAjaxHandlers {
                 'post_id'         => $post_id,
                 'word_count'      => $save_word_count,
                 'source'          => $save_source,
+                'transaction'     => $transaction,
                 'autosave_warning' => $autosave_warning !== '',
                 'message'         => ( $insert_block
                     ? __( 'Category content generated and written to post content. Reloading editor.', 'tmwseo' )
