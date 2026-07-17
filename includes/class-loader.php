@@ -76,6 +76,7 @@ class Loader {
         tmwseo_safe_require( $p . 'interface-profile-importer.php' );
         tmwseo_safe_require( $p . 'class-source-validator.php' );
         tmwseo_safe_require( $p . 'class-null-importer.php' );
+        tmwseo_safe_require( $p . 'class-livejasmin-profile-importer.php' );
         tmwseo_safe_require( $p . 'class-import-manager.php' );
     }
 

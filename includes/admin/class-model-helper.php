@@ -32,7 +32,8 @@ use TMWSEO\Engine\Model\ModelContextAwareProvider;
 use TMWSEO\Engine\Platform\PlatformRegistry;
 use TMWSEO\Engine\Platform\PlatformProfiles;
 use TMWSEO\Engine\Logs;
-use TMWSEO\Engine\Import\SourceValidator;
+use TMWSEO\Engine\Import\ImportManager;
+use TMWSEO\Engine\Import\LiveJasminProfileImporter;
 
 if ( ! defined( 'ABSPATH' ) ) { exit; }
 
@@ -428,24 +429,24 @@ class ModelHelper {
     public static function render_public_profile_import( int $post_id ): void {
         echo '<div style="margin:16px 0;padding:12px;border:1px solid #dcdcde;border-radius:4px;">';
         echo '<strong>' . esc_html__( 'Public Profile Import', 'tmwseo' ) . '</strong>';
-        echo '<p style="margin:6px 0;color:#50575e;">' . esc_html__( 'Validate a public HTTPS profile URL. Importers return candidate data only and none are configured yet.', 'tmwseo' ) . '</p>';
+        echo '<p style="margin:6px 0;color:#50575e;">' . esc_html__( 'Validate a public HTTPS profile URL. Importers return candidate data only and never fetch or save profile data.', 'tmwseo' ) . '</p>';
         echo '<label for="tmwseo_public_profile_source_url" class="screen-reader-text">' . esc_html__( 'Source URL', 'tmwseo' ) . '</label>';
         echo '<input type="url" id="tmwseo_public_profile_source_url" placeholder="https://example.com/profile" class="regular-text" /> ';
         echo '<button type="button" id="tmwseo-public-profile-import" class="button" data-post-id="' . esc_attr( (string) $post_id ) . '" data-nonce="' . esc_attr( wp_create_nonce( 'tmwseo_public_profile_import' ) ) . '">' . esc_html__( 'Import', 'tmwseo' ) . '</button>';
-        echo '<p id="tmwseo-public-profile-import-result" style="margin:8px 0 0;" role="status" aria-live="polite">' . esc_html__( 'No profile importer is currently available.', 'tmwseo' ) . '</p>';
+        echo '<p id="tmwseo-public-profile-import-result" style="margin:8px 0 0;" role="status" aria-live="polite">' . esc_html__( 'Enter a supported public profile URL to validate it.', 'tmwseo' ) . '</p>';
         echo '</div>';
     }
 
     /** @return array{status:string,message:string,source_url:string} */
     public static function public_profile_import_response( string $source_url ): array {
-        $validation = ( new SourceValidator() )->validate( $source_url );
-        if ( ! $validation->is_valid ) {
-            return [ 'status' => 'invalid', 'message' => $validation->message, 'source_url' => '' ];
-        }
+        $result = ( new ImportManager( null, [ new LiveJasminProfileImporter() ] ) )->import_profile( $source_url );
+
         return [
-            'status'     => 'unsupported',
-            'message'    => __( 'No profile importer is currently available.', 'tmwseo' ),
-            'source_url' => $validation->normalized_url,
+            'status'     => $result->status,
+            'provider'   => $result->provider,
+            'message'    => __( $result->message, 'tmwseo' ),
+            'source_url' => $result->source_url,
+            'username'   => $result->username,
         ];
     }
 
