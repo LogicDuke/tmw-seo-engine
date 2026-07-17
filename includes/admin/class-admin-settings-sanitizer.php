@@ -169,6 +169,13 @@ class AdminSettingsSanitizer {
             'keyword_review_queue_cap' => max(20, min(1000, (int)($input['keyword_review_queue_cap'] ?? $existing['keyword_review_queue_cap'] ?? 200))),
             'model_discovery_enabled'  => !empty($input['model_discovery_enabled']) ? 1 : 0,
 
+            // Isolated public-profile fetcher. This remains opt-in and Safe Mode
+            // is enforced at service selection time; preserve it across other tabs.
+            'livejasmin_profile_fetch_enabled' => isset($input['livejasmin_profile_fetch_enabled']) && (string) $input['livejasmin_profile_fetch_enabled'] === '1' ? 1 : (int) ($existing['livejasmin_profile_fetch_enabled'] ?? 0),
+            'livejasmin_profile_fetch_endpoint' => self::sanitize_profile_fetch_endpoint((string) ($input['livejasmin_profile_fetch_endpoint'] ?? $existing['livejasmin_profile_fetch_endpoint'] ?? '')),
+            'livejasmin_profile_fetch_secret' => self::preserve_blank_secret($input, $existing, 'livejasmin_profile_fetch_secret'),
+            'livejasmin_profile_fetch_timeout' => max(3, min(30, (int) ($input['livejasmin_profile_fetch_timeout'] ?? $existing['livejasmin_profile_fetch_timeout'] ?? 15))),
+
             'keyword_min_volume'     => max(0, min(100000, (int)($input['keyword_min_volume'] ?? $existing['keyword_min_volume'] ?? 30))),
             'keyword_max_kd'         => max(0, min(100,    (int)($input['keyword_max_kd'] ?? $existing['keyword_max_kd'] ?? 60))),
             'keyword_new_limit'      => max(1, min(5000,   (int)($input['keyword_new_limit'] ?? $existing['keyword_new_limit'] ?? 300))),
@@ -215,6 +222,21 @@ class AdminSettingsSanitizer {
         $sanitized = Crypto::encrypt_in($sanitized, Settings::secret_keys());
 
         return $sanitized;
+    }
+
+    /** Preserve encrypted existing secrets when password inputs are intentionally blank. */
+    private static function preserve_blank_secret(array $input, array $existing, string $key): string {
+        if (!array_key_exists($key, $input) || trim((string) $input[$key]) === '') {
+            return (string) ($existing[$key] ?? '');
+        }
+        return sanitize_text_field((string) $input[$key]);
+    }
+
+    private static function sanitize_profile_fetch_endpoint(string $endpoint): string {
+        $endpoint = esc_url_raw($endpoint);
+        if ($endpoint === '') { return ''; }
+        $parts = wp_parse_url($endpoint);
+        return is_array($parts) && strtolower((string) ($parts['scheme'] ?? '')) === 'https' ? $endpoint : '';
     }
 
     public static function sanitize_platform_affiliate_settings($input): array {

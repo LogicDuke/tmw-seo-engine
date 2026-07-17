@@ -149,3 +149,28 @@ class SettingsValidationTest extends TestCase {
         $this->assertSame( 'quality', $result['openai_mode'] );
     }
 }
+
+// LiveJasmin fetcher settings regressions are kept here because the sanitizer is
+// shared by all normal Settings-page saves.
+class LiveJasminFetcherSettingsValidationTest extends SettingsValidationTest {
+    public function test_fetcher_settings_survive_unrelated_normal_settings_save(): void {
+        update_option( 'tmwseo_engine_settings', [
+            'livejasmin_profile_fetch_enabled' => 1,
+            'livejasmin_profile_fetch_endpoint' => 'https://fetcher.example/v1/fetch-profile',
+            'livejasmin_profile_fetch_secret' => 'existing-secret',
+            'livejasmin_profile_fetch_timeout' => 20,
+        ] );
+        $result = Admin::sanitize_settings( [ 'brand_voice' => 'neutral' ] );
+        self::assertSame( 1, $result['livejasmin_profile_fetch_enabled'] );
+        self::assertSame( 'https://fetcher.example/v1/fetch-profile', $result['livejasmin_profile_fetch_endpoint'] );
+        self::assertSame( 20, $result['livejasmin_profile_fetch_timeout'] );
+        self::assertNotSame( '', $result['livejasmin_profile_fetch_secret'] );
+    }
+
+    public function test_fetcher_blank_secret_preserves_existing_secret_and_timeout_is_bounded(): void {
+        update_option( 'tmwseo_engine_settings', [ 'livejasmin_profile_fetch_secret' => 'existing-secret' ] );
+        $result = Admin::sanitize_settings( [ 'livejasmin_profile_fetch_secret' => '', 'livejasmin_profile_fetch_timeout' => 999 ] );
+        self::assertNotSame( '', $result['livejasmin_profile_fetch_secret'] );
+        self::assertSame( 30, $result['livejasmin_profile_fetch_timeout'] );
+    }
+}
