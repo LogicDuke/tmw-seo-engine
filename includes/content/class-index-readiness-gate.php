@@ -62,6 +62,54 @@ class IndexReadinessGate {
 
         // Hook into Rank Math robots filter if available.
         add_filter( 'rank_math/frontend/robots', [ __CLASS__, 'filter_rank_math_robots' ], 20 );
+
+        // v5.9.13 — audit requirement "prove which write wins last": every
+        // rank_math_robots meta write on an owned post type is logged with
+        // the request context, so a later overwrite (e.g. a Gutenberg
+        // Update replaying stale editor state after a server-side
+        // generation) is detected and attributed instead of silently
+        // re-noindexing a ready page. Log-only; never mutates.
+        add_action( 'updated_post_meta', [ __CLASS__, 'log_robots_meta_write' ], 10, 4 );
+        add_action( 'added_post_meta', [ __CLASS__, 'log_robots_meta_write' ], 10, 4 );
+        add_action( 'deleted_post_meta', [ __CLASS__, 'log_robots_meta_delete' ], 10, 3 );
+    }
+
+    /**
+     * @param int|int[] $meta_id
+     * @param mixed     $meta_value
+     */
+    public static function log_robots_meta_write( $meta_id, int $post_id, string $meta_key, $meta_value ): void {
+        if ( $meta_key !== 'rank_math_robots' ) {
+            return;
+        }
+        if ( ! in_array( (string) get_post_type( $post_id ), [ 'model', 'post', 'tmw_category_page' ], true ) ) {
+            return;
+        }
+        $value_arr  = is_array( $meta_value ) ? array_values( array_map( 'strval', $meta_value ) ) : [ (string) $meta_value ];
+        $is_noindex = in_array( 'noindex', $value_arr, true );
+        \TMWSEO\Engine\Logs::info( 'content', '[TMW-NOINDEX-SOURCE] rank_math_robots meta write observed', [
+            'post_id'    => $post_id,
+            'value'      => $value_arr,
+            'noindex'    => $is_noindex,
+            'doing_ajax' => function_exists( 'wp_doing_ajax' ) && wp_doing_ajax(),
+            'doing_rest' => defined( 'REST_REQUEST' ) && REST_REQUEST,
+            'doing_cron' => function_exists( 'wp_doing_cron' ) && wp_doing_cron(),
+            'request'    => isset( $_SERVER['REQUEST_URI'] ) ? substr( (string) $_SERVER['REQUEST_URI'], 0, 120 ) : '',
+        ] );
+    }
+
+    /** @param int|int[] $meta_ids */
+    public static function log_robots_meta_delete( $meta_ids, int $post_id, string $meta_key ): void {
+        if ( $meta_key !== 'rank_math_robots' ) {
+            return;
+        }
+        if ( ! in_array( (string) get_post_type( $post_id ), [ 'model', 'post', 'tmw_category_page' ], true ) ) {
+            return;
+        }
+        \TMWSEO\Engine\Logs::info( 'content', '[TMW-NOINDEX-SOURCE] rank_math_robots meta DELETED (theme bridge falls back to noindex on empty meta)', [
+            'post_id' => $post_id,
+            'request' => isset( $_SERVER['REQUEST_URI'] ) ? substr( (string) $_SERVER['REQUEST_URI'], 0, 120 ) : '',
+        ] );
     }
 
     /**

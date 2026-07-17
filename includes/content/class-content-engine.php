@@ -2780,6 +2780,11 @@ class ContentEngine {
     }
 
     public static function run_optimize_job(array $job): void {
+        // v5.9.13: never let a previous job's final-document density context
+        // leak into this one (multi-post cron/batch safety).
+        if (class_exists('\\TMWSEO\\Engine\\Content\\CategoryPipeline\\CategoryDensityPolicy')) {
+            \TMWSEO\Engine\Content\CategoryPipeline\CategoryDensityPolicy::clear_final_context();
+        }
         $post_id = (int)($job['entity_id'] ?? 0);
         $dry = (int) Settings::get('tmwseo_dry_run_mode', 0);
         if ($post_id <= 0) {
@@ -2831,6 +2836,21 @@ class ContentEngine {
             // v5.9.0: carry the manual-generate intent into the template builder
             // so the pool guard log can report the real flag rather than a hardcoded value.
             $keyword_pack['_manual_cat_generate'] = true;
+
+            // v5.9.13 ROOT-CAUSE FIX (divergent live densities): every
+            // strategy composes and validates a FRAGMENT, but Rank Math
+            // analyzes the FULL persisted document (existing content
+            // before the AI marker + fragment + preserved affiliate CTA)
+            // with its own tokenizer. Register that surrounding context
+            // once, here, at the single category entry point, so the
+            // density policy targets and validates the exact word count
+            // and combined match count the live editor will display.
+            // Cleared in finalize_category_generation and on every early
+            // return via clear_category_density_context().
+            if (class_exists('\\TMWSEO\\Engine\\Content\\CategoryPipeline\\CategoryDensityPolicy')) {
+                [$ctx_prefix, $ctx_suffix] = self::compute_category_final_context($post, $insert_block);
+                \TMWSEO\Engine\Content\CategoryPipeline\CategoryDensityPolicy::set_final_context($ctx_prefix, $ctx_suffix);
+            }
         }
 
         if ($keywords_only) {
@@ -3042,9 +3062,11 @@ class ContentEngine {
                     }
                     $final_content = (string) $persist_gate['html'];
                 }
-                // Keep generated quality metadata aligned with content that
-                // passed the category persistence guard.
-                AssistedDraftEnrichmentService::persist_quality_score($post_id, $generated_content, $post, $focus_kw, $keyword_pack);
+                // Category metadata must describe a verified persisted document,
+                // not a draft whose WordPress write may fail or be altered.
+                if ($post->post_type !== 'tmw_category_page') {
+                    AssistedDraftEnrichmentService::persist_quality_score($post_id, $generated_content, $post, $focus_kw, $keyword_pack);
+                }
                 $before_save_content = (string) get_post_field('post_content', $post_id);
                 $update_result = wp_update_post([
                     'ID'           => $post_id,
@@ -3059,7 +3081,7 @@ class ContentEngine {
                 // title. build_default_model_seo_title() always produces a title with a
                 // year (number) and a power word from model_title_allowlist, satisfying
                 // both Rank Math Title Readability checks.
-                if ($seo_title !== '') update_post_meta($post_id, 'rank_math_title', $seo_title);
+                if (($post->post_type !== 'tmw_category_page' || $save_ok) && $seo_title !== '') update_post_meta($post_id, 'rank_math_title', $seo_title);
                 // v5.9.0: write_target log for category TemplatePool — category path only.
                 if ($post->post_type === 'tmw_category_page') {
                     error_log(sprintf(
@@ -3121,8 +3143,12 @@ class ContentEngine {
             // Evidence is applied through ModelResearchEvidence::prepend_sections()
             // before save, so a post-save miss check is no longer meaningful.
 
-            if ($meta_desc !== '') update_post_meta($post_id, 'rank_math_description', $meta_desc);
-            if ($focus_kw !== '') {
+            $category_save_verified = $post->post_type !== 'tmw_category_page' || ($insert_block && !empty($save_ok));
+            if ($category_save_verified && $post->post_type === 'tmw_category_page') {
+                AssistedDraftEnrichmentService::persist_quality_score($post_id, $generated_content, $post, $focus_kw, $keyword_pack);
+            }
+            if ($category_save_verified && $meta_desc !== '') update_post_meta($post_id, 'rank_math_description', $meta_desc);
+            if ($category_save_verified && $focus_kw !== '') {
                 // Patch 2: use centralized RankMathMapper (focus + 4 extras cap).
                 if (!empty($keyword_pack) && class_exists('\\TMWSEO\\Engine\\Content\\RankMathMapper')) {
                     RankMathMapper::sync_to_rank_math($post_id, $keyword_pack, true);
@@ -3135,13 +3161,15 @@ class ContentEngine {
 
             // v5.9.5: image metadata + per-keyword verification (apply mode only).
             if ($post->post_type === 'tmw_category_page' && $insert_block) {
-                self::finalize_category_generation($post_id, $post, $keyword_pack);
+                self::finalize_category_generation($post_id, $post, $keyword_pack, $category_save_verified);
             }
 
             // Finalization calculates _tmwseo_ready_to_index for category
             // pages. Clear noindex only afterwards; this method retains the
             // toggle, publish-status, and readiness safety gates.
-            self::maybe_clear_rank_math_noindex($post);
+            if ($post->post_type !== 'tmw_category_page' || $category_save_verified) {
+                self::maybe_clear_rank_math_noindex($post);
+            }
 
             delete_post_meta($post_id, '_tmwseo_optimize_enqueued');
             update_post_meta($post_id, '_tmwseo_optimize_done', ($strategy === 'template') ? 'template' : 'template_fallback');
@@ -3513,32 +3541,43 @@ class ContentEngine {
             $new_content = self::append_category_affiliate_cta_html($new_content, $post);
         }
 
-        // Generated metadata must describe only content that passed the
-        // category persistence gate above. A blocked draft leaves both the
-        // existing post content and its SEO metadata untouched.
-        AssistedDraftEnrichmentService::persist_quality_score($post_id, $generated_content, $post, $focus_kw, $keyword_pack);
-
-        if ($seo_title !== '') update_post_meta($post_id, 'rank_math_title', $seo_title);
-        if ($meta_desc !== '') update_post_meta($post_id, 'rank_math_description', $meta_desc);
-        if ($focus_kw !== '') {
-            // Patch 2: use centralized RankMathMapper (focus + 4 extras cap).
-            if (!empty($keyword_pack) && class_exists('\\TMWSEO\\Engine\\Content\\RankMathMapper')) {
-                RankMathMapper::sync_to_rank_math($post_id, $keyword_pack, true);
-            } elseif (!get_post_meta($post_id, 'rank_math_focus_keyword', true)) {
-                update_post_meta($post_id, 'rank_math_focus_keyword', $focus_kw);
-            }
-            update_post_meta($post_id, '_tmwseo_keyword', $focus_kw);
-            AssistedDraftEnrichmentService::update_model_secondary_keywords_for_post($post, $focus_kw);
-        }
-
-        // Only update post if content actually changed.
-        if ($new_content !== (string)$post->post_content) {
+        // Only update post if content actually changed, except category
+        // generations: their finalizers require a successful explicit write.
+        $category_save_verified = false;
+        $update_result = null;
+        if ($new_content !== (string)$post->post_content || $post->post_type === 'tmw_category_page') {
             if ($debug) { error_log('TMW run_optimize_job UPDATING POST'); }
-            wp_update_post([
+            $update_result = wp_update_post([
                 'ID' => $post_id,
                 'post_content' => $new_content,
-            ]);
+            ], true);
             if ($debug) { error_log('TMW run_optimize_job UPDATE COMPLETE'); }
+        }
+
+        if ($post->post_type === 'tmw_category_page' && $insert_block) {
+            clean_post_cache($post_id);
+            $category_save_verified = !is_wp_error($update_result)
+                && (int) $update_result > 0
+                && trim((string) get_post_field('post_content', $post_id)) === trim($new_content);
+        }
+
+        // Generated category metadata is delayed until the intended document
+        // has been read back from WordPress. Failed/mismatched writes preserve
+        // all existing metadata exactly as-is.
+        if ($post->post_type !== 'tmw_category_page' || $category_save_verified) {
+            AssistedDraftEnrichmentService::persist_quality_score($post_id, $generated_content, $post, $focus_kw, $keyword_pack);
+            if ($seo_title !== '') update_post_meta($post_id, 'rank_math_title', $seo_title);
+            if ($meta_desc !== '') update_post_meta($post_id, 'rank_math_description', $meta_desc);
+            if ($focus_kw !== '') {
+                // Patch 2: use centralized RankMathMapper (focus + 4 extras cap).
+                if (!empty($keyword_pack) && class_exists('\\TMWSEO\\Engine\\Content\\RankMathMapper')) {
+                    RankMathMapper::sync_to_rank_math($post_id, $keyword_pack, true);
+                } elseif (!get_post_meta($post_id, 'rank_math_focus_keyword', true)) {
+                    update_post_meta($post_id, 'rank_math_focus_keyword', $focus_kw);
+                }
+                update_post_meta($post_id, '_tmwseo_keyword', $focus_kw);
+                AssistedDraftEnrichmentService::update_model_secondary_keywords_for_post($post, $focus_kw);
+            }
         }
 
         // PR #715: write the category save-path audit trail for AI strategies.
@@ -3563,6 +3602,8 @@ class ContentEngine {
                 'final_content_length'     => strlen( $new_content ),
                 'content_written'          => $ai_content_written,
                 'content_changed'          => $ai_content_changed,
+                'wp_update_post_result'    => is_wp_error($update_result) ? 0 : (int) $update_result,
+                'is_wp_error'              => is_wp_error($update_result),
                 'source'                   => 'ai_' . $strategy,
                 'word_count'               => str_word_count( strip_tags( $html ) ),
             ];
@@ -3575,7 +3616,7 @@ class ContentEngine {
             ] );
 
             // v5.9.5: image metadata + per-keyword verification (AI path).
-            self::finalize_category_generation($post_id, $post, $keyword_pack);
+            self::finalize_category_generation($post_id, $post, $keyword_pack, $category_save_verified);
         }
 
         delete_post_meta($post_id, '_tmwseo_optimize_enqueued');
@@ -3590,7 +3631,9 @@ class ContentEngine {
         // on regeneration. All safety gates stay inside the method itself
         // (explicit toggle, _tmwseo_ready_to_index === '1', publish status,
         // owned post types only).
-        self::maybe_clear_rank_math_noindex($post);
+        if ($post->post_type !== 'tmw_category_page' || $category_save_verified) {
+            self::maybe_clear_rank_math_noindex($post);
+        }
 
         Logs::info('content', 'Optimized', ['post_id' => $post_id, 'context' => $context, 'model' => $model]);
     }
@@ -3652,8 +3695,9 @@ class ContentEngine {
     /**
      * v5.9.5: post-save finalizer for category page generation.
      *
-     * Runs after the content + Rank Math meta writes on BOTH the template and
-     * AI category save paths:
+     * Runs only after a verified content write on BOTH the template and AI
+     * category save paths. Generated Rank Math metadata is also deferred until
+     * that same read-back verification succeeds:
      *  1. keyword-aware featured-image metadata (alt/title/caption/description,
      *     shared-attachment safe, never overwrites manual values);
      *  2. deterministic per-keyword Rank Math verification report.
@@ -3661,9 +3705,21 @@ class ContentEngine {
      * Never touches content, slugs, canonical, or indexing state.
      *
      * @param array<string,mixed> $keyword_pack
+     * @param bool                $verified_save wp_update_post succeeded and the
+     *                                           persisted content matches intent.
      */
-    private static function finalize_category_generation(int $post_id, \WP_Post $post, array $keyword_pack): void {
+    private static function finalize_category_generation(int $post_id, \WP_Post $post, array $keyword_pack, bool $verified_save): void {
         if ($post->post_type !== 'tmw_category_page') {
+            return;
+        }
+
+        if (!$verified_save) {
+            Logs::warn('content', '[TMW-CAT-FINALIZE] blocked: content save was not verified; readiness, chips, and generated metadata are unchanged', [
+                'post_id' => $post_id,
+            ]);
+            if (class_exists('\\TMWSEO\\Engine\\Content\\CategoryPipeline\\CategoryDensityPolicy')) {
+                \TMWSEO\Engine\Content\CategoryPipeline\CategoryDensityPolicy::clear_final_context();
+            }
             return;
         }
 
@@ -3679,6 +3735,105 @@ class ContentEngine {
         if (class_exists('\\TMWSEO\\Engine\\Content\\CategorySeoVerification')) {
             CategorySeoVerification::verify_and_store($post_id);
         }
+
+        // v5.9.13 — the two audited category root causes, fixed at the
+        // single post-save finalization point (both save paths run here):
+        //
+        // (1) NOINDEX: the docblock above always CLAIMED "Finalization
+        //     calculates _tmwseo_ready_to_index", but nothing on the
+        //     category path ever called the readiness gate — the only
+        //     writers were a manual metabox checkbox and the AJAX
+        //     handler's revert. maybe_clear_rank_math_noindex() then
+        //     silently returned at its `ready !== '1'` gate on every
+        //     generation, so rank_math_robots kept 'noindex' and the
+        //     editor kept showing "Noindex robots meta is enabled".
+        //     The gate now runs HERE, against the persisted final state,
+        //     and its decision + reasons are logged loudly. All safety
+        //     gates (toggle off, draft, quality/uniqueness/confidence
+        //     thresholds, approval) still preserve noindex.
+        //
+        // (2) CHIPS: the engine's own placement contract passed while the
+        //     real editor stayed orange. The Rank Math-faithful chip
+        //     analyzer (built from the shipped analyzer.js) now scores
+        //     every stored chip against the persisted READBACK content +
+        //     real SEO title/description/slug and stores the per-keyword
+        //     report — including each chip's achievable ceiling, which
+        //     makes page-level caps (600-999 words = 2/8 lengthContent,
+        //     no TOC plugin = 0/2, no number in title = 0/1) visible
+        //     instead of silently blamed on keyword placement.
+        clean_post_cache($post_id);
+        $final_post = get_post($post_id);
+        $final_html = $final_post instanceof \WP_Post ? (string) $final_post->post_content : '';
+
+        if (class_exists('\\TMWSEO\\Engine\\Content\\IndexReadinessGate')) {
+            $gate = IndexReadinessGate::evaluate_post($post_id);
+            Logs::info('content', '[TMW-CAT-READY] readiness evaluated at category finalization', [
+                'post_id' => $post_id,
+                'ready'   => ! empty($gate['ready']),
+                'reasons' => (array) ($gate['reasons'] ?? []),
+            ]);
+        }
+
+        if ($final_html !== '' && class_exists('\\TMWSEO\\Engine\\Content\\RankMathChipAnalyzer')) {
+            $site_host = (string) parse_url((string) home_url(), PHP_URL_HOST);
+            $report = RankMathChipAnalyzer::analyze([
+                'content'       => $final_html,
+                'title'         => (string) get_post_meta($post_id, 'rank_math_title', true),
+                'description'   => (string) get_post_meta($post_id, 'rank_math_description', true),
+                'url_slug'      => (string) ($final_post->post_name ?? ''),
+                'site_domain'   => $site_host,
+                'keywords_csv'  => (string) get_post_meta($post_id, 'rank_math_focus_keyword', true),
+                'has_thumbnail' => has_post_thumbnail($post_id),
+            ]);
+            update_post_meta($post_id, '_tmwseo_rankmath_chip_report', wp_json_encode($report));
+
+            $chip_summary = [];
+            foreach ((array) ($report['keywords'] ?? []) as $kw_row) {
+                $chip_summary[] = sprintf(
+                    '%s=%s(%d%%/cap %d%%)',
+                    (string) $kw_row['keyword'],
+                    (string) $kw_row['predicted_chip'],
+                    (int) $kw_row['percent'],
+                    (int) $kw_row['ceiling_percent']
+                );
+            }
+            Logs::info('content', '[TMW-CAT-CHIPS] Rank Math-faithful chip prediction on persisted content', [
+                'post_id'  => $post_id,
+                'words'    => (int) ($report['word_count'] ?? 0),
+                'density'  => (float) ($report['combined']['density'] ?? 0),
+                'band'     => (string) ($report['combined']['band'] ?? ''),
+                'chips'    => $chip_summary,
+            ]);
+        }
+
+        // The final-document density context belongs to this generation only.
+        if (class_exists('\\TMWSEO\\Engine\\Content\\CategoryPipeline\\CategoryDensityPolicy')) {
+            \TMWSEO\Engine\Content\CategoryPipeline\CategoryDensityPolicy::clear_final_context();
+        }
+    }
+
+    /**
+     * v5.9.13: the document Rank Math will actually analyze is
+     * prefix + generated fragment + suffix. Compute prefix/suffix from the
+     * CURRENT post content and the AI-marker composition rules used by
+     * upsert_ai_block() / append_category_affiliate_cta_html().
+     *
+     * @return array{0:string,1:string} [prefix_html, suffix_html]
+     */
+    private static function compute_category_final_context(\WP_Post $post, bool $insert_block): array {
+        if (! $insert_block) {
+            return ['', ''];
+        }
+        $content = (string) $post->post_content;
+        $marker  = '<!-- TMWSEO:AI -->';
+        if (strpos($content, $marker) !== false) {
+            $parts  = explode($marker, $content, 2);
+            $prefix = rtrim((string) $parts[0]);
+            $suffix = self::extract_category_affiliate_slot_block((string) ($parts[1] ?? ''));
+            return [$prefix, $suffix];
+        }
+        // Marker absent: upsert appends the fragment after existing content.
+        return [rtrim($content), ''];
     }
 
     /**
@@ -4427,24 +4582,28 @@ class ContentEngine {
     }
 
     /**
-     * Preserve the editable category affiliate slot when regenerating AI content.
+     * Preserve editable category affiliate blocks when regenerating AI content.
      *
      * upsert_ai_block() intentionally replaces everything after the AI marker.
-     * Category affiliate slots also live after that marker, so an operator-edited
-     * slot must be carried forward before append_category_affiliate_cta_html()
-     * decides whether to retain, upgrade, or dedupe it.
+     * Category affiliate slots and real CTAs also live after that marker, so
+     * either existing block must be carried forward before
+     * append_category_affiliate_cta_html() decides whether to retain, upgrade,
+     * or dedupe it.
      */
     private static function extract_category_affiliate_slot_block(string $content): string {
-        if (strpos($content, 'tmw-category-affiliate-slot') === false) {
+        if (strpos($content, 'tmw-category-affiliate-slot') === false
+            && strpos($content, 'tmw-category-page-affiliate-cta') === false) {
             return '';
         }
 
-        if (preg_match('/<!--\s*wp:html\s*-->.*?tmw-category-affiliate-slot.*?<!--\s*\/wp:html\s*-->/s', $content, $m)) {
-            return trim((string) $m[0]);
+        $class_pattern = '(?:tmw-category-affiliate-slot|tmw-category-page-affiliate-cta)';
+        if (preg_match_all('/<!--\s*wp:html\s*-->\s*<div\b[^>]*class=(?:"|\')[^"\']*' . $class_pattern . '[^"\']*(?:"|\')[^>]*>.*?<\/div>\s*<!--\s*\/wp:html\s*-->/si', $content, $matches)) {
+            return trim(implode("\n\n", (array) $matches[0]));
         }
 
-        if (preg_match('/<div\s+class="tmw-category-affiliate-slot"[^>]*>.*?<\/div>/s', $content, $m)) {
-            return self::wrap_category_cta_block(trim((string) $m[0]));
+        if (preg_match_all('/<div\b[^>]*class=(?:"|\')[^"\']*' . $class_pattern . '[^"\']*(?:"|\')[^>]*>.*?<\/div>/si', $content, $matches)) {
+            $blocks = array_map(static fn(string $block): string => self::wrap_category_cta_block(trim($block)), (array) $matches[0]);
+            return trim(implode("\n\n", $blocks));
         }
 
         return '';

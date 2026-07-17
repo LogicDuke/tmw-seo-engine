@@ -392,12 +392,22 @@ class AdminAjaxHandlers {
             if ( $after_status !== $before_status ) {
                 wp_update_post( [ 'ID' => $post_id, 'post_status' => $before_status ] );
             }
+            // v5.9.13 ROOT-CAUSE FIX (persistent "Noindex robots meta is
+            // enabled"): this wrapper used to REVERT _tmwseo_ready_to_index
+            // to its pre-generation value, deleting the readiness decision
+            // the pipeline had just computed and making the controlled
+            // noindex-clearing path structurally unreachable for category
+            // pages. IndexReadinessGate::evaluate_post() — now run inside
+            // finalize_category_generation with fail-closed quality /
+            // uniqueness / confidence / status gates — is the single
+            // authority for this meta; the wrapper only logs the change.
             if ( $after_ready !== $before_ready ) {
-                if ( $before_ready === '' ) {
-                    delete_post_meta( $post_id, '_tmwseo_ready_to_index' );
-                } else {
-                    update_post_meta( $post_id, '_tmwseo_ready_to_index', $before_ready );
-                }
+                Logs::info( 'admin', '[TMW-CAT-GEN] readiness changed by generation (gate is authoritative, no revert)', [
+                    'post_id' => $post_id,
+                    'run_id'  => $run_id,
+                    'before'  => $before_ready,
+                    'after'   => $after_ready,
+                ] );
             }
 
             $save_result_raw = (string) get_post_meta( $post_id, '_tmwseo_category_last_save_result', true );

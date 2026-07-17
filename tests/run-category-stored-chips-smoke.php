@@ -29,7 +29,8 @@
  *   F. Persistence boilerplate gate — the structural guard repairs or
  *      blocks the FINAL HTML on the save path: both audited sentences are
  *      dropped structurally, and unrepairable filler blocks the save.
- *   G. No category-specific production logic.
+ *   G. Verified saves + final-document affiliate CTA context.
+ *   H. No category-specific production logic.
  */
 
 declare(strict_types=1);
@@ -38,6 +39,7 @@ ini_set('display_errors', '1');
 
 if (!defined('ABSPATH')) { define('ABSPATH', sys_get_temp_dir() . '/'); }
 require_once __DIR__ . '/bootstrap/wordpress-stubs.php';
+require_once dirname(__DIR__) . '/includes/content/class-rank-math-chip-analyzer.php';
 
 $pd = dirname(__DIR__) . '/includes/content/category-pipeline/';
 foreach ([
@@ -56,6 +58,7 @@ use TMWSEO\Engine\Content\CategoryPipeline\CategoryGenerationPipeline;
 use TMWSEO\Engine\Content\CategoryPipeline\CategoryKeywordPlanner;
 use TMWSEO\Engine\Content\CategoryPipeline\CategoryQualityGuard;
 use TMWSEO\Engine\Content\CategoryPipeline\CategoryFinalValidator;
+use TMWSEO\Engine\Content\RankMathChipAnalyzer;
 
 $pass = 0; $fail = 0;
 function check(string $label, bool $ok, string $detail = ''): void {
@@ -183,9 +186,9 @@ check('post-write verification present (read-back of saved robots)', strpos($eng
 $template_start = strpos($engine_src, "if (\$strategy === 'template' || !OpenAI::is_configured()) {");
 $template_end = strpos($engine_src, "\n        \$context =", $template_start);
 $template_save_path = substr($engine_src, $template_start, $template_end - $template_start);
-$template_finalize = strpos($template_save_path, 'self::finalize_category_generation($post_id, $post, $keyword_pack);');
-$template_clear = strpos($template_save_path, 'self::maybe_clear_rank_math_noindex($post);', $template_finalize);
-check('ready template categories clear noindex after finalization', $template_finalize !== false && $template_clear !== false && $template_clear > $template_finalize);
+$template_finalize = strpos($template_save_path, 'self::finalize_category_generation($post_id, $post, $keyword_pack, $category_save_verified);');
+$template_clear = $template_finalize === false ? false : strpos($template_save_path, 'self::maybe_clear_rank_math_noindex($post);', $template_finalize);
+check('verified template categories clear noindex after finalization', $template_finalize !== false && $template_clear !== false && $template_clear > $template_finalize);
 $ai_start = strpos($engine_src, '$html      = wp_kses_post(trim($html));');
 $ai_save_path = substr($engine_src, $ai_start);
 check('AI path still clears noindex after saving', strpos($ai_save_path, 'self::maybe_clear_rank_math_noindex($post);') !== false);
@@ -236,7 +239,34 @@ $ai_blocked_path = substr($engine_src, $ai_gate, $ai_blocked_return - $ai_gate);
 check('blocked persistence guard runs before generated quality and Rank Math metadata', $ai_gate !== false && $ai_metadata !== false && $ai_mapping !== false && $ai_gate < $ai_metadata && $ai_gate < $ai_mapping);
 check('blocked persistence leaves old content and generated metadata unchanged', strpos($ai_blocked_path, 'wp_update_post(') === false && strpos($ai_blocked_path, 'persist_quality_score(') === false && strpos($ai_blocked_path, 'rank_math_title') === false && strpos($ai_blocked_path, 'rank_math_description') === false && strpos($ai_blocked_path, 'RankMathMapper::sync_to_rank_math(') === false);
 
-echo "\n== G. No category-specific production logic ==\n";
+echo "\n== G. Verified saves + final-document affiliate CTA context ==\n";
+$extract_cta = new ReflectionMethod('\TMWSEO\Engine\Content\ContentEngine', 'extract_category_affiliate_slot_block');
+$extract_cta->setAccessible(true);
+$compute_context = new ReflectionMethod('\TMWSEO\Engine\Content\ContentEngine', 'compute_category_final_context');
+$compute_context->setAccessible(true);
+$real_cta = '<!-- wp:html --><div class="tmw-category-page-affiliate-cta"><a href="https://example.test">Real CTA words</a></div><!-- /wp:html -->';
+$slot = '<!-- wp:html --><div class="tmw-category-affiliate-slot"></div><!-- /wp:html -->';
+$suffix = (string) $extract_cta->invokeArgs(null, [$slot . "\n" . $real_cta]);
+check('affiliate extractor preserves slot and real CTA exactly once', substr_count($suffix, 'tmw-category-affiliate-slot') === 1 && substr_count($suffix, 'tmw-category-page-affiliate-cta') === 1 && substr_count($suffix, 'Real CTA words') === 1, $suffix);
+$marker_post = new \WP_Post(['ID' => 1401, 'post_content' => '<p>Prefix words</p><!-- TMWSEO:AI --><p>Old generated text</p>' . $real_cta]);
+[$prefix, $context_suffix] = $compute_context->invokeArgs(null, [$marker_post, true]);
+check('regeneration context retains existing real CTA exactly once', substr_count($context_suffix, 'Real CTA words') === 1 && strpos($prefix, 'Prefix words') !== false, $context_suffix);
+$markerless_post = new \WP_Post(['ID' => 1402, 'post_content' => '<p>Marker-less prefix</p>']);
+[$markerless_prefix, $markerless_suffix] = $compute_context->invokeArgs(null, [$markerless_post, true]);
+check('marker-less generation starts without a phantom CTA suffix', strpos($markerless_prefix, 'Marker-less prefix') !== false && $markerless_suffix === '');
+$final_document = $markerless_prefix . '<p>Generated words</p>' . $real_cta;
+$cta_density = RankMathChipAnalyzer::combined_density($final_document, ['Generated words', 'Real CTA words']);
+check('exact final-document density includes generated real CTA words once', $cta_density['matches'] === 2 && $cta_density['word_count'] === 5 && $cta_density['density'] === 40.0, json_encode($cta_density));
+$finalize = new ReflectionMethod('\TMWSEO\Engine\Content\ContentEngine', 'finalize_category_generation');
+$finalize->setAccessible(true);
+$blocked = new \WP_Post(['ID' => 1403, 'post_type' => 'tmw_category_page', 'post_content' => '<p>Old content</p>']);
+$GLOBALS['_tmw_test_posts'][1403] = $blocked;
+foreach (['_tmwseo_ready_to_index' => 'old-ready', 'rank_math_robots' => ['noindex'], '_tmwseo_rankmath_chip_report' => 'old-report', 'rank_math_title' => 'Old title'] as $key => $value) { update_post_meta(1403, $key, $value); }
+$finalize->invokeArgs(null, [1403, $blocked, [], false]);
+check('failed or mismatched save finalization leaves readiness, robots, chip report, and metadata untouched', get_post_field('post_content', 1403) === '<p>Old content</p>' && get_post_meta(1403, '_tmwseo_ready_to_index', true) === 'old-ready' && get_post_meta(1403, 'rank_math_robots', true) === ['noindex'] && get_post_meta(1403, '_tmwseo_rankmath_chip_report', true) === 'old-report' && get_post_meta(1403, 'rank_math_title', true) === 'Old title');
+check('both save paths require an explicit verified read-back before generated metadata and finalization', substr_count($engine_src, '$category_save_verified') >= 8 && substr_count($engine_src, 'finalize_category_generation($post_id, $post, $keyword_pack, $category_save_verified)') === 2);
+
+echo "\n== H. No category-specific production logic ==\n";
 $prod = '';
 $it = new RecursiveIteratorIterator(new RecursiveDirectoryIterator(dirname(__DIR__) . '/includes/content'));
 foreach ($it as $f) { if ($f->isFile() && $f->getExtension() === 'php') { $prod .= file_get_contents($f->getPathname()); } }
