@@ -33,7 +33,8 @@ final class CategoryGenerationTransaction {
         if (!add_option($lock,$run,'','no')) { $r['failure_code']='transaction_lock_failed'; $r['reasons']=['Another category transaction is active.']; return $r; }
         try {
             $owner=(string)get_post_meta($id,'_tmwseo_category_generation_run_id',true);
-            if ($owner!=='' && $owner!==$run) return self::fail($r,null,'transaction_superseded',['This request has been superseded by run '.$owner.'.']);
+            $ownership=self::non_owner_result($r,'transaction_superseded',['This request has been superseded by run '.$owner.'.'],['superseding_run_id'=>$owner]);
+            if ($owner!=='' && $owner!==$run) return $ownership;
             $snapshot=self::snapshot($post); $r['state']='validated';
             if (trim($fragment)==='') return self::fail($r,$snapshot,'empty_generated_fragment',['Generated fragment is empty.']);
             if (isset($ctx['validate']) && is_callable($ctx['validate'])) { $v=call_user_func($ctx['validate'],$final_document); if (empty($v['ok'])) return self::fail($r,$snapshot,'blocked_persistence_guard',(array)($v['reasons']??['Final document validation failed.'])); }
@@ -51,6 +52,8 @@ final class CategoryGenerationTransaction {
             $r['persisted_content_hash']=self::hash($stored);
             foreach(['persist_metadata','persist_chips','evaluate_readiness','apply_robots'] as $step) if(isset($ctx[$step])&&is_callable($ctx[$step])) { call_user_func($ctx[$step],$id,$stored); $r['state']='metadata_mutated'; }
             $r['finalization_status']='complete'; $r['state']='finalized'; $r['ok']=true; $r['robots_after']=get_post_meta($id,'rank_math_robots',true);
+            $owner=(string)get_post_meta($id,'_tmwseo_category_generation_run_id',true);
+            if ($owner!=='' && $owner!==$run) return self::non_owner_result($r,'transaction_ownership_lost',['Transaction ownership changed before final result storage.'],['superseding_run_id'=>$owner]);
             self::store($r);
             // Attachment work is explicitly post-commit: core category state never claims a rollback for it.
             if(isset($ctx['post_commit'])&&is_callable($ctx['post_commit'])) try { call_user_func($ctx['post_commit'],$id,$stored); $r['post_commit_status']='complete'; } catch(\Throwable $e) { $r['post_commit_status']='failed'; $r['post_commit_reasons']=[$e->getMessage()]; }
@@ -64,7 +67,7 @@ final class CategoryGenerationTransaction {
         // Pre-write failures and WP errors have no rollback write. Only a proven mutation can be restored.
         if ($snapshot!==null && in_array($r['state'],['content_mutated','readback_verified','metadata_mutated','finalized'],true)) {
             $id=(int)$r['post_id']; $owner=(string)get_post_meta($id,'_tmwseo_category_generation_run_id',true);
-            if($owner!=='' && $owner!==$r['run_id']) { $r['failure_code']='transaction_ownership_lost'; $r['reasons'][]='Transaction ownership changed before rollback.'; $r['rollback_status']='not_attempted'; return $r; }
+            if($owner!=='' && $owner!==$r['run_id']) return self::non_owner_result($r,'transaction_ownership_lost',array_merge($r['reasons'],['Transaction ownership changed before rollback.']),['superseding_run_id'=>$owner,'rollback_status'=>'not_attempted']);
             wp_update_post(['ID'=>$id,'post_content'=>$snapshot['content']],true);
             foreach($snapshot['meta'] as $k=>$values){ delete_post_meta($id,$k); foreach($values as $v)add_post_meta($id,$k,$v); }
             clean_post_cache($id); $bad=[];
@@ -74,5 +77,13 @@ final class CategoryGenerationTransaction {
         }
         $r['finalization_status']='failed'; self::store($r); return $r;
     }
+    private static function non_owner_result(array $r, string $code, array $reasons, array $extra=[]): array {
+        $r['ok']=false; $r['verified']=false; $r['failure_code']=$code; $r['reasons']=array_values(array_map('strval',$reasons));
+        $r['finalization_status']='failed';
+        if(isset($extra['rollback_status'])) $r['rollback_status']=(string)$extra['rollback_status'];
+        if(isset($extra['superseding_run_id'])) $r['superseding_run_id']=(string)$extra['superseding_run_id'];
+        return $r;
+    }
     private static function store(array $r): void { $id=(int)$r['post_id']; $json=wp_json_encode($r); update_post_meta($id,'_tmwseo_category_last_save_result',$json); update_post_meta($id,'_tmwseo_category_transaction_result',$json); }
 }
+
