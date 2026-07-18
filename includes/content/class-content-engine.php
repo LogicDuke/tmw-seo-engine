@@ -3047,12 +3047,17 @@ class ContentEngine {
             if ($post->post_type === 'tmw_category_page' && $insert_block
                 && class_exists('\\TMWSEO\\Engine\\Content\\CategoryPipeline\\CategoryGenerationTransaction')) {
                 $tracked = array_values(array_unique(array_filter(array_map('strval', array_merge([$focus_kw], (array) ($keyword_pack['rankmath_additional'] ?? []), (array) ($keyword_pack['additional'] ?? []))))));
+                // The guard may repair filler. Its repaired document—not the pre-repair
+                // draft—is validated, hashed, and passed to wp_update_post().
+                $guard = self::enforce_category_persistence_guard($final_content, $tracked, $post_id);
+                if (!empty($guard['ok'])) { $final_content = (string) $guard['html']; }
                 $transaction = \TMWSEO\Engine\Content\CategoryPipeline\CategoryGenerationTransaction::commit($post, $generated_content, $final_content, [
                     'run_id' => (string) ($payload['run_id'] ?? ''), 'strategy' => $strategy, 'provider' => $strategy === 'template' ? 'template' : 'fallback',
-                    'validate' => static function (string $final) use ($tracked, $post_id): array { $guard = self::enforce_category_persistence_guard($final, $tracked, $post_id); return ['ok' => !empty($guard['ok']), 'reasons' => array_map(static fn($i) => (string) ($i['type'] ?? 'persistence_guard'), (array) ($guard['issues'] ?? []))]; },
+                    'validate' => static function (string $final) use ($tracked, $post_id, $guard): array { $again = !empty($guard['ok']) ? self::enforce_category_persistence_guard($final, $tracked, $post_id) : $guard; return ['ok' => !empty($again['ok']), 'reasons' => array_map(static fn($i) => (string) ($i['type'] ?? 'persistence_guard'), (array) ($again['issues'] ?? []))]; },
                     'persist_metadata' => static function () use ($post_id, $generated_content, $post, $focus_kw, $keyword_pack, $seo_title, $meta_desc): void { AssistedDraftEnrichmentService::persist_quality_score($post_id, $generated_content, $post, $focus_kw, $keyword_pack); if ($seo_title !== '') update_post_meta($post_id, 'rank_math_title', $seo_title); if ($meta_desc !== '') update_post_meta($post_id, 'rank_math_description', $meta_desc); if ($focus_kw !== '') { RankMathMapper::sync_to_rank_math($post_id, $keyword_pack, true); update_post_meta($post_id, '_tmwseo_keyword', $focus_kw); } },
                     'evaluate_readiness' => static function () use ($post_id, $post, $keyword_pack): void { self::finalize_category_generation($post_id, $post, $keyword_pack, true); },
                     'apply_robots' => static function () use ($post): void { self::maybe_clear_rank_math_noindex($post); },
+                    'post_commit' => static function () use ($post, $keyword_pack): void { if (class_exists('\\TMWSEO\\Engine\\Media\\CategoryFeaturedImageMetaHelper')) { \TMWSEO\Engine\Media\CategoryFeaturedImageMetaHelper::apply_for_category_generation($post, $keyword_pack); } },
                 ]);
                 delete_post_meta($post_id, '_tmwseo_optimize_enqueued');
                 update_post_meta($post_id, '_tmwseo_optimize_done', !empty($transaction['ok']) ? ($strategy === 'template' ? 'template' : 'template_fallback') : (string) $transaction['failure_code']);
@@ -3537,11 +3542,13 @@ class ContentEngine {
             }
             $document = self::append_category_affiliate_cta_html(self::upsert_ai_block((string) $post->post_content, $fragment), $post);
             $tracked = array_values(array_unique(array_filter(array_map('strval', array_merge([$focus_kw], (array) ($keyword_pack['rankmath_additional'] ?? []), (array) ($keyword_pack['additional'] ?? []))))));
+            $guard = self::enforce_category_persistence_guard($document, $tracked, $post_id);
+            if (!empty($guard['ok'])) { $document = (string) $guard['html']; }
             $transaction = \TMWSEO\Engine\Content\CategoryPipeline\CategoryGenerationTransaction::commit($post, $fragment, $document, [
                 'run_id' => (string) ($payload['run_id'] ?? ''), 'strategy' => $strategy, 'provider' => (string) $ai_provider,
-                'validate' => static function (string $final) use ($tracked, $post_id): array {
-                    $guard = self::enforce_category_persistence_guard($final, $tracked, $post_id);
-                    return ['ok' => !empty($guard['ok']), 'reasons' => array_map(static fn($i) => (string) ($i['type'] ?? 'persistence_guard'), (array) ($guard['issues'] ?? []))];
+                'validate' => static function (string $final) use ($tracked, $post_id, $guard): array {
+                    $again = !empty($guard['ok']) ? self::enforce_category_persistence_guard($final, $tracked, $post_id) : $guard;
+                    return ['ok' => !empty($again['ok']), 'reasons' => array_map(static fn($i) => (string) ($i['type'] ?? 'persistence_guard'), (array) ($again['issues'] ?? []))];
                 },
                 'persist_metadata' => static function () use ($post_id, $fragment, $post, $focus_kw, $keyword_pack, $seo_title, $meta_desc): void {
                     AssistedDraftEnrichmentService::persist_quality_score($post_id, $fragment, $post, $focus_kw, $keyword_pack);
@@ -3551,6 +3558,7 @@ class ContentEngine {
                 },
                 'evaluate_readiness' => static function () use ($post_id, $post, $keyword_pack): void { self::finalize_category_generation($post_id, $post, $keyword_pack, true); },
                 'apply_robots' => static function () use ($post): void { self::maybe_clear_rank_math_noindex($post); },
+                    'post_commit' => static function () use ($post, $keyword_pack): void { if (class_exists('\\TMWSEO\\Engine\\Media\\CategoryFeaturedImageMetaHelper')) { \TMWSEO\Engine\Media\CategoryFeaturedImageMetaHelper::apply_for_category_generation($post, $keyword_pack); } },
             ]);
             delete_post_meta($post_id, '_tmwseo_optimize_enqueued');
             update_post_meta($post_id, '_tmwseo_optimize_done', !empty($transaction['ok']) ? current_time('mysql') : (string) $transaction['failure_code']);
@@ -3771,14 +3779,7 @@ class ContentEngine {
             return;
         }
 
-        if (class_exists('\\TMWSEO\\Engine\\Media\\CategoryFeaturedImageMetaHelper')
-            && method_exists('\\TMWSEO\\Engine\\Media\\CategoryFeaturedImageMetaHelper', 'apply_for_category_generation')) {
-            $image_report = \TMWSEO\Engine\Media\CategoryFeaturedImageMetaHelper::apply_for_category_generation($post, $keyword_pack);
-            Logs::info('content', '[TMW-CAT-IMG] featured image metadata pass', array_merge(
-                ['post_id' => $post_id],
-                is_array($image_report) ? $image_report : []
-            ));
-        }
+        // Attachment metadata is intentionally deferred to the transaction post-commit phase.
 
         if (class_exists('\\TMWSEO\\Engine\\Content\\CategorySeoVerification')) {
             CategorySeoVerification::verify_and_store($post_id);
