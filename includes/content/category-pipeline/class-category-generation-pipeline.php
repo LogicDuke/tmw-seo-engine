@@ -219,12 +219,14 @@ class CategoryGenerationPipeline {
 			$stage['normalized'] = $draft;
 			$sentence_ids        = (array) ( $composed['sentence_ids'] ?? [] );
 
-			$guard_keywords = array_values( array_unique( array_merge(
-				[ (string) $keyword_plan['primary'] ],
-				(array) $keyword_plan['rankmath_tracking'],
-				(array) $keyword_plan['body_use'],
-				(array) ( $context['approved_keywords'] ?? [] )
-			) ) );
+			$guard_keywords = ! empty( $keyword_plan['density_tracking'] )
+				? array_values( array_unique( array_filter( array_map( 'strval', (array) $keyword_plan['density_tracking'] ) ) ) )
+				: array_values( array_unique( array_merge(
+					[ (string) $keyword_plan['primary'] ],
+					(array) $keyword_plan['rankmath_tracking'],
+					(array) $keyword_plan['body_use'],
+					(array) ( $context['approved_keywords'] ?? [] )
+				) ) );
 
 			$guard_result   = CategoryQualityGuard::repair( $draft, $guard_keywords );
 			$draft          = (string) $guard_result['html'];

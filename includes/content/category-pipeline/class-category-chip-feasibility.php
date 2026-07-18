@@ -20,7 +20,7 @@ final class CategoryChipFeasibility {
     /** @param string[] $chips @return array<string,mixed> */
     public static function analyze(string $primary, array $chips, int $target_words = self::TARGET_WORDS): array {
         $target_words = max(450, $target_words);
-        $reasons=[];
+        $reasons=[]; $coverage_reasons=[];
         $seen=[]; $clean=[]; $covered=[]; $relationships=[];
         foreach ($chips as $chip) {
             $chip=trim((string)$chip); $k=self::lc($chip);
@@ -29,7 +29,7 @@ final class CategoryChipFeasibility {
             if (self::is_contiguous_subsequence($chip, $primary)) {
                 $covered[]=['keyword'=>$chip,'family'=>self::root_family($chip),'reason'=>'covered_by_primary','covered_by'=>$primary];
                 $relationships[]=['container'=>$primary,'contained'=>$chip,'type'=>'contiguous_token_subsequence'];
-                $reasons[]=$chip.': covered_by_primary';
+                $coverage_reasons[]=$chip.': covered_by_primary';
                 continue;
             }
             $clean[]=$chip;
@@ -58,7 +58,7 @@ final class CategoryChipFeasibility {
         if (!$feasible) { $reasons[]='Rendered subset would exceed density or placement budgets.'; }
         return [
             'feasible'=>$feasible,'failure_code'=>$feasible?'':'chip_set_unsatisfiable','reasons'=>array_values(array_unique($reasons)),
-            'rendered_chips'=>$rendered,'tracking_only_chips'=>$tracking,'covered_by_primary_chips'=>$covered,'containment_relationships'=>$relationships,'coverage_reasons'=>array_values(array_unique($reasons)),'family_groups'=>$groups,'family_limits'=>$limits,
+            'rendered_chips'=>$rendered,'tracking_only_chips'=>$tracking,'covered_by_primary_chips'=>$covered,'containment_relationships'=>$relationships,'coverage_reasons'=>array_values(array_unique($coverage_reasons)),'family_groups'=>$groups,'family_limits'=>$limits,
             'projected_min_matches'=>$matches,'projected_density'=>$density,'heading_demand'=>$heading,'faq_demand'=>$faq,
         ];
     }

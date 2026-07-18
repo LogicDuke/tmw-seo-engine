@@ -165,7 +165,7 @@ $out = CategoryGenerationPipeline::generate_from_context($ctx, ['tracking' => $k
 check('provider path returns safe generated output', (bool) $out['ok'], implode('; ', array_slice((array) ($out['report']['failure_reasons'] ?? []), 0, 4)));
 if ($out['ok']) {
     $den = (array) ($out['report']['metrics']['density'] ?? []);
-    check('provider duplicate phrase geometry does not survive', strpos((string) $out['html'], 'Forced Provider Density Cams streaming has a texture') === false);
+    check('provider h2 plus paragraph primary reuse survives as valid structure', strpos((string) $out['html'], 'Forced Provider Density Cams streaming has a texture') !== false);
     check("provider density {$den['density']}% within dynamic band", ($den['status'] ?? '') === 'within', json_encode($den));
     check('safe fallback/provider output keeps internal links', (int) ($out['report']['metrics']['internal_link_count'] ?? 0) >= 2);
 }

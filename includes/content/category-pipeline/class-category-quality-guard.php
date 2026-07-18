@@ -180,6 +180,9 @@ class CategoryQualityGuard {
 			if ( $exact >= 3 ) {
 				$issues[] = [ 'type' => 'keyword_dump_sentence', 'detail' => self::snippet( $sentence ) ];
 			}
+		}
+
+		foreach ( self::duplicate_phrase_units( $html ) as $sentence ) {
 			foreach ( self::duplicate_tracked_phrases( $sentence, $keywords ) as $phrase ) {
 				$issues[] = [ 'type' => 'duplicate_tracked_phrase', 'detail' => $phrase . ': ' . self::snippet( $sentence ) ];
 			}
@@ -436,12 +439,12 @@ class CategoryQualityGuard {
 	public static function duplicate_tracked_phrases( string $text, array $keywords ): array {
 		$out = [];
 		$seen = [];
+		$text = self::normalize_phrase( $text );
 		foreach ( $keywords as $kw ) {
-			$kw = trim( (string) $kw );
-			$key = self::normalize_phrase( $kw );
+			$key = self::normalize_phrase( (string) $kw );
 			if ( $key === '' || isset( $seen[ $key ] ) ) { continue; }
 			$seen[ $key ] = true;
-			if ( preg_match_all( '/(?<![\p{L}\p{N}])' . preg_quote( $kw, '/' ) . '(?![\p{L}\p{N}])/iu', $text ) >= 2 ) { $out[] = $key; }
+			if ( preg_match_all( '/(?<![\p{L}\p{N}])' . preg_quote( $key, '/' ) . '(?![\p{L}\p{N}])/iu', $text ) >= 2 ) { $out[] = $key; }
 		}
 		return $out;
 	}
@@ -548,6 +551,22 @@ class CategoryQualityGuard {
 
 	private static function sentences( string $visible ): array {
 		return preg_split( '/(?<=[.!?])\s+/u', $visible ) ?: [];
+	}
+
+
+	/** @return string[] Sentence-like units for duplicate phrase checks; block tags are hard boundaries. */
+	private static function duplicate_phrase_units( string $html ): array {
+		$with_boundaries = (string) preg_replace( '/<\/?(?:p|h[1-6]|li|blockquote|div|section|article|br)[^>]*>/iu', "\n", $html );
+		$parts = preg_split( '/\n+/u', $with_boundaries ) ?: [];
+		$out = [];
+		foreach ( $parts as $part ) {
+			$text = self::visible( (string) $part );
+			foreach ( self::sentences( $text ) as $sentence ) {
+				$sentence = trim( $sentence );
+				if ( $sentence !== '' ) { $out[] = $sentence; }
+			}
+		}
+		return $out;
 	}
 
 	/** @return string[] repeated sentence texts */

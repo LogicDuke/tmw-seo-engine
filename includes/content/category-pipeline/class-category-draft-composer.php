@@ -142,7 +142,7 @@ class CategoryDraftComposer {
 					$try_links = $links_used;
 					$candidate_sentence = self::resolve_sentence( (string) $candidate_template, $values, $try_queue, $try_used, $links, $try_links );
 					if ( $candidate_sentence === null ) { continue; }
-					if ( $paragraph === '' && $heading_for_glue !== '' && self::has_duplicate_tracked_phrase( $heading_for_glue . ' ' . $candidate_sentence, array_merge( [ (string) ( $keyword_plan['primary'] ?? '' ) ], (array) ( $keyword_plan['rankmath_tracking'] ?? [] ), (array) ( $keyword_plan['body_use'] ?? [] ) ) ) ) { continue; }
+					if ( $paragraph === '' && $heading_for_glue !== '' && self::has_duplicate_tracked_phrase( $heading_for_glue . ' ' . $candidate_sentence, self::duplicate_guard_keywords( $keyword_plan ) ) ) { continue; }
 					$sentence = $candidate_sentence; $sentence_template = (string) $candidate_template; $section_kw_queue = $try_queue; $used_kws = $try_used; $links_used = $try_links; break;
 				}
 				if ( $sentence === null ) { $dropped++; continue; }
@@ -204,6 +204,15 @@ class CategoryDraftComposer {
 	private static function has_duplicate_tracked_phrase( string $text, array $keywords ): bool {
 		if ( ! class_exists( CategoryQualityGuard::class ) ) { return false; }
 		return ! empty( CategoryQualityGuard::duplicate_tracked_phrases( $text, $keywords ) );
+	}
+
+
+	/** @return string[] */
+	private static function duplicate_guard_keywords( array $keyword_plan ): array {
+		$tracked = ! empty( $keyword_plan['density_tracking'] )
+			? (array) $keyword_plan['density_tracking']
+			: array_merge( [ (string) ( $keyword_plan['primary'] ?? '' ) ], (array) ( $keyword_plan['rankmath_tracking'] ?? [] ), (array) ( $keyword_plan['body_use'] ?? [] ) );
+		return array_values( array_unique( array_filter( array_map( 'strval', $tracked ) ) ) );
 	}
 
 	/**
