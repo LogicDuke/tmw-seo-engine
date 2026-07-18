@@ -176,7 +176,7 @@ check('validator FAILS when a stored chip is absent from final HTML', !$v['passe
 
 echo "\n== D. Exact reporting for every stored chip ==\n";
 $bbc = $reports['big-boob-cam'] ?? [];
-check('report covers primary + rendered chips', count($bbc) === 3, (string) count($bbc));
+check('report covers primary + rendered + tracking-only chips', count($bbc) === 5, (string) count($bbc));
 foreach (['big breast webcam', 'big boobs webcam'] as $chip) {
     $row = (array) ($bbc[$chip] ?? []);
     check("report['$chip'] has counts + pass", isset($row['visible_count'], $row['subheading_count'], $row['body_count'], $row['pass'], $row['reason']) && $row['pass'] === true && $row['visible_count'] >= 1 && $row['subheading_count'] >= 1, json_encode($row));

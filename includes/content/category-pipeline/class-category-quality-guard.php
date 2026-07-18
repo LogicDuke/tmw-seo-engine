@@ -180,6 +180,9 @@ class CategoryQualityGuard {
 			if ( $exact >= 3 ) {
 				$issues[] = [ 'type' => 'keyword_dump_sentence', 'detail' => self::snippet( $sentence ) ];
 			}
+			foreach ( self::duplicate_tracked_phrases( $sentence, $keywords ) as $phrase ) {
+				$issues[] = [ 'type' => 'duplicate_tracked_phrase', 'detail' => $phrase . ': ' . self::snippet( $sentence ) ];
+			}
 		}
 
 		if ( preg_match( '/(?:[^,.]{2,60},\s*){3,}[^,.]{2,60}/u', $visible, $m ) ) {
@@ -386,15 +389,67 @@ class CategoryQualityGuard {
 
 	/** @param string[] $keywords */
 	public static function count_exact_keywords( string $text, array $keywords ): int {
-		$count = 0;
-		$counted = [];
+		return count( self::position_consuming_keyword_matches( $text, $keywords ) );
+	}
+
+	/** @param string[] $keywords @return array<int,array{keyword:string,start:int,end:int}> */
+	public static function position_consuming_keyword_matches( string $text, array $keywords ): array {
+		$phrases = [];
 		foreach ( $keywords as $kw ) {
 			$kw = trim( (string) $kw );
-			if ( $kw === '' || isset( $counted[ self::lc( $kw ) ] ) ) { continue; }
-			$counted[ self::lc( $kw ) ] = true;
-			$count += (int) preg_match_all( '/(?<![\p{L}\p{N}])' . preg_quote( $kw, '/' ) . '(?![\p{L}\p{N}])/iu', $text );
+			$key = self::lc( $kw );
+			if ( $kw === '' || isset( $phrases[ $key ] ) ) { continue; }
+			$phrases[ $key ] = $kw;
 		}
-		return $count;
+		usort( $phrases, static function ( string $a, string $b ): int {
+			return str_word_count( $b ) <=> str_word_count( $a ) ?: strlen( $b ) <=> strlen( $a );
+		} );
+		$candidates = [];
+		foreach ( $phrases as $kw ) {
+			if ( preg_match_all( '/(?<![\p{L}\p{N}])' . preg_quote( $kw, '/' ) . '(?![\p{L}\p{N}])/iu', $text, $m, PREG_OFFSET_CAPTURE ) ) {
+				foreach ( $m[0] as $hit ) {
+					$start = (int) $hit[1];
+					$candidates[] = [ 'keyword' => $kw, 'start' => $start, 'end' => $start + strlen( (string) $hit[0] ) ];
+				}
+			}
+		}
+		usort( $candidates, static function ( array $a, array $b ): int {
+			$alen = (int) $a['end'] - (int) $a['start'];
+			$blen = (int) $b['end'] - (int) $b['start'];
+			return ( (int) $a['start'] <=> (int) $b['start'] ) ?: ( $blen <=> $alen );
+		} );
+		$matches = [];
+		$occupied = [];
+		foreach ( $candidates as $candidate ) {
+			$blocked = false;
+			for ( $i = (int) $candidate['start']; $i < (int) $candidate['end']; $i++ ) {
+				if ( isset( $occupied[ $i ] ) ) { $blocked = true; break; }
+			}
+			if ( $blocked ) { continue; }
+			for ( $i = (int) $candidate['start']; $i < (int) $candidate['end']; $i++ ) { $occupied[ $i ] = true; }
+			$matches[] = $candidate;
+		}
+		return $matches;
+	}
+
+	/** @param string[] $keywords @return string[] */
+	public static function duplicate_tracked_phrases( string $text, array $keywords ): array {
+		$out = [];
+		$seen = [];
+		foreach ( $keywords as $kw ) {
+			$kw = trim( (string) $kw );
+			$key = self::normalize_phrase( $kw );
+			if ( $key === '' || isset( $seen[ $key ] ) ) { continue; }
+			$seen[ $key ] = true;
+			if ( preg_match_all( '/(?<![\p{L}\p{N}])' . preg_quote( $kw, '/' ) . '(?![\p{L}\p{N}])/iu', $text ) >= 2 ) { $out[] = $key; }
+		}
+		return $out;
+	}
+
+	public static function normalize_phrase( string $phrase ): string {
+		$phrase = self::lc( html_entity_decode( $phrase, ENT_QUOTES, 'UTF-8' ) );
+		$phrase = preg_replace( '/[^\p{L}\p{N}]+/u', ' ', $phrase ) ?: '';
+		return trim( preg_replace( '/\s+/u', ' ', $phrase ) ?: '' );
 	}
 
 	/** @return string[] */
@@ -542,14 +597,9 @@ class CategoryQualityGuard {
 	 */
 	private static function family_hits_per_paragraph( string $paragraph, array $keywords ): array {
 		$hits = [];
-		foreach ( $keywords as $kw ) {
-			$kw = trim( (string) $kw );
-			if ( $kw === '' ) { continue; }
-			$n = (int) preg_match_all( '/(?<![\p{L}\p{N}])' . preg_quote( $kw, '/' ) . '(?![\p{L}\p{N}])/iu', $paragraph );
-			if ( $n > 0 ) {
-				$family          = CategoryKeywordPlanner::root_family( $kw );
-				$hits[ $family ] = ( $hits[ $family ] ?? 0 ) + $n;
-			}
+		foreach ( self::position_consuming_keyword_matches( $paragraph, $keywords ) as $match ) {
+			$family = CategoryKeywordPlanner::root_family( (string) $match['keyword'] );
+			$hits[ $family ] = ( $hits[ $family ] ?? 0 ) + 1;
 		}
 		return $hits;
 	}
