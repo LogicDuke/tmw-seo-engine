@@ -101,7 +101,7 @@ class CategoryGenerationPipeline {
 		}
 		$stored_rankmath_focus = array_values( array_unique( array_filter( array_map( 'strval', array_merge(
 			[ (string) $keyword_plan['primary'] ],
-			! empty( $stored_chips ) ? (array) $keyword_plan['body_use'] : ( array_key_exists( 'tracking', $options ) ? $tracking : (array) $keyword_plan['rankmath_tracking'] )
+			! empty( $stored_chips ) ? $stored_chips : ( array_key_exists( 'tracking', $options ) ? $tracking : (array) $keyword_plan['rankmath_tracking'] )
 		) ) ) ) );
 		$keyword_plan['density_tracking'] = $stored_rankmath_focus;
 
@@ -219,12 +219,14 @@ class CategoryGenerationPipeline {
 			$stage['normalized'] = $draft;
 			$sentence_ids        = (array) ( $composed['sentence_ids'] ?? [] );
 
-			$guard_keywords = array_values( array_unique( array_merge(
-				[ (string) $keyword_plan['primary'] ],
-				(array) $keyword_plan['rankmath_tracking'],
-				(array) $keyword_plan['body_use'],
-				(array) ( $context['approved_keywords'] ?? [] )
-			) ) );
+			$guard_keywords = ! empty( $keyword_plan['density_tracking'] )
+				? array_values( array_unique( array_filter( array_map( 'strval', (array) $keyword_plan['density_tracking'] ) ) ) )
+				: array_values( array_unique( array_merge(
+					[ (string) $keyword_plan['primary'] ],
+					(array) $keyword_plan['rankmath_tracking'],
+					(array) $keyword_plan['body_use'],
+					(array) ( $context['approved_keywords'] ?? [] )
+				) ) );
 
 			$guard_result   = CategoryQualityGuard::repair( $draft, $guard_keywords );
 			$draft          = (string) $guard_result['html'];
@@ -282,6 +284,17 @@ class CategoryGenerationPipeline {
 				'reasons'           => (array) $validation['reasons'],
 			];
 			$repairs = array_merge( $repairs, $attempt_repairs );
+
+			if ( ! $validation['passed'] ) {
+				$has_duplicate_geometry = false;
+				foreach ( (array) $validation['reasons'] as $reason ) {
+					if ( strpos( (string) $reason, 'guard:duplicate_tracked_phrase:' ) === 0 ) { $has_duplicate_geometry = true; break; }
+				}
+				if ( $has_duplicate_geometry ) {
+					foreach ( (array) ( $composed['variant_ids'] ?? [] ) as $vid ) { $avoid['variants'][] = (string) $vid; }
+					$avoid['variants'] = array_values( array_unique( $avoid['variants'] ) );
+				}
+			}
 
 			if ( $validation['passed'] ) {
 				$final_html     = $draft;

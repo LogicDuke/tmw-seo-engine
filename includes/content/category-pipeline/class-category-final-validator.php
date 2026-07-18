@@ -96,14 +96,11 @@ class CategoryFinalValidator {
 		$family_terms = array_merge( [ $primary ], (array) ( $keyword_plan['rankmath_tracking'] ?? [] ) );
 		$family       = CategoryKeywordPlanner::root_family( $primary );
 		$family_hits  = 0;
-		$counted      = [];
-		foreach ( $family_terms as $term ) {
+		$family_terms = array_values( array_filter( $family_terms, static function ( $term ) use ( $family ) {
 			$term = trim( (string) $term );
-			if ( $term === '' || isset( $counted[ strtolower( $term ) ] ) ) { continue; }
-			$counted[ strtolower( $term ) ] = true;
-			if ( CategoryKeywordPlanner::root_family( $term ) !== $family ) { continue; }
-			$family_hits += (int) preg_match_all( '/(?<![\p{L}\p{N}])' . preg_quote( $term, '/' ) . '(?![\p{L}\p{N}])/iu', $visible );
-		}
+			return $term !== '' && CategoryKeywordPlanner::root_family( $term ) === $family;
+		} ) );
+		$family_hits = count( CategoryQualityGuard::position_consuming_keyword_matches( $visible, $family_terms ) );
 		$family_density = $words > 0 ? round( ( $family_hits / $words ) * 100, 2 ) : 0.0;
 		if ( $family_density > CategoryKeywordPlanner::MAX_FAMILY_DENSITY ) {
 			$reasons[] = 'family_density_exceeded:' . $family_density;
@@ -280,6 +277,14 @@ class CategoryFinalValidator {
 		$stored_set = ! empty( $keyword_plan['density_tracking'] )
 			? (array) $keyword_plan['density_tracking']
 			: (array) ( $keyword_plan['rankmath_tracking'] ?? [] );
+		$covered_by_primary = [];
+		foreach ( (array) ( $keyword_plan['chip_feasibility']['covered_by_primary_chips'] ?? [] ) as $row ) {
+			$covered_by_primary[ strtolower( (string) ( $row['keyword'] ?? '' ) ) ] = true;
+		}
+		$tracking_only_stored = [];
+		foreach ( (array) ( $keyword_plan['chip_feasibility']['tracking_only_chips'] ?? [] ) as $row ) {
+			$tracking_only_stored[ strtolower( (string) ( $row['keyword'] ?? '' ) ) ] = true;
+		}
 		$body_only  = trim( (string) preg_replace( '/<h[1-6][^>]*>.*?<\/h[1-6]>/isu', ' ', $html ) );
 		$body_text  = CategoryQualityGuard::visible( $body_only );
 		foreach ( array_values( array_unique( array_filter( array_map( 'strval', $stored_set ) ) ) ) as $stored_kw ) {
@@ -291,13 +296,16 @@ class CategoryFinalValidator {
 			$sub_count  = (int) preg_match_all( $kp, $subheading_text );
 			$body_count = (int) preg_match_all( $kp, $body_text );
 			$reason     = '';
-			if ( $vis_count < 1 ) {
+			if ( isset( $covered_by_primary[ strtolower( $stored_kw ) ] ) && $primary_hits > 0 && ! empty( $placement['in_h2'] ) ) {
+				$vis_count = max( $vis_count, $primary_hits );
+				$sub_count = max( $sub_count, 1 );
+			} elseif ( $vis_count < 1 ) {
 				$reason = 'absent_from_visible_content';
 			} elseif ( $sub_count < 1 ) {
 				$reason = 'absent_from_h2_h6_subheadings';
 			}
 			$passed = ( $reason === '' );
-			if ( ! $passed && ! $is_primary && ! empty( $keyword_plan['enforced_stored_chips'] ) ) {
+			if ( ! $passed && ! $is_primary && ! isset( $tracking_only_stored[ strtolower( $stored_kw ) ] ) && ! empty( $keyword_plan['enforced_stored_chips'] ) ) {
 				$reasons[] = 'stored_chip_failed:' . $stored_kw . ':' . $reason;
 			}
 			$stored_keyword_report[ $stored_kw ] = [
@@ -308,6 +316,8 @@ class CategoryFinalValidator {
 				'body_count'       => $body_count,
 				'pass'             => $passed,
 				'reason'           => $reason,
+				'covered_by_primary' => isset( $covered_by_primary[ strtolower( $stored_kw ) ] ),
+				'tracking_only'      => isset( $tracking_only_stored[ strtolower( $stored_kw ) ] ),
 			];
 		}
 

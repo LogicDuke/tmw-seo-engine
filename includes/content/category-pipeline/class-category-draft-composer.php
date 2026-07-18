@@ -130,10 +130,21 @@ class CategoryDraftComposer {
 
 			$paragraph = '';
 			$sentence_index = 0;
+			$heading_for_glue = (string) ( $plan['headings'][ $section ] ?? '' );
 			foreach ( (array) ( $variant['sentences'] ?? [] ) as $sentence_entry ) {
-				$sentence_template = self::pick_alternate( $sentence_entry, $seed, $sentence_index, $avoid_sentences );
+				$candidates = self::alternate_candidates( $sentence_entry, $seed, $sentence_index, $avoid_sentences );
 				$sentence_index++;
-				$sentence = self::resolve_sentence( (string) $sentence_template, $values, $section_kw_queue, $used_kws, $links, $links_used );
+				$sentence = null;
+				$sentence_template = '';
+				foreach ( $candidates as $candidate_template ) {
+					$try_queue = $section_kw_queue;
+					$try_used  = $used_kws;
+					$try_links = $links_used;
+					$candidate_sentence = self::resolve_sentence( (string) $candidate_template, $values, $try_queue, $try_used, $links, $try_links );
+					if ( $candidate_sentence === null ) { continue; }
+					if ( $paragraph === '' && $heading_for_glue !== '' && self::has_duplicate_tracked_phrase( $heading_for_glue . ' ' . $candidate_sentence, self::duplicate_guard_keywords( $keyword_plan ) ) ) { continue; }
+					$sentence = $candidate_sentence; $sentence_template = (string) $candidate_template; $section_kw_queue = $try_queue; $used_kws = $try_used; $links_used = $try_links; break;
+				}
 				if ( $sentence === null ) { $dropped++; continue; }
 				if ( ! preg_match( '/^\s*\{\{[a-z0-9_]+\}\}\s*$/i', (string) $sentence_template ) ) {
 					$sentence_ids[] = (string) crc32( (string) $sentence_template );
@@ -169,6 +180,39 @@ class CategoryDraftComposer {
 			'intent_sections'   => $intent_sections,
 			'internal_links'    => array_values( $links_used ),
 		];
+	}
+
+	/** @param string|array $entry @return string[] */
+	private static function alternate_candidates( $entry, int $seed, int $index, array $avoid_sentences = [] ): array {
+		if ( ! is_array( $entry ) ) { return [ (string) $entry ]; }
+		$entry = array_values( $entry );
+		if ( empty( $entry ) ) { return [ '' ]; }
+		$n = count( $entry );
+		$start = CategoryContentPlanner::seed( $seed . '/' . $index ) % $n;
+		$out = [];
+		for ( $i = 0; $i < $n; $i++ ) {
+			$candidate = (string) $entry[ ( $start + $i ) % $n ];
+			if ( ! isset( $avoid_sentences[ (string) crc32( $candidate ) ] ) ) { $out[] = $candidate; }
+		}
+		for ( $i = 0; $i < $n; $i++ ) {
+			$candidate = (string) $entry[ ( $start + $i ) % $n ];
+			if ( ! in_array( $candidate, $out, true ) ) { $out[] = $candidate; }
+		}
+		return $out;
+	}
+
+	private static function has_duplicate_tracked_phrase( string $text, array $keywords ): bool {
+		if ( ! class_exists( CategoryQualityGuard::class ) ) { return false; }
+		return ! empty( CategoryQualityGuard::duplicate_tracked_phrases( $text, $keywords ) );
+	}
+
+
+	/** @return string[] */
+	private static function duplicate_guard_keywords( array $keyword_plan ): array {
+		$tracked = ! empty( $keyword_plan['density_tracking'] )
+			? (array) $keyword_plan['density_tracking']
+			: array_merge( [ (string) ( $keyword_plan['primary'] ?? '' ) ], (array) ( $keyword_plan['rankmath_tracking'] ?? [] ), (array) ( $keyword_plan['body_use'] ?? [] ) );
+		return array_values( array_unique( array_filter( array_map( 'strval', $tracked ) ) ) );
 	}
 
 	/**
