@@ -30,8 +30,8 @@ class CategoryDifferentiationScorer {
 	public const OPTION_KEY = 'tmwseo_cat_diff_recent';
 	public const LOCK_KEY = 'tmwseo_cat_diff_recent_lock';
 
-	/** Max stored recent generations. */
-	private const STORE_LIMIT = 12;
+	/** Max stored recent generations. Structural store scales beyond one fixed variant window. */
+	private const STORE_LIMIT = 30;
 
 	/** Max shingle hashes kept per fingerprint. */
 	private const SHINGLE_LIMIT = 500;
@@ -101,6 +101,9 @@ class CategoryDifferentiationScorer {
 		$max_open   = 0.0;
 		$worst      = '';
 
+		$entropy = self::comparison_entropy( $fp );
+		$comparisons = array_slice( array_values( array_filter( $comparisons, 'is_array' ) ), -max( 8, $entropy ) );
+
 		foreach ( $comparisons as $cmp ) {
 			if ( ! is_array( $cmp ) ) { continue; }
 			$body = self::jaccard( (array) ( $fp['shingles'] ?? [] ), (array) ( $cmp['shingles'] ?? [] ) );
@@ -122,10 +125,12 @@ class CategoryDifferentiationScorer {
 			$max_open = max( $max_open, $open );
 		}
 
-		$passed = $max_body <= self::MAX_BODY_SIMILARITY
+		$adaptive_body = min( 0.58, self::MAX_BODY_SIMILARITY + max( 0, $entropy - 12 ) * 0.01 );
+		$adaptive_open = min( 0.75, self::MAX_OPENING_SIMILARITY + max( 0, $entropy - 12 ) * 0.01 );
+		$passed = $max_body <= $adaptive_body
 			&& $max_head <= self::MAX_HEADING_SIMILARITY
 			&& $max_faq <= self::MAX_FAQ_OVERLAP
-			&& $max_open <= self::MAX_OPENING_SIMILARITY;
+			&& $max_open <= $adaptive_open;
 
 		return [
 			'max_body'     => round( $max_body, 3 ),
@@ -134,6 +139,9 @@ class CategoryDifferentiationScorer {
 			'max_opening'  => round( $max_open, 3 ),
 			'worst_source' => $worst,
 			'per_source'   => $per,
+			'adaptive_body_threshold' => round( $adaptive_body, 3 ),
+			'adaptive_opening_threshold' => round( $adaptive_open, 3 ),
+			'comparison_entropy' => $entropy,
 			'passed'       => $passed,
 		];
 	}
@@ -211,6 +219,10 @@ class CategoryDifferentiationScorer {
 		if ( empty( $a ) || empty( $b ) ) { return 0.0; }
 		$in = count( array_intersect( $a, $b ) );
 		return $in / max( 1, min( count( $a ), count( $b ) ) );
+	}
+
+	private static function comparison_entropy( array $fp ): int {
+		return max( 1, count( (array) ( $fp['headings'] ?? [] ) ) + count( (array) ( $fp['faq'] ?? [] ) ) + (int) floor( count( (array) ( $fp['shingles'] ?? [] ) ) / 80 ) );
 	}
 
 	private static function normalize( string $s ): string {

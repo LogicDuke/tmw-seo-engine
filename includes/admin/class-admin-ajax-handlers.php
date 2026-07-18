@@ -198,6 +198,7 @@ class AdminAjaxHandlers {
 
                 wp_send_json_error( [
                     'message' => $message,
+                    'failure_code' => 'content_gate_blocked',
                     'reasons' => $gate_reasons,
                 ], 409 );
             }
@@ -314,7 +315,16 @@ class AdminAjaxHandlers {
             update_post_meta( $post_id, '_tmwseo_category_generation_run_id', $run_id );
             update_post_meta( $post_id, '_tmwseo_category_generation_status', 'queued' );
             delete_post_meta( $post_id, '_tmwseo_category_generation_error' );
-            delete_post_meta( $post_id, '_tmwseo_category_last_save_result' );
+            $canonical_result = [
+                'ok' => false, 'written' => false, 'content_written' => false, 'verified' => false,
+                'run_id' => $run_id, 'post_id' => $post_id, 'strategy' => $strategy,
+                'provider' => $strategy === 'template' ? 'template' : $strategy,
+                'failure_code' => '', 'reasons' => [], 'attempt_count' => 0,
+                'fragment_hash' => '', 'intended_content_hash' => '', 'persisted_content_hash' => '',
+                'finalization_status' => 'queued', 'readiness' => null,
+                'robots_before' => get_post_meta( $post_id, 'rank_math_robots', true ), 'robots_after' => null,
+            ];
+            update_post_meta( $post_id, '_tmwseo_category_last_save_result', wp_json_encode( $canonical_result ) );
 
             Logs::info( 'admin', '[TMW-CAT-GEN] queued', [
                 'post_id'              => $post_id,
@@ -412,6 +422,9 @@ class AdminAjaxHandlers {
 
             $save_result_raw = (string) get_post_meta( $post_id, '_tmwseo_category_last_save_result', true );
             $save_result     = $save_result_raw !== '' ? json_decode( $save_result_raw, true ) : [];
+            if ( ! is_array( $save_result ) || (string) ( $save_result['run_id'] ?? '' ) !== $run_id ) {
+                $save_result = [];
+            }
             $save_written    = is_array( $save_result ) && ! empty( $save_result['content_written'] );
             $save_target     = is_array( $save_result ) ? (string) ( $save_result['target'] ?? '' ) : '';
             $save_word_count = is_array( $save_result ) ? (int) ( $save_result['word_count'] ?? 0 ) : 0;
@@ -438,6 +451,8 @@ class AdminAjaxHandlers {
                     $message .= ' ' . implode( ', ', $gate_reasons );
                 }
                 update_post_meta( $post_id, '_tmwseo_category_generation_error', $message );
+                $gate_envelope = array_merge( $canonical_result, [ 'failure_code' => 'content_gate_blocked', 'reasons' => $gate_reasons, 'finalization_status' => 'failed' ] );
+                update_post_meta( $post_id, '_tmwseo_category_last_save_result', wp_json_encode( $gate_envelope ) );
                 Logs::error( 'admin', '[TMW-CAT-GEN] error', [
                     'post_id' => $post_id,
                     'run_id'  => $run_id,
@@ -465,20 +480,30 @@ class AdminAjaxHandlers {
             }
 
             if ( ! $content_changed && ! $preview_changed ) {
+                $legacy_failure_raw = (string) get_post_meta( $post_id, '_tmwseo_category_generation_failure', true );
+                $legacy_failure = $legacy_failure_raw !== '' ? json_decode( $legacy_failure_raw, true ) : [];
+                $legacy_reasons = is_array( $legacy_failure ) ? array_values( array_map( 'strval', (array) ( $legacy_failure['reasons'] ?? [] ) ) ) : [];
+                $failure_code = ! empty( $legacy_reasons ) ? 'template_pipeline_failure' : 'empty_generated_content';
+                $failure_reasons = ! empty( $legacy_reasons ) ? $legacy_reasons : [ 'Generated content was empty before persistence.' ];
+                $failure_envelope = array_merge( $canonical_result, [ 'failure_code' => $failure_code, 'reasons' => $failure_reasons, 'finalization_status' => 'failed' ] );
+                update_post_meta( $post_id, '_tmwseo_category_last_save_result', wp_json_encode( $failure_envelope ) );
                 update_post_meta( $post_id, '_tmwseo_category_generation_status', 'error' );
-                update_post_meta( $post_id, '_tmwseo_category_generation_error', 'empty_generated_content' );
+                update_post_meta( $post_id, '_tmwseo_category_generation_error', $failure_reasons[0] );
                 Logs::error( 'admin', '[TMW-CAT-GEN] error', [
                     'post_id'              => $post_id,
                     'run_id'               => $run_id,
                     'strategy'             => $strategy,
                     'insert_content_block' => (bool) $insert_block,
-                    'error'                => 'empty_generated_content',
+                    'error'                => $failure_code,
+                    'reasons'              => $failure_reasons,
                 ] );
                 wp_send_json_error( [
                     'success' => false,
                     'run_id'  => $run_id,
                     'status'  => 'error',
-                    'message' => __( 'Category generation finished but no content was written. Check logs.', 'tmwseo' ),
+                    'failure_code' => $failure_code,
+                    'reasons' => $failure_reasons,
+                    'message' => $failure_reasons[0],
                 ], 500 );
             }
 

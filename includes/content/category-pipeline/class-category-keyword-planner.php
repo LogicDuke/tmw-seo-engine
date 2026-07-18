@@ -296,6 +296,7 @@ class CategoryKeywordPlanner {
 		];
 		$fold   = [
 			'webcam'  => 'cam',
+			'webcams' => 'cam',
 			'cams'    => 'cam',
 			'chats'   => 'chat',
 			'breast'  => 'boob',
