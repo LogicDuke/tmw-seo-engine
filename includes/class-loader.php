@@ -266,6 +266,7 @@ class Loader {
         tmwseo_safe_require( $p . 'category-pipeline/class-category-faq-planner.php' );
         tmwseo_safe_require( $p . 'category-pipeline/class-category-final-validator.php' );
         tmwseo_safe_require( $p . 'category-pipeline/class-category-generation-pipeline.php' );
+        tmwseo_safe_require( $p . 'category-pipeline/class-category-generation-transaction.php' );
         tmwseo_safe_require( $p . 'class-content-engine.php' );
         tmwseo_safe_require( $p . 'class-assisted-draft-enrichment-service.php' );
         tmwseo_safe_require( $p . 'class-quality-score-engine.php' );
