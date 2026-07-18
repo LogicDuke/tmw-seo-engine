@@ -250,6 +250,7 @@ class Loader {
         tmwseo_safe_require( $p . 'category-pipeline/class-category-context-builder.php' );
         tmwseo_safe_require( $p . 'category-pipeline/class-category-intent-classifier.php' );
         tmwseo_safe_require( $p . 'category-pipeline/class-category-keyword-planner.php' );
+        tmwseo_safe_require( $p . 'category-pipeline/class-category-chip-feasibility.php' );
         tmwseo_safe_require( $p . 'category-pipeline/class-category-content-planner.php' );
         tmwseo_safe_require( $p . 'category-pipeline/class-category-draft-composer.php' );
         tmwseo_safe_require( $p . 'category-pipeline/class-category-quality-guard.php' );

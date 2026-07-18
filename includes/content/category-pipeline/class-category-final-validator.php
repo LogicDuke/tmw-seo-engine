@@ -338,11 +338,15 @@ class CategoryFinalValidator {
 
 		// Differentiation threshold (when scored).
 		if ( ! empty( $similarity ) && empty( $similarity['passed'] ) ) {
+			if ( ! empty( $similarity['failure_reason'] ) ) {
+				$reasons[] = (string) $similarity['failure_reason'];
+			} else {
 			$reasons[] = 'similarity_threshold_exceeded:body=' . ( $similarity['max_body'] ?? '?' )
 				. ',heading=' . ( $similarity['max_heading'] ?? '?' )
 				. ',faq=' . ( $similarity['max_faq'] ?? '?' )
 				. ',opening=' . ( $similarity['max_opening'] ?? '?' )
 				. ',vs=' . ( $similarity['worst_source'] ?? '' );
+			}
 		}
 
 		return [

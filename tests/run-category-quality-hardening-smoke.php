@@ -47,6 +47,7 @@ $pipeline_dir = dirname(__DIR__) . '/includes/content/category-pipeline/';
 require_once $pipeline_dir . 'class-category-context-builder.php';
 require_once $pipeline_dir . 'class-category-intent-classifier.php';
 require_once $pipeline_dir . 'class-category-keyword-planner.php';
+require_once $pipeline_dir . 'class-category-chip-feasibility.php';
 require_once $pipeline_dir . 'class-category-content-planner.php';
 require_once $pipeline_dir . 'class-category-draft-composer.php';
 require_once $pipeline_dir . 'class-category-quality-guard.php';

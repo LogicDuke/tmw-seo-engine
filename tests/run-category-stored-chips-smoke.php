@@ -43,7 +43,7 @@ require_once dirname(__DIR__) . '/includes/content/class-rank-math-chip-analyzer
 
 $pd = dirname(__DIR__) . '/includes/content/category-pipeline/';
 foreach ([
-    'context-builder', 'intent-classifier', 'keyword-planner', 'content-planner',
+    'context-builder', 'intent-classifier', 'keyword-planner', 'chip-feasibility', 'content-planner',
     'draft-composer', 'quality-guard', 'factual-safety', 'grammar-guard',
     'paragraph-uniqueness-guard', 'claim-ledger', 'specificity-scorer',
     'faq-reuse-guard', 'generation-result', 'differentiation-scorer',
@@ -108,7 +108,7 @@ $fixtures = [
         ['Blonde Cam Models'], 6, 3],
 ];
 
-echo "== A/B. Exact stored chips: verbatim in content AND in H2-H6 on every fixture ==\n";
+echo "== A/B. Stored chips: rendered subset appears; excess same-family chips are tracking-only ==\n";
 $cmp = []; $reports = [];
 foreach ($fixtures as $slug => [$name, $chips, $rel, $mc, $vc]) {
     $ctx = CategoryContextBuilder::build_from_parts($base + [
@@ -127,14 +127,21 @@ foreach ($fixtures as $slug => [$name, $chips, $rel, $mc, $vc]) {
     $subtxt  = subs($html);
     $visible = vis($html);
     $green   = 0;
+    $feas = (array) ($rep['keyword_plan']['chip_feasibility'] ?? []);
+    $rendered = array_map(static fn($r) => (string) ($r['keyword'] ?? ''), (array) ($feas['rendered_chips'] ?? []));
+    $tracking_only = array_map(static fn($r) => (string) ($r['keyword'] ?? ''), (array) ($feas['tracking_only_chips'] ?? []));
     foreach ($chips as $chip) {
         $in_content = (bool) preg_match(kwpat($chip), $visible);
         $in_sub     = (bool) preg_match(kwpat($chip), $subtxt);
-        check("[$slug] chip '$chip' EXACT in visible content", $in_content);
-        check("[$slug] chip '$chip' EXACT in H2-H6 subheading", $in_sub);
-        if ($in_content && $in_sub) { $green++; }
+        if (in_array($chip, $rendered, true)) {
+            check("[$slug] rendered chip '$chip' EXACT in visible content", $in_content);
+            check("[$slug] rendered chip '$chip' EXACT in H2-H6 subheading", $in_sub);
+            if ($in_content && $in_sub) { $green++; }
+        } else {
+            check("[$slug] unrendered chip '$chip' is tracking-only", in_array($chip, $tracking_only, true));
+        }
     }
-    check("[$slug] all " . count($chips) . " simulated Rank Math chips pass", $green === count($chips));
+    check("[$slug] every rendered chip passes", $green === count($rendered), json_encode($feas));
 
     $den = (array) ($rep['metrics']['density'] ?? []);
     check("[$slug] primary density {$den['density']}% within accepted band", ($den['status'] ?? '') === 'within', json_encode($den));
@@ -153,16 +160,13 @@ $plural_only = '<p>Big Boob Cam intro here.</p><h2>Massive Boobs Webcam Corner</
 check("'massive boob webcam' does NOT match 'massive boobs webcam'", !preg_match(kwpat('massive boob webcam'), vis($plural_only)));
 check("'cam' partial token never counts inside 'webcam'", !preg_match(kwpat('cam'), 'a webcam feed'));
 
-echo "\n== C. No silent substitution: planner activates every chip; validator fails a missing chip ==\n";
+echo "\n== C. Feasibility preserves stored chips as rendered or tracking-only ==\n";
 $chips4 = ['big breast webcam', 'big boobs webcam', 'biggest boobs webcam', 'massive boob webcam'];
-$plan = CategoryKeywordPlanner::plan('Big Boob Cam', $chips4, $chips4, true);
-check('stored-chip mode activates ALL chips (near-duplicate collapse bypassed)', (array) $plan['body_use'] === $chips4, json_encode($plan['body_use']));
-check('stored-chip mode: three heading roles + faq_heading for the rest',
-    ($plan['roles']['big breast webcam'] ?? '') === 'heading_h2'
-    && ($plan['roles']['big boobs webcam'] ?? '') === 'heading_secondary'
-    && ($plan['roles']['biggest boobs webcam'] ?? '') === 'heading_tertiary'
-    && ($plan['roles']['massive boob webcam'] ?? '') === 'faq_heading', json_encode($plan['roles']));
-check('stored-chip mode reports zero unused chips', empty($plan['unused']));
+$feas4 = TMWSEO\Engine\Content\CategoryPipeline\CategoryChipFeasibility::analyze('Big Boob Cam', $chips4);
+$rendered4 = array_map(static fn($r)=>(string)$r['keyword'], (array)$feas4['rendered_chips']);
+$plan = CategoryKeywordPlanner::plan('Big Boob Cam', $rendered4, $chips4, true);
+check('feasibility renders safe representatives', count($rendered4) === 2, json_encode($feas4));
+check('tracking-only same-family chips are reported', count((array)$feas4['tracking_only_chips']) === 2, json_encode($feas4['tracking_only_chips']));
 // Validator failure on a page missing one chip entirely.
 $missing_chip_html = '<p>Big Boob Cam opens. big breast webcam here. big boobs webcam here. biggest boobs webcam here.</p><h2>Big Boob Cam Overview</h2><h2>Where Big Breast Webcam Fits In</h2><h2>Big Boobs Webcam: What to Know</h2><h2>A Closer Look at Biggest Boobs Webcam</h2><p>' . str_repeat('Directory copy sentence with useful browsing detail for readers here. ', 90) . '</p><h2>Frequently Asked Questions</h2><h3>How do I choose?</h3><p>Compare the listings.</p>';
 $plan['density_tracking'] = array_merge(['Big Boob Cam'], $chips4);
@@ -172,8 +176,8 @@ check('validator FAILS when a stored chip is absent from final HTML', !$v['passe
 
 echo "\n== D. Exact reporting for every stored chip ==\n";
 $bbc = $reports['big-boob-cam'] ?? [];
-check('report covers primary + all four chips', count($bbc) === 5, (string) count($bbc));
-foreach ($chips4 as $chip) {
+check('report covers primary + rendered chips', count($bbc) === 3, (string) count($bbc));
+foreach (['big breast webcam', 'big boobs webcam'] as $chip) {
     $row = (array) ($bbc[$chip] ?? []);
     check("report['$chip'] has counts + pass", isset($row['visible_count'], $row['subheading_count'], $row['body_count'], $row['pass'], $row['reason']) && $row['pass'] === true && $row['visible_count'] >= 1 && $row['subheading_count'] >= 1, json_encode($row));
 }

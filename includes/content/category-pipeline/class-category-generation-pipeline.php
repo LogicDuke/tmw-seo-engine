@@ -73,20 +73,25 @@ class CategoryGenerationPipeline {
 
 		$input_hash = CategoryGenerationResult::hash_input( $context, $tracking, $provider );
 
-		// v5.9.12 — stored Rank Math chips are the planning source of truth.
-		// When the context carries the exact stored additional keywords,
-		// EVERY chip is activated verbatim (no near-duplicate collapse, no
-		// pool substitution): three take topical H2 roles, the rest each
-		// take one exact-phrase FAQ H3 question. Rank Math analyzes exactly
-		// these phrases, so exactly these phrases are planned and validated.
+		// v5.9.14 — stored Rank Math chips are first analyzed for feasibility.
+		// Safely placeable representatives are rendered; excess same-family chips
+		// remain operator-visible as tracking-only with exact demotion reasons.
 		$stored_chips = array_values( array_filter( array_map( 'strval', (array) ( $context['stored_chips'] ?? [] ) ), 'strlen' ) );
+		$chip_feasibility = ! empty( $stored_chips )
+			? CategoryChipFeasibility::analyze( (string) ( $context['primary_keyword'] ?? '' ), $stored_chips )
+			: [];
 		if ( ! empty( $stored_chips ) ) {
+			$rendered_stored_chips = array_map( static function ( $row ) { return (string) ( $row['keyword'] ?? '' ); }, (array) ( $chip_feasibility['rendered_chips'] ?? [] ) );
 			$keyword_plan = CategoryKeywordPlanner::plan(
 				(string) ( $context['primary_keyword'] ?? '' ),
-				$stored_chips,
+				$rendered_stored_chips,
 				$stored_chips,
 				true
 			);
+			$keyword_plan['chip_feasibility'] = $chip_feasibility;
+			$keyword_plan['unused'] = array_values( array_merge( (array) $keyword_plan['unused'], array_map( static function ( $row ) {
+				return [ 'keyword' => (string) ( $row['keyword'] ?? '' ), 'reason' => 'tracking_only_' . (string) ( $row['reason'] ?? 'chip_feasibility' ), 'family' => (string) ( $row['family'] ?? '' ) ];
+			}, (array) ( $chip_feasibility['tracking_only_chips'] ?? [] ) ) ) );
 		} else {
 			$keyword_plan = CategoryKeywordPlanner::plan(
 				(string) ( $context['primary_keyword'] ?? '' ),
@@ -96,7 +101,7 @@ class CategoryGenerationPipeline {
 		}
 		$stored_rankmath_focus = array_values( array_unique( array_filter( array_map( 'strval', array_merge(
 			[ (string) $keyword_plan['primary'] ],
-			! empty( $stored_chips ) ? $stored_chips : ( array_key_exists( 'tracking', $options ) ? $tracking : (array) $keyword_plan['rankmath_tracking'] )
+			! empty( $stored_chips ) ? (array) $keyword_plan['body_use'] : ( array_key_exists( 'tracking', $options ) ? $tracking : (array) $keyword_plan['rankmath_tracking'] )
 		) ) ) ) );
 		$keyword_plan['density_tracking'] = $stored_rankmath_focus;
 
@@ -326,6 +331,7 @@ class CategoryGenerationPipeline {
 				'heading_candidates' => (array) $keyword_plan['heading_candidates'],
 				'roles'              => (array) ( $keyword_plan['roles'] ?? [] ),
 				'unused'             => (array) $keyword_plan['unused'],
+				'chip_feasibility'   => (array) ( $keyword_plan['chip_feasibility'] ?? [] ),
 			],
 			'raw_output_hash'        => $raw_draft !== '' ? CategoryGenerationResult::hash_output( $raw_draft ) : '',
 			'normalized_output_hash' => $stage['normalized'] !== '' ? CategoryGenerationResult::hash_output( $stage['normalized'] ) : '',

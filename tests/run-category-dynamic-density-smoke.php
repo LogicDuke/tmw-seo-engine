@@ -38,7 +38,7 @@ require_once __DIR__ . '/bootstrap/wordpress-stubs.php';
 
 $pd = dirname(__DIR__) . '/includes/content/category-pipeline/';
 foreach ([
-    'context-builder', 'intent-classifier', 'keyword-planner', 'content-planner',
+    'context-builder', 'intent-classifier', 'keyword-planner', 'chip-feasibility', 'content-planner',
     'draft-composer', 'quality-guard', 'factual-safety', 'grammar-guard',
     'paragraph-uniqueness-guard', 'claim-ledger', 'specificity-scorer',
     'faq-reuse-guard', 'generation-result', 'differentiation-scorer',
