@@ -11,16 +11,16 @@ if (!function_exists('esc_html'))      { function esc_html($t) { return htmlspec
 if (!function_exists('esc_url'))       { function esc_url($u) { return filter_var((string) $u, FILTER_SANITIZE_URL); } }
 if (!function_exists('wp_strip_all_tags')) { function wp_strip_all_tags($t) { return trim(strip_tags((string) $t)); } }
 if (!function_exists('__'))            { function __($t, $d = null) { return $t; } }
-$pipeline_dir = dirname(__DIR__) . '/includes/content/category-pipeline/';
+$pipeline_dir = dirname(__DIR__, 2) . '/includes/content/category-pipeline/';
 foreach ([
-    'class-category-context-builder','class-category-intent-classifier','class-category-keyword-planner',
+    'class-category-context-builder','class-category-intent-classifier','class-category-keyword-planner','class-category-chip-feasibility',
     'class-category-content-planner','class-category-draft-composer','class-category-quality-guard',
     'class-category-factual-safety','class-category-grammar-guard','class-category-density-policy','class-category-keyword-placement',
     'class-category-paragraph-uniqueness-guard','class-category-claim-ledger','class-category-specificity-scorer',
     'class-category-faq-reuse-guard','class-category-generation-result','class-category-differentiation-scorer',
     'class-category-faq-planner','class-category-final-validator','class-category-generation-pipeline',
 ] as $c) { require_once $pipeline_dir . $c . '.php'; }
-require_once dirname(__DIR__) . '/includes/content/class-rank-math-chip-analyzer.php';
+require_once dirname(__DIR__, 2) . '/includes/content/class-rank-math-chip-analyzer.php';
 use TMWSEO\Engine\Content\CategoryPipeline\CategoryContextBuilder;
 use TMWSEO\Engine\Content\CategoryPipeline\CategoryGenerationPipeline;
 use TMWSEO\Engine\Content\CategoryPipeline\CategoryDensityPolicy;

@@ -75,14 +75,17 @@ class CategoryDifferentiationScorer {
 		} ) );
 
 		$sentences = preg_split( '/(?<=[.!?])\s+/u', trim( $visible ) ) ?: [];
-		$opening   = self::shingles( (string) ( $sentences[0] ?? '' ) );
+		$opening_text = (string) ( $sentences[0] ?? '' );
+		$opening   = self::shingles( $opening_text );
 
 		return [
 			'slug'     => $slug,
 			'shingles' => array_slice( self::shingles( $visible ), 0, self::SHINGLE_LIMIT ),
+			'body_hash' => self::canonical_hash( $visible ),
 			'headings' => $headings,
 			'faq'      => $faq,
 			'opening'  => $opening,
+			'opening_hash' => self::canonical_hash( $opening_text ),
 		];
 	}
 
@@ -102,7 +105,23 @@ class CategoryDifferentiationScorer {
 		$worst      = '';
 
 		$entropy = self::comparison_entropy( $fp );
-		$comparisons = array_slice( array_values( array_filter( $comparisons, 'is_array' ) ), -max( 8, $entropy ) );
+		$full_comparisons = array_values( array_filter( $comparisons, 'is_array' ) );
+		$duplicate = self::global_duplicate_scan( $fp, $full_comparisons );
+		if ( ! empty( $duplicate ) ) {
+			return [
+				'max_body' => 1.0, 'max_heading' => 0.0, 'max_faq' => 0.0, 'max_opening' => ( $duplicate['type'] === 'exact_opening_reuse' ? 1.0 : 0.0 ),
+				'worst_source' => (string) $duplicate['source'],
+				'per_source' => [ [ 'source' => (string) $duplicate['source'], 'body' => 1.0, 'heading' => 0.0, 'faq' => 0.0, 'opening' => ( $duplicate['type'] === 'exact_opening_reuse' ? 1.0 : 0.0 ), 'duplicate_type' => (string) $duplicate['type'] ] ],
+				'adaptive_body_threshold' => round( min( 0.58, self::MAX_BODY_SIMILARITY + max( 0, $entropy - 12 ) * 0.01 ), 3 ),
+				'adaptive_opening_threshold' => round( min( 0.75, self::MAX_OPENING_SIMILARITY + max( 0, $entropy - 12 ) * 0.01 ), 3 ),
+				'comparison_entropy' => $entropy,
+				'duplicate_type' => (string) $duplicate['type'],
+				'duplicate_source' => (string) $duplicate['source'],
+				'failure_reason' => (string) $duplicate['type'] . ':vs=' . (string) $duplicate['source'],
+				'passed' => false,
+			];
+		}
+		$comparisons = array_slice( $full_comparisons, -max( 8, $entropy ) );
 
 		foreach ( $comparisons as $cmp ) {
 			if ( ! is_array( $cmp ) ) { continue; }
@@ -219,6 +238,48 @@ class CategoryDifferentiationScorer {
 		if ( empty( $a ) || empty( $b ) ) { return 0.0; }
 		$in = count( array_intersect( $a, $b ) );
 		return $in / max( 1, min( count( $a ), count( $b ) ) );
+	}
+
+	private static function global_duplicate_scan( array $fp, array $comparisons ): array {
+		$body_hash = (string) ( $fp['body_hash'] ?? '' );
+		$opening_hash = (string) ( $fp['opening_hash'] ?? '' );
+		foreach ( $comparisons as $cmp ) {
+			$slug = (string) ( $cmp['slug'] ?? '' );
+			if ( $body_hash !== '' && $body_hash === (string) ( $cmp['body_hash'] ?? '' ) ) {
+				return [ 'type' => 'exact_body_reuse', 'source' => $slug ];
+			}
+			$body_sim = self::jaccard( (array) ( $fp['shingles'] ?? [] ), (array) ( $cmp['shingles'] ?? [] ) );
+			if ( $body_sim >= 0.999 && count( (array) ( $fp['shingles'] ?? [] ) ) === count( (array) ( $cmp['shingles'] ?? [] ) ) ) {
+				return [ 'type' => 'exact_body_reuse', 'source' => $slug ];
+			}
+			if ( $opening_hash !== '' && $opening_hash === (string) ( $cmp['opening_hash'] ?? '' ) ) {
+				return [ 'type' => 'exact_opening_reuse', 'source' => $slug ];
+			}
+			$dupe = self::global_uniqueness_duplicate_scan( (array) ( $fp['uniqueness'] ?? [] ), (array) ( $cmp['uniqueness'] ?? [] ), $slug );
+			if ( ! empty( $dupe ) ) { return $dupe; }
+		}
+		return [];
+	}
+
+	private static function global_uniqueness_duplicate_scan( array $fp, array $other, string $slug ): array {
+		foreach ( (array) ( $fp['paragraphs'] ?? [] ) as $p ) {
+			foreach ( (array) ( $other['paragraphs'] ?? [] ) as $q ) {
+				if ( isset( $p['h'], $q['h'] ) && (int) $p['h'] === (int) $q['h'] ) { return [ 'type' => 'exact_paragraph_reuse', 'source' => $slug ]; }
+			}
+		}
+		if ( isset( $fp['closing']['h'], $other['closing']['h'] ) && (int) $fp['closing']['h'] === (int) $other['closing']['h'] ) { return [ 'type' => 'closing_reuse', 'source' => $slug ]; }
+		if ( isset( $fp['intro']['h'], $other['intro']['h'] ) && (int) $fp['intro']['h'] === (int) $other['intro']['h'] ) { return [ 'type' => 'intro_reuse', 'source' => $slug ]; }
+		foreach ( (array) ( $fp['faq_answers'] ?? [] ) as $a ) {
+			foreach ( (array) ( $other['faq_answers'] ?? [] ) as $b ) {
+				if ( isset( $a['h'], $b['h'] ) && (int) $a['h'] === (int) $b['h'] ) { return [ 'type' => 'faq_answer_reuse', 'source' => $slug ]; }
+			}
+		}
+		return [];
+	}
+
+	private static function canonical_hash( string $text ): string {
+		$norm = self::normalize( $text );
+		return $norm !== '' ? hash( 'sha256', $norm ) : '';
 	}
 
 	private static function comparison_entropy( array $fp ): int {
