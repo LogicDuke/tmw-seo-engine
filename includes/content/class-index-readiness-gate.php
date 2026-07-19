@@ -196,6 +196,27 @@ class IndexReadinessGate {
             $reasons[] = 'not_approved:' . $approval;
         }
 
+        // v5.9.15 — Gate: category active keyword coverage (fail-closed).
+        // The July 2026 audit proved a category could reach readiness while
+        // keywords stored in the Rank Math focus-keyword CSV never appeared
+        // in the content ("active but unplaced" chips). The CSV is now
+        // written as the placeable/covered active set, and this gate is the
+        // end-to-end enforcement: EVERY stored non-primary keyword must be
+        // visible in the persisted content AND in an H2-H6 subheading, or be
+        // provably covered by the primary phrase (Rank Math substring
+        // semantics: contiguous token subsequence of a primary that itself
+        // appears in content and a subheading). Any uncovered active keyword
+        // blocks readiness with a named reason, so the page keeps noindex
+        // instead of going live with a broken keyword contract.
+        if ( $post_type === 'tmw_category_page' ) {
+            $csv      = (string) get_post_meta( $post_id, 'rank_math_focus_keyword', true );
+            $coverage = self::category_active_chip_coverage( (string) $post->post_content, $csv );
+            $details['active_chip_coverage'] = $coverage;
+            foreach ( (array) $coverage['failures'] as $failure ) {
+                $reasons[] = 'active_chip_unused:' . (string) ( $failure['keyword'] ?? '' ) . ':' . (string) ( $failure['reason'] ?? '' );
+            }
+        }
+
         $ready = empty( $reasons );
 
         // Persist decision.
@@ -212,6 +233,87 @@ class IndexReadinessGate {
             'reasons'      => $reasons,
             'gate_details' => $details,
         ];
+    }
+
+    /**
+     * v5.9.15 — pure coverage check for the category active keyword contract.
+     *
+     * No WordPress calls: takes the persisted HTML and the stored Rank Math
+     * focus-keyword CSV and reports, per non-primary keyword, whether the
+     * exact boundary-guarded phrase appears in (a) the visible content and
+     * (b) at least one H2-H6 subheading — or whether the keyword is a
+     * contiguous token subsequence of the primary phrase, in which case the
+     * primary's own presence in content + subheading covers it under the
+     * shipped Rank Math analyzer's substring semantics.
+     *
+     * @return array{passed:bool,checked:int,failures:array<int,array{keyword:string,reason:string}>,rows:array<string,array<string,mixed>>}
+     */
+    public static function category_active_chip_coverage( string $html, string $focus_csv ): array {
+        $keywords = array_values( array_filter( array_map( 'trim', explode( ',', $focus_csv ) ), 'strlen' ) );
+        $result   = [ 'passed' => true, 'checked' => 0, 'failures' => [], 'rows' => [] ];
+        if ( count( $keywords ) < 1 || trim( $html ) === '' ) {
+            return $result;
+        }
+        $primary = (string) $keywords[0];
+
+        $visible = (string) preg_replace( [ '/<script\b[^>]*>.*?<\/script>/isu', '/<style\b[^>]*>.*?<\/style>/isu', '/<!--.*?-->/su' ], ' ', $html );
+        $visible = (string) preg_replace( '/<[^>]+>/u', ' ', $visible ); // tags become spaces so adjacent block boundaries never glue words
+        $visible = trim( (string) preg_replace( '/\s+/u', ' ', html_entity_decode( $visible, ENT_QUOTES | ENT_HTML5, 'UTF-8' ) ) );
+        $sub_txt = '';
+        if ( preg_match_all( '/<h([2-6])[^>]*>(.*?)<\/h\1>/isu', $html, $shm ) ) {
+            $sub_txt = (string) preg_replace( '/<[^>]+>/u', ' ', implode( "\n", $shm[2] ) );
+            $sub_txt = trim( (string) preg_replace( '/\s+/u', ' ', html_entity_decode( $sub_txt, ENT_QUOTES | ENT_HTML5, 'UTF-8' ) ) );
+        }
+        $pattern = static function ( string $kw ): string {
+            return '/(?<![\p{L}\p{N}])' . preg_quote( $kw, '/' ) . '(?![\p{L}\p{N}])/iu';
+        };
+        $tokens = static function ( string $s ): array {
+            $s = (string) preg_replace( '/[^a-z0-9\s]+/u', ' ', function_exists( 'mb_strtolower' ) ? mb_strtolower( $s, 'UTF-8' ) : strtolower( $s ) );
+            return array_values( array_filter( preg_split( '/\s+/u', trim( $s ) ) ?: [], 'strlen' ) );
+        };
+        $contained_in_primary = static function ( string $kw ) use ( $tokens, $primary ): bool {
+            $n = $tokens( $kw );
+            $h = $tokens( $primary );
+            if ( empty( $n ) || count( $n ) >= count( $h ) ) {
+                return false;
+            }
+            for ( $i = 0; $i <= count( $h ) - count( $n ); $i++ ) {
+                if ( array_slice( $h, $i, count( $n ) ) === $n ) {
+                    return true;
+                }
+            }
+            return false;
+        };
+
+        $primary_in_content = (bool) preg_match( $pattern( $primary ), $visible );
+        $primary_in_sub     = (bool) preg_match( $pattern( $primary ), $sub_txt );
+
+        foreach ( $keywords as $index => $kw ) {
+            if ( $index === 0 ) {
+                continue; // The primary's own checks belong to Rank Math scoring, not this contract gate.
+            }
+            $result['checked']++;
+            $in_content = (bool) preg_match( $pattern( $kw ), $visible );
+            $in_sub     = (bool) preg_match( $pattern( $kw ), $sub_txt );
+            $covered    = ! $in_content && $contained_in_primary( $kw ) && $primary_in_content && $primary_in_sub;
+            $reason     = '';
+            if ( ! $in_content && ! $covered ) {
+                $reason = 'absent_from_visible_content';
+            } elseif ( ! $in_sub && ! $covered ) {
+                $reason = 'absent_from_h2_h6_subheadings';
+            }
+            $result['rows'][ $kw ] = [
+                'in_content'         => $in_content,
+                'in_subheading'      => $in_sub,
+                'covered_by_primary' => $covered,
+                'reason'             => $reason,
+            ];
+            if ( $reason !== '' ) {
+                $result['passed']     = false;
+                $result['failures'][] = [ 'keyword' => $kw, 'reason' => $reason ];
+            }
+        }
+        return $result;
     }
 
     /**

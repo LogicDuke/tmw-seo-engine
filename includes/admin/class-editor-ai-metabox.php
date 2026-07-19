@@ -482,17 +482,66 @@ class Editor_AI_Metabox {
             echo '<p class="tmwseo-mb-zone-title">' . esc_html__('Selected Keywords', 'tmwseo') . '</p>';
             echo '<div class="tmwseo-mb-kw-list">';
             echo '<ul>';
+            // v5.9.15 — de-duplicated display. The category pack mirrors the
+            // additional set into longtail, which used to print every selected
+            // keyword twice (July 2026 audit, "no duplicate selected keyword
+            // entries"). Each phrase now renders exactly once.
+            $printed = [];
             foreach (array_slice($additional, 0, 10) as $kw) {
+                $key = function_exists('mb_strtolower') ? mb_strtolower(trim($kw), 'UTF-8') : strtolower(trim($kw));
+                if ($key === '' || isset($printed[$key])) { continue; }
+                $printed[$key] = true;
                 echo '<li>' . esc_html($kw) . '</li>';
             }
             if (!empty($longtail)) {
                 foreach (array_slice($longtail, 0, 6) as $kw) {
+                    $key = function_exists('mb_strtolower') ? mb_strtolower(trim($kw), 'UTF-8') : strtolower(trim($kw));
+                    if ($key === '' || isset($printed[$key])) { continue; }
+                    $printed[$key] = true;
                     echo '<li class="tmwseo-mb-kw-lt">' . esc_html($kw) . '</li>';
                 }
             }
             echo '</ul>';
             echo '</div>';
             echo '</div>'; // .tmwseo-mb-zone (keywords)
+        }
+
+        // ── Zone 7 (v5.9.15): Active Rank Math keyword contract (categories) ─
+        // Operator-visible resolution of the selected-keyword conflict: which
+        // selected keywords are ACTIVE in the Rank Math CSV (placed or covered
+        // by the primary) and which were excluded, each with its exact reason.
+        // No selected keyword is ever silently demoted.
+        if ((string) $post->post_type === 'tmw_category_page') {
+            $contract_raw = (string) get_post_meta((int) $post->ID, '_tmwseo_category_active_chip_set', true);
+            $contract     = $contract_raw !== '' ? json_decode($contract_raw, true) : null;
+            if (is_array($contract) && (!empty($contract['active_extras']) || !empty($contract['excluded']))) {
+                echo '<hr class="tmwseo-mb-divider">';
+                echo '<div class="tmwseo-mb-zone">';
+                echo '<p class="tmwseo-mb-zone-title">' . esc_html__('Active Rank Math Keywords', 'tmwseo') . '</p>';
+                echo '<div class="tmwseo-mb-kw-list"><ul>';
+                foreach ((array) ($contract['active_extras'] ?? []) as $kw) {
+                    echo '<li>' . esc_html((string) $kw) . '</li>';
+                }
+                foreach ((array) ($contract['covered_by_primary'] ?? []) as $row) {
+                    $kw = (string) (is_array($row) ? ($row['keyword'] ?? '') : $row);
+                    if ($kw !== '') {
+                        echo '<li>' . esc_html($kw) . ' <em>' . esc_html__('(covered by the focus keyword)', 'tmwseo') . '</em></li>';
+                    }
+                }
+                echo '</ul></div>';
+                if (!empty($contract['excluded']) && is_array($contract['excluded'])) {
+                    echo '<p class="tmwseo-mb-help" style="margin:6px 0 2px">' . esc_html__('Excluded from the active set (not written to Rank Math):', 'tmwseo') . '</p>';
+                    echo '<div class="tmwseo-mb-kw-list"><ul>';
+                    foreach ((array) $contract['excluded'] as $row) {
+                        $kw     = (string) (is_array($row) ? ($row['keyword'] ?? '') : $row);
+                        $reason = is_array($row) ? (string) ($row['reason'] ?? '') : '';
+                        if ($kw === '') { continue; }
+                        echo '<li class="tmwseo-mb-kw-lt">' . esc_html($kw) . ($reason !== '' ? ' — <code>' . esc_html($reason) . '</code>' : '') . '</li>';
+                    }
+                    echo '</ul></div>';
+                }
+                echo '</div>'; // .tmwseo-mb-zone (active contract)
+            }
         }
 
         echo '</div>'; // .tmwseo-mb
