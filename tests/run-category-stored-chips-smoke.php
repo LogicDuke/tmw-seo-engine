@@ -279,6 +279,36 @@ foreach (['Big Boob Cam', 'Blonde Cam Models', 'Latina Cam Models', 'Free Cam Ch
     check("'$name' absent from the category generation surface", stripos($prod, $name) === false);
 }
 
+
+echo "
+== I. Active extras are enforced chips on all source paths ==
+";
+$approved_pack = [
+    'primary' => 'Approved Pool Cam',
+    'rankmath_additional' => ['approved pool extra', 'approved pool rooms'],
+    'additional' => ['approved pool extra', 'approved pool rooms'],
+    'content_terms' => ['safe browsing'],
+    'rankmath_source' => 'approved_pool_initial',
+];
+$approved_ctx = CategoryContextBuilder::build_for_post(new \WP_Post(['ID' => 1501, 'post_title' => 'Approved Pool Cam', 'post_name' => 'approved-pool-cam', 'post_type' => 'tmw_category_page']), $approved_pack);
+check('first-generation approved-pool extras become enforced stored chips', $approved_ctx['stored_chips'] === ['approved pool extra', 'approved pool rooms'], json_encode($approved_ctx['stored_chips']));
+$approved_result = CategoryGenerationPipeline::generate_from_context($approved_ctx, ['use_store' => false]);
+$approved_plan = (array) ($approved_result['report']['keyword_plan'] ?? []);
+check('approved-pool first generation uses enforced stored-chip mode', !empty($approved_plan['enforced_stored_chips']) && (array) $approved_plan['density_tracking'] === ['Approved Pool Cam', 'approved pool extra', 'approved pool rooms'], json_encode($approved_plan));
+$stored_pack = $approved_pack;
+$stored_pack['rankmath_source'] = 'stored_rank_math_csv';
+$stored_pack['rankmath_additional'] = ['stored csv extra', 'stored csv rooms'];
+$stored_ctx = CategoryContextBuilder::build_for_post(new \WP_Post(['ID' => 1502, 'post_title' => 'Stored CSV Cam', 'post_name' => 'stored-csv-cam', 'post_type' => 'tmw_category_page']), $stored_pack);
+check('stored-CSV regeneration keeps exact active extras enforced', $stored_ctx['stored_chips'] === ['stored csv extra', 'stored csv rooms'], json_encode($stored_ctx['stored_chips']));
+$stale_pack = $approved_pack;
+$stale_pack['rankmath_source'] = 'stored_rank_math_csv';
+$stale_pack['rankmath_additional'] = ['stale csv extra', 'stale csv rooms'];
+$stale_pack['content_terms'] = ['new approved pool term'];
+$stale_ctx = CategoryContextBuilder::build_for_post(new \WP_Post(['ID' => 1503, 'post_title' => 'Stale CSV Cam', 'post_name' => 'stale-csv-cam', 'post_type' => 'tmw_category_page']), $stale_pack);
+$stale_result = CategoryGenerationPipeline::generate_from_context($stale_ctx, ['use_store' => false]);
+$stale_plan = (array) ($stale_result['report']['keyword_plan'] ?? []);
+check('stale CSV active extras remain source of enforced tracking', !empty($stale_plan['enforced_stored_chips']) && (array) $stale_plan['density_tracking'] === ['Approved Pool Cam', 'stale csv extra', 'stale csv rooms'], json_encode($stale_plan));
+
 echo "\n" . str_repeat('=', 60) . "\n";
 echo "PASS: $pass  FAIL: $fail\n";
 exit($fail > 0 ? 1 : 0);

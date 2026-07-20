@@ -344,6 +344,8 @@ class CategoryGenerationPipeline {
 				'heading_candidates' => (array) $keyword_plan['heading_candidates'],
 				'roles'              => (array) ( $keyword_plan['roles'] ?? [] ),
 				'unused'             => (array) $keyword_plan['unused'],
+				'enforced_stored_chips' => ! empty( $keyword_plan['enforced_stored_chips'] ),
+				'density_tracking'   => (array) ( $keyword_plan['density_tracking'] ?? [] ),
 				'chip_feasibility'   => (array) ( $keyword_plan['chip_feasibility'] ?? [] ),
 			],
 			'raw_output_hash'        => $raw_draft !== '' ? CategoryGenerationResult::hash_output( $raw_draft ) : '',
