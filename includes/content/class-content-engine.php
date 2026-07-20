@@ -3741,7 +3741,21 @@ class ContentEngine {
             update_post_meta($post_id, 'rank_math_focus_keyword', $pack['primary']);
         }
 
-        self::apply_category_rankmath_extras($post_id, $pack);
+        $contract = self::apply_category_rankmath_extras($post_id, $pack);
+
+        // v5.9.15 — the pack downstream (context builder -> stored_chips ->
+        // keyword planner -> validator -> chip report) must carry EXACTLY the
+        // active Rank Math keyword set that was just written to the CSV, so
+        // the selected-keyword UI, the generation plan, the persisted text,
+        // the chip report, and readiness all describe one set. Excluded
+        // keywords travel alongside for operator-visible reporting only.
+        if (!empty($contract['active_extras']) && is_array($contract['active_extras'])) {
+            $pack['rankmath_additional'] = array_values(array_map('strval', $contract['active_extras']));
+            $pack['additional']          = $pack['rankmath_additional'];
+            $pack['longtail']            = $pack['rankmath_additional'];
+            $pack['rankmath_excluded']   = (array) ($contract['excluded'] ?? []);
+            $pack['rankmath_covered']    = (array) ($contract['covered'] ?? []);
+        }
 
         update_post_meta($post_id, '_tmwseo_keyword_pack', wp_json_encode($pack));
 
@@ -3897,14 +3911,24 @@ class ContentEngine {
      * Without an approved pool, the legacy behavior is preserved exactly:
      * label-derived additionals are written only when the meta is still empty.
      */
-    private static function apply_category_rankmath_extras(int $post_id, array $pack): void {
+    /**
+     * @return array{active_extras?:string[],covered?:array,excluded?:array,focus_csv?:string} Active
+     *         keyword contract when the pool path wrote the CSV; empty array otherwise.
+     */
+    private static function apply_category_rankmath_extras(int $post_id, array $pack): array {
         $existing_mirror = trim((string) get_post_meta($post_id, 'rank_math_additional_keywords', true));
         $has_pool        = isset($pack['sources']['category_pool']);
+        // v5.9.15 — the active-set contract also applies when the extras came
+        // straight from the stored Rank Math CSV (regeneration of a category
+        // whose approved pool has since emptied): those chips are operator
+        // truth and must be normalized to the placeable/covered active set,
+        // never left as stale active-but-unplaced chips.
+        $csv_sourced     = ((string) ($pack['rankmath_source'] ?? '')) === 'stored_rank_math_csv';
 
-        if ($has_pool && !empty($pack['rankmath_additional']) && is_array($pack['rankmath_additional'])) {
+        if (($has_pool || $csv_sourced) && !empty($pack['rankmath_additional']) && is_array($pack['rankmath_additional'])) {
             $extras = array_slice(array_values(array_filter(array_map('strval', $pack['rankmath_additional']), 'strlen')), 0, 8);
             if (empty($extras)) {
-                return;
+                return [];
             }
 
             // v5.9.5 ROOT-CAUSE FIX: Rank Math reads the full focus keyword
@@ -3923,6 +3947,52 @@ class ContentEngine {
             if ($primary === '') {
                 $primary = trim((string) get_post_meta($post_id, '_tmwseo_keyword', true));
             }
+
+            // v5.9.15 — ACTIVE KEYWORD CONTRACT (July 2026 audit root cause).
+            // The stored Rank Math focus-keyword CSV used to receive the full
+            // selected extras set while CategoryChipFeasibility later demoted
+            // excess same-family chips to tracking-only. Rank Math analyzed
+            // ALL stored chips, the generator placed only the rendered
+            // subset, so pages went live with active-but-never-placed chips
+            // (the audited body-type category: 5 of 8 selected keywords absent).
+            //
+            // The active set is now computed BEFORE the CSV write from the
+            // same deterministic feasibility model the pipeline uses:
+            //   active   = safely-placeable representatives + chips Rank Math
+            //              provably counts through the primary phrase;
+            //   excluded = everything else, stored with an explicit reason
+            //              and NEVER written to the Rank Math CSV.
+            // The pipeline, the server-side validator, the chip report, and
+            // the readiness gate all evaluate exactly this active set, so no
+            // hidden third state ("selected in Rank Math, ignored by the
+            // generator") can exist. Excluded keywords stay operator-visible
+            // in the keyword report, the active-chip-set meta, the editor
+            // metabox, the AJAX response, and the [TMW-CAT-KW-CONTRACT] log.
+            $contract = [ 'active' => $extras, 'covered' => [], 'excluded' => [], 'feasible' => true, 'failure_code' => '' ];
+            if (class_exists('\\TMWSEO\\Engine\\Content\\CategoryPipeline\\CategoryChipFeasibility') && $primary !== '') {
+                $contract = \TMWSEO\Engine\Content\CategoryPipeline\CategoryChipFeasibility::active_set($primary, $extras);
+            }
+            $active_extras = array_values(array_map('strval', (array) $contract['active']));
+            update_post_meta($post_id, '_tmwseo_category_active_chip_set', wp_json_encode([
+                'computed_at'        => current_time('mysql'),
+                'primary'            => $primary,
+                'selected_extras'    => $extras,
+                'active_extras'      => $active_extras,
+                'covered_by_primary' => (array) $contract['covered'],
+                'excluded'           => (array) $contract['excluded'],
+                'feasible'           => (bool) $contract['feasible'],
+                'failure_code'       => (string) $contract['failure_code'],
+            ]));
+            if (!empty($contract['excluded'])) {
+                Logs::warn('content', '[TMW-CAT-KW-CONTRACT] selected keywords excluded from the active Rank Math set (kept out of the CSV, reasons stored)', [
+                    'post_id'  => $post_id,
+                    'primary'  => $primary,
+                    'excluded' => array_map(static function ($row) {
+                        return (string) ($row['keyword'] ?? '') . ':' . (string) ($row['reason'] ?? '');
+                    }, (array) $contract['excluded']),
+                ]);
+            }
+            $extras = $active_extras;
 
             $focus_list = array_merge($primary !== '' ? [$primary] : [], $extras);
             $seen       = [];
@@ -3964,6 +4034,10 @@ class ContentEngine {
                 'body_use_keywords'       => (array) ($body_plan['body_keywords'] ?? []),
                 'unused_rankmath_keywords'=> (array) ($body_plan['unused_keywords'] ?? []),
                 'keyword_root_families'   => (array) ($body_plan['root_families'] ?? []),
+                'selected_extras'         => array_slice(array_values(array_filter(array_map('strval', (array) ($pack['rankmath_additional'] ?? [])), 'strlen')), 0, 8),
+                'active_rankmath_keywords'=> $focus_list,
+                'covered_by_primary'      => (array) $contract['covered'],
+                'excluded_from_active'    => (array) $contract['excluded'],
                 'rankmath_focus_csv'      => $focus_csv,
                 'previous_focus_csv'      => $previous_csv,
                 'content_terms'           => array_values(array_map('strval', (array) ($pack['content_terms'] ?? []))),
@@ -3973,13 +4047,19 @@ class ContentEngine {
             ];
             update_post_meta($post_id, '_tmwseo_category_keyword_report', wp_json_encode($report));
 
-            Logs::info('content', '[TMW-CAT-KW] rank math focus keyword CSV written from approved pool', [
+            Logs::info('content', '[TMW-CAT-KW] rank math focus keyword CSV written as active keyword set', [
                 'post_id'      => $post_id,
                 'focus_csv'    => $focus_csv,
                 'previous_csv' => $previous_csv,
                 'extras_count' => count($extras),
+                'source'       => $has_pool ? 'approved_pool' : 'stored_rank_math_csv',
             ]);
-            return;
+            return [
+                'active_extras' => $extras,
+                'covered'       => (array) $contract['covered'],
+                'excluded'      => (array) $contract['excluded'],
+                'focus_csv'     => $focus_csv,
+            ];
         }
 
         // Legacy fallback path (no approved pool): fill the mirror only when
@@ -3993,6 +4073,7 @@ class ContentEngine {
             'post_id'            => $post_id,
             'pool_status_counts' => (array) ($pack['pool_status_counts'] ?? []),
         ]);
+        return [];
     }
 
     /**

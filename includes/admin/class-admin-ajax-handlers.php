@@ -524,6 +524,23 @@ class AdminAjaxHandlers {
                 }
             }
 
+            // v5.9.15 — active keyword contract in the response. The operator
+            // sees, at generate time, exactly which selected keywords are
+            // active in Rank Math and which were excluded (with reasons)
+            // instead of discovering unused active chips in the editor later.
+            $contract_raw      = (string) get_post_meta( $post_id, '_tmwseo_category_active_chip_set', true );
+            $contract          = $contract_raw !== '' ? json_decode( $contract_raw, true ) : [];
+            $contract          = is_array( $contract ) ? $contract : [];
+            $excluded_rows     = (array) ( $contract['excluded'] ?? [] );
+            $contract_notice   = '';
+            if ( ! empty( $excluded_rows ) ) {
+                $contract_notice = ' ' . sprintf(
+                    /* translators: %d: number of excluded keywords */
+                    __( '%d selected keyword(s) could not be placed naturally and were kept OUT of the active Rank Math set — see the Active Rank Math Keywords panel for the exact reasons.', 'tmwseo' ),
+                    count( $excluded_rows )
+                );
+            }
+
             wp_send_json_success( [
                 'success'         => true,
                 'generated_now'   => true,
@@ -536,10 +553,13 @@ class AdminAjaxHandlers {
                 'post_id'         => $post_id,
                 'word_count'      => $save_word_count,
                 'source'          => $save_source,
+                'active_keywords'   => array_values( array_map( 'strval', (array) ( $contract['active_extras'] ?? [] ) ) ),
+                'covered_keywords'  => (array) ( $contract['covered_by_primary'] ?? [] ),
+                'excluded_keywords' => $excluded_rows,
                 'autosave_warning' => $autosave_warning !== '',
                 'message'         => ( $insert_block
                     ? __( 'Category content generated and written to post content. Reloading editor.', 'tmwseo' )
-                    : __( 'Category content generated into the preview buffer. Reloading editor.', 'tmwseo' ) ) . $autosave_warning,
+                    : __( 'Category content generated into the preview buffer. Reloading editor.', 'tmwseo' ) ) . $contract_notice . $autosave_warning,
             ] );
         }
 

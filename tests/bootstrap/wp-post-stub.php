@@ -16,8 +16,8 @@ if ( ! class_exists( 'WP_Post' ) ) {
         public $post_content = '';
         public $post_parent = 0;
 
-        public function __construct( array $props = [] ) {
-            foreach ( $props as $key => $value ) {
+        public function __construct( array|object $props = [] ) {
+            foreach ( get_object_vars( (object) $props ) as $key => $value ) {
                 $this->$key = $value;
             }
         }

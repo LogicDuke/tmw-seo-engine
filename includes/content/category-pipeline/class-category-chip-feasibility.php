@@ -62,6 +62,62 @@ final class CategoryChipFeasibility {
             'projected_min_matches'=>$matches,'projected_density'=>$density,'heading_demand'=>$heading,'faq_demand'=>$faq,
         ];
     }
+    /**
+     * v5.9.15 — ACTIVE RANK MATH KEYWORD SET (the universal keyword contract).
+     *
+     * The Rank Math focus-keyword CSV may contain ONLY keywords the generator
+     * will genuinely place (rendered) or that Rank Math provably counts
+     * through the primary phrase (covered_by_primary, contiguous-substring
+     * semantics of the shipped analyzer). Everything else is EXCLUDED from
+     * the active set — with an explicit operator-visible reason — instead of
+     * living on as an active-but-unplaced chip (the July 2026 audit defect).
+     *
+     * This is the single source of truth consumed by:
+     *   - ContentEngine::apply_category_rankmath_extras (CSV write, pre-generation)
+     *   - the generation pipeline (stored_chips == active set on the production path)
+     *   - the readiness gate (coverage of the live CSV)
+     *   - the chip report (RankMathChipAnalyzer reads the same CSV)
+     *
+     * Determinism guarantees all four agree without shared mutable state.
+     *
+     * @param string   $primary
+     * @param string[] $candidates Operator-selected extras in priority order.
+     * @return array{active:string[],covered:array<int,array<string,mixed>>,excluded:array<int,array<string,mixed>>,feasible:bool,failure_code:string,analysis:array<string,mixed>}
+     */
+    public static function active_set(string $primary, array $candidates, int $target_words = self::TARGET_WORDS): array {
+        $analysis = self::analyze($primary, $candidates, $target_words);
+        $rendered = [];
+        foreach ((array) $analysis['rendered_chips'] as $row) { $rendered[self::lc((string) $row['keyword'])] = true; }
+        $covered_map = [];
+        foreach ((array) $analysis['covered_by_primary_chips'] as $row) { $covered_map[self::lc((string) $row['keyword'])] = $row; }
+
+        // Preserve the operator's priority order in the active list.
+        $active = []; $covered = []; $seen = [self::lc($primary) => true];
+        foreach ($candidates as $kw) {
+            $kw = trim((string) $kw); $k = self::lc($kw);
+            if ($kw === '' || isset($seen[$k])) { continue; }
+            $seen[$k] = true;
+            if (isset($rendered[$k])) { $active[] = $kw; continue; }
+            if (isset($covered_map[$k])) { $active[] = $kw; $covered[] = (array) $covered_map[$k]; continue; }
+        }
+        $excluded = [];
+        foreach ((array) $analysis['tracking_only_chips'] as $row) {
+            $excluded[] = [
+                'keyword' => (string) ($row['keyword'] ?? ''),
+                'family'  => (string) ($row['family'] ?? ''),
+                'reason'  => (string) ($row['reason'] ?? ''),
+            ];
+        }
+        return [
+            'active'       => $active,
+            'covered'      => $covered,
+            'excluded'     => $excluded,
+            'feasible'     => (bool) $analysis['feasible'],
+            'failure_code' => (string) $analysis['failure_code'],
+            'analysis'     => $analysis,
+        ];
+    }
+
     public static function root_family(string $keyword): string { return CategoryKeywordPlanner::root_family($keyword); }
     private static function word_count(string $s): int { return count(preg_split('/\s+/u', trim($s)) ?: []); }
     private static function is_contiguous_subsequence(string $needle, string $haystack): bool {
