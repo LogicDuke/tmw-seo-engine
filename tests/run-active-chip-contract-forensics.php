@@ -22,6 +22,9 @@ if (!defined('ABSPATH')) { define('ABSPATH', sys_get_temp_dir() . '/'); }
 $pipeline_dir = dirname(__DIR__) . '/includes/content/category-pipeline/';
 require_once $pipeline_dir . 'class-category-keyword-planner.php';
 require_once $pipeline_dir . 'class-category-chip-feasibility.php';
+require_once $pipeline_dir . 'class-category-semantic-profile.php';
+require_once $pipeline_dir . 'class-category-semantic-sections.php';
+require_once $pipeline_dir . 'class-category-interchangeability-guard.php';
 
 use TMWSEO\Engine\Content\CategoryPipeline\CategoryChipFeasibility;
 use TMWSEO\Engine\Content\CategoryPipeline\CategoryKeywordPlanner;

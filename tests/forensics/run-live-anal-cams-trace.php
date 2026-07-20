@@ -23,7 +23,7 @@ if (!function_exists('__'))            { function __($t, $d = null) { return $t;
 $pd = dirname(__DIR__, 2) . '/includes/content/category-pipeline/';
 foreach ([
     'class-category-context-builder','class-category-intent-classifier','class-category-keyword-planner',
-    'class-category-chip-feasibility','class-category-content-planner','class-category-draft-composer',
+    'class-category-chip-feasibility', 'class-category-semantic-profile', 'class-category-semantic-sections', 'class-category-interchangeability-guard','class-category-content-planner','class-category-draft-composer',
     'class-category-quality-guard','class-category-factual-safety','class-category-grammar-guard',
     'class-category-density-policy','class-category-keyword-placement','class-category-paragraph-uniqueness-guard',
     'class-category-claim-ledger','class-category-specificity-scorer','class-category-faq-reuse-guard',
