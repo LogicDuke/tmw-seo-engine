@@ -10,6 +10,7 @@ final class CategoryGenerationTransaction {
         '_tmwseo_rankmath_chip_report','_tmwseo_image_analysis','_tmwseo_ready_to_index',
         'rank_math_robots','_tmwseo_category_generation_status','_tmwseo_category_generation_error',
         '_tmwseo_category_last_save_result','_tmwseo_category_transaction_result',
+        '_tmwseo_category_active_chip_set',
     ];
     public static function canonicalize(string $html): string { return str_replace(["\r\n","\r"], "\n", trim($html)); }
     private static function hash(string $html): string { return hash('sha256', self::canonicalize($html)); }

@@ -199,7 +199,7 @@ check('AI path still clears noindex after saving', strpos($ai_save_path, 'self::
 $clear_ref = new ReflectionMethod('\TMWSEO\Engine\Content\ContentEngine', 'maybe_clear_rank_math_noindex');
 $clear_ref->setAccessible(true);
 $mk = static function (int $id, string $type = 'tmw_category_page', string $status = 'publish'): \WP_Post {
-    $p = new \WP_Post(['ID' => $id]); $p->post_type = $type; $p->post_status = $status; return $p;
+    $p = new \WP_Post((object) ['ID' => $id]); $p->post_type = $type; $p->post_status = $status; return $p;
 };
 $reset = static function (int $id, array $settings, array $meta): void {
     update_option('tmwseo_engine_settings', $settings);
@@ -252,10 +252,10 @@ $real_cta = '<!-- wp:html --><div class="tmw-category-page-affiliate-cta"><a hre
 $slot = '<!-- wp:html --><div class="tmw-category-affiliate-slot"></div><!-- /wp:html -->';
 $suffix = (string) $extract_cta->invokeArgs(null, [$slot . "\n" . $real_cta]);
 check('affiliate extractor preserves slot and real CTA exactly once', substr_count($suffix, 'tmw-category-affiliate-slot') === 1 && substr_count($suffix, 'tmw-category-page-affiliate-cta') === 1 && substr_count($suffix, 'Real CTA words') === 1, $suffix);
-$marker_post = new \WP_Post(['ID' => 1401, 'post_content' => '<p>Prefix words</p><!-- TMWSEO:AI --><p>Old generated text</p>' . $real_cta]);
+$marker_post = new \WP_Post((object) ['ID' => 1401, 'post_content' => '<p>Prefix words</p><!-- TMWSEO:AI --><p>Old generated text</p>' . $real_cta]);
 [$prefix, $context_suffix] = $compute_context->invokeArgs(null, [$marker_post, true]);
 check('regeneration context retains existing real CTA exactly once', substr_count($context_suffix, 'Real CTA words') === 1 && strpos($prefix, 'Prefix words') !== false, $context_suffix);
-$markerless_post = new \WP_Post(['ID' => 1402, 'post_content' => '<p>Marker-less prefix</p>']);
+$markerless_post = new \WP_Post((object) ['ID' => 1402, 'post_content' => '<p>Marker-less prefix</p>']);
 [$markerless_prefix, $markerless_suffix] = $compute_context->invokeArgs(null, [$markerless_post, true]);
 check('marker-less generation starts without a phantom CTA suffix', strpos($markerless_prefix, 'Marker-less prefix') !== false && $markerless_suffix === '');
 $final_document = $markerless_prefix . '<p>Generated words</p>' . $real_cta;
@@ -263,7 +263,7 @@ $cta_density = RankMathChipAnalyzer::combined_density($final_document, ['Generat
 check('exact final-document density includes generated real CTA words once', $cta_density['matches'] === 2 && $cta_density['word_count'] === 5 && $cta_density['density'] === 40.0, json_encode($cta_density));
 $finalize = new ReflectionMethod('\TMWSEO\Engine\Content\ContentEngine', 'finalize_category_generation');
 $finalize->setAccessible(true);
-$blocked = new \WP_Post(['ID' => 1403, 'post_type' => 'tmw_category_page', 'post_content' => '<p>Old content</p>']);
+$blocked = new \WP_Post((object) ['ID' => 1403, 'post_type' => 'tmw_category_page', 'post_content' => '<p>Old content</p>']);
 $GLOBALS['_tmw_test_posts'][1403] = $blocked;
 foreach (['_tmwseo_ready_to_index' => 'old-ready', 'rank_math_robots' => ['noindex'], '_tmwseo_rankmath_chip_report' => 'old-report', 'rank_math_title' => 'Old title'] as $key => $value) { update_post_meta(1403, $key, $value); }
 $finalize->invokeArgs(null, [1403, $blocked, [], false]);
@@ -290,7 +290,7 @@ $approved_pack = [
     'content_terms' => ['safe browsing'],
     'rankmath_source' => 'approved_pool_initial',
 ];
-$approved_ctx = CategoryContextBuilder::build_for_post(new \WP_Post(['ID' => 1501, 'post_title' => 'Approved Pool Cam', 'post_name' => 'approved-pool-cam', 'post_type' => 'tmw_category_page']), $approved_pack);
+$approved_ctx = CategoryContextBuilder::build_for_post(new \WP_Post((object) ['ID' => 1501, 'post_title' => 'Approved Pool Cam', 'post_name' => 'approved-pool-cam', 'post_type' => 'tmw_category_page']), $approved_pack);
 check('first-generation approved-pool extras become enforced stored chips', $approved_ctx['stored_chips'] === ['approved pool extra', 'approved pool rooms'], json_encode($approved_ctx['stored_chips']));
 $approved_result = CategoryGenerationPipeline::generate_from_context($approved_ctx, ['use_store' => false]);
 $approved_plan = (array) ($approved_result['report']['keyword_plan'] ?? []);
@@ -298,13 +298,13 @@ check('approved-pool first generation uses enforced stored-chip mode', !empty($a
 $stored_pack = $approved_pack;
 $stored_pack['rankmath_source'] = 'stored_rank_math_csv';
 $stored_pack['rankmath_additional'] = ['stored csv extra', 'stored csv rooms'];
-$stored_ctx = CategoryContextBuilder::build_for_post(new \WP_Post(['ID' => 1502, 'post_title' => 'Stored CSV Cam', 'post_name' => 'stored-csv-cam', 'post_type' => 'tmw_category_page']), $stored_pack);
+$stored_ctx = CategoryContextBuilder::build_for_post(new \WP_Post((object) ['ID' => 1502, 'post_title' => 'Stored CSV Cam', 'post_name' => 'stored-csv-cam', 'post_type' => 'tmw_category_page']), $stored_pack);
 check('stored-CSV regeneration keeps exact active extras enforced', $stored_ctx['stored_chips'] === ['stored csv extra', 'stored csv rooms'], json_encode($stored_ctx['stored_chips']));
 $stale_pack = $approved_pack;
 $stale_pack['rankmath_source'] = 'stored_rank_math_csv';
 $stale_pack['rankmath_additional'] = ['stale csv extra', 'stale csv rooms'];
 $stale_pack['content_terms'] = ['new approved pool term'];
-$stale_ctx = CategoryContextBuilder::build_for_post(new \WP_Post(['ID' => 1503, 'post_title' => 'Stale CSV Cam', 'post_name' => 'stale-csv-cam', 'post_type' => 'tmw_category_page']), $stale_pack);
+$stale_ctx = CategoryContextBuilder::build_for_post(new \WP_Post((object) ['ID' => 1503, 'post_title' => 'Stale CSV Cam', 'post_name' => 'stale-csv-cam', 'post_type' => 'tmw_category_page']), $stale_pack);
 $stale_result = CategoryGenerationPipeline::generate_from_context($stale_ctx, ['use_store' => false]);
 $stale_plan = (array) ($stale_result['report']['keyword_plan'] ?? []);
 check('stale CSV active extras remain source of enforced tracking', !empty($stale_plan['enforced_stored_chips']) && (array) $stale_plan['density_tracking'] === ['Approved Pool Cam', 'stale csv extra', 'stale csv rooms'], json_encode($stale_plan));

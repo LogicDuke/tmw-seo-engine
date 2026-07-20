@@ -154,7 +154,10 @@ class IndexReadinessGate {
         $focus_csv = trim( (string) get_post_meta( $post_id, 'rank_math_focus_keyword', true ) );
         $chips     = self::parse_focus_keyword_csv( $focus_csv );
         $raw_content = (string) $post->post_content;
-        $content   = trim( function_exists( 'wp_strip_all_tags' ) ? (string) wp_strip_all_tags( $raw_content ) : (string) strip_tags( $raw_content ) );
+        $content     = function_exists( 'wp_strip_all_tags' ) ? (string) wp_strip_all_tags( $raw_content ) : (string) strip_tags( $raw_content );
+        $content     = html_entity_decode( $content, ENT_QUOTES | ENT_HTML5, 'UTF-8' );
+        $content     = str_replace( "\u{00A0}", ' ', $content );
+        $content     = trim( $content );
         if ( $post_type === 'tmw_category_page' && $content === '' && count( $chips ) > 1 ) {
             foreach ( array_slice( $chips, 1 ) as $chip ) {
                 $reasons[] = 'active_chip_unused:' . $chip . ':empty_content';
