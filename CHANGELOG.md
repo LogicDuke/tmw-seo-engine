@@ -1,5 +1,25 @@
 # Changelog
 
+## 5.9.16-category-semantic-composition-v1.0.0 — 2026-07-21
+
+Category-semantic composition release. Fixes the global generic-content regression in which the merged v5.9.15 engine emitted category prose selected by intent+seed from a shared section library — the same paragraph shapes and headings appeared across unrelated categories with only the primary keyword swapped, so retained active phrases were not visibly used and pages read as interchangeable.
+
+Root cause (proven by byte-diff): the composer, planner, classifier, validator, and section/FAQ JSON libraries were byte-identical between v5.9.13 and v5.9.15. The generic prose was pre-existing shared-library composer behaviour, not a merge regression; v5.9.15 changed only keyword activation, never composition.
+
+Fix — three new pipeline classes plus composer/planner wiring, one universal pipeline, no per-category branches:
+
+- **CategorySemanticProfile** derives category MEANING deterministically from the title and active keywords (subject, subject_class of trait/access/format, descriptor/format/modifier terms, and a deterministic cat_seed for cross-category variant spreading). No category-name literals anywhere.
+- **CategorySemanticSections** supplies 10–14 structurally distinct paragraph variants per section × subject_class (176+ paragraphs total), each describing real category semantics and hosting active-keyword slots. Variants differ in sentence order, opening construction, grammatical structure, comparison framing, transition wording, and closing logic — verified distinct after subject/name/primary masking (worst pairwise trigram Jaccard 0.13; zero pairs ≥ 0.60). Every keyword-bearing sentence has a keyword-free alternate so thin-keyword categories still reach the length floor.
+- **CategoryInterchangeabilityGuard** is a fail-closed generic-content gate (subject presence, heading meaning, boilerplate share against theme + domain vocabulary) plus a cross_shape comparator, folded into validation before commit.
+- Composer sources semantic sentences first (JSON library kept only as a degenerate-subject fallback); variant selection is cross-page cooldown-aware, with the selected structural variant recorded in the differentiation store and honoured through avoid_variants on the next generation.
+
+Cross-category uniqueness: cooldown windows aligned to the uniqueness comparison window (variant/sentence cooldown 8 → 12) so every page the uniqueness guard compares against is also avoided by variant selection; intent-clarity pools expanded to six clauses each with cooldown-aware resolution so same-intent categories no longer share all three clauses. No uniqueness threshold, cooldown, or store behaviour was weakened.
+
+Correctness fixes in shared repair stages (no threshold changes): article-aware and boundary-aware neutral-reference substitution in CategoryKeywordPlacement (prevents "the this" / "field field"); the heading-glue keyword-dump check now allows a single-token subject once in the heading and once in the first sentence (single-word categories previously lost their first sentence in every section); interchangeability boilerplate detection now recognises domain vocabulary so rich provider drafts are not false-flagged.
+
+Result: all six real categories plus unseen synthetics generate distinct, category-specific, factually-safe prose in sequence against a populated store; up to twelve consecutive same-subject-class categories remain mutually unique. Every required suite is green with zero fatals, warnings, or failed assertions.
+
+
 ## 5.9.15-active-chip-contract-v1.0.0 — 2026-07-19
 
 Universal active-keyword-contract release, built from a full forensic audit of the July 2026 production PDF (Big Boob Cam, Blonde Cam Models, Latina Cam Models, Free Cam Chat, Amateur Cams, Live Anal Cams). The live plugin ZIP's own `CategoryChipFeasibility` + `CategoryKeywordPlanner` code, run statically against the six real stored chip sets, reproduced the live pages' present/absent keywords 1:1 for every keyword of every category.

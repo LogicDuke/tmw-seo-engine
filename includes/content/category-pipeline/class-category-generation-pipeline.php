@@ -36,10 +36,10 @@ class CategoryGenerationPipeline {
 	public const MAX_ATTEMPTS = 8;
 
 	/** Recent pages whose section variants are avoided (cross-category cooldown). */
-	public const VARIANT_COOLDOWN_PAGES = 8;
+	public const VARIANT_COOLDOWN_PAGES = 12; // v5.9.16: match UNIQUENESS_WINDOW_PAGES so every page the uniqueness guard compares against is also avoided by variant selection — an 8-page cooldown let pages 9-12 back collide because they were compared but not avoided.
 
 	/** Recent pages whose sentence alternates are avoided. */
-	public const SENTENCE_COOLDOWN_PAGES = 8;
+	public const SENTENCE_COOLDOWN_PAGES = 12; // v5.9.16: match UNIQUENESS_WINDOW_PAGES for the same reason as VARIANT_COOLDOWN_PAGES.
 
 	/** Recent pages the paragraph-uniqueness limits are enforced against. */
 	public const UNIQUENESS_WINDOW_PAGES = 12; // v5.9.9: match the fingerprint STORE_LIMIT so no retained page escapes the uniqueness comparison

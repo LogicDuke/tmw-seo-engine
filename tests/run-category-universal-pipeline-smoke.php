@@ -66,6 +66,7 @@ use TMWSEO\Engine\Content\CategoryPipeline\CategoryContextBuilder;
 use TMWSEO\Engine\Content\CategoryPipeline\CategoryIntentClassifier;
 use TMWSEO\Engine\Content\CategoryPipeline\CategoryKeywordPlanner;
 use TMWSEO\Engine\Content\CategoryPipeline\CategoryContentPlanner;
+use TMWSEO\Engine\Content\CategoryPipeline\CategorySemanticProfile;
 use TMWSEO\Engine\Content\CategoryPipeline\CategoryDraftComposer;
 use TMWSEO\Engine\Content\CategoryPipeline\CategoryQualityGuard;
 use TMWSEO\Engine\Content\CategoryPipeline\CategoryFactualSafety;
@@ -343,6 +344,15 @@ foreach ($sparse_variants as $label => $overrides) {
 echo "\n== I. Safe failure when thresholds cannot be met (test 25) ==\n";
 // Comparisons seeded with the draft's own fingerprint make differentiation impossible.
 $ctx_fail = CategoryContextBuilder::build_from_parts(array_merge($fixtures['amateur-cams'], ['category_slug' => 'forced-fail', 'category_name' => 'Forced Fail Cams', 'primary_keyword' => 'Forced Fail Cams']));
+// v5.9.16: the pipeline attaches a semantic profile to the context before it
+// composes (class-category-generation-pipeline.php), so the shadow drafts used
+// to force a collision must be composed through the SAME path, otherwise the
+// shadows diverge from the real drafts and the forced-fail no longer collides.
+// Mirror that attachment here so the test still proves the fail-closed contract.
+$ctx_fail['__semantic_profile'] = CategorySemanticProfile::build(
+    $ctx_fail + ['intent' => 'interaction_style'],
+    CategoryKeywordPlanner::plan('Forced Fail Cams', $fixtures['amateur-cams']['approved_keywords'], [])
+);
 $pre = CategoryGenerationPipeline::generate_from_context($ctx_fail, ['tracking' => [], 'use_store' => false]);
 $self_fps = [];
 for ($salt = 0; $salt < CategoryGenerationPipeline::MAX_ATTEMPTS; $salt++) {
