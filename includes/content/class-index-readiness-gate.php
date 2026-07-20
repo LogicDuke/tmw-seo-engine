@@ -147,6 +147,25 @@ class IndexReadinessGate {
             $reasons[] = 'missing_primary_keyword';
         }
 
+        // v5.9.15 — category pages with active non-primary Rank Math chips
+        // cannot be marked ready when visible content is empty. This is a
+        // stable per-chip failure so operators can see exactly which active
+        // chip was unused instead of getting a generic content/quality error.
+        $focus_csv = trim( (string) get_post_meta( $post_id, 'rank_math_focus_keyword', true ) );
+        $chips     = self::parse_focus_keyword_csv( $focus_csv );
+        $raw_content = (string) $post->post_content;
+        $content     = function_exists( 'wp_strip_all_tags' ) ? (string) wp_strip_all_tags( $raw_content ) : (string) strip_tags( $raw_content );
+        $content     = html_entity_decode( $content, ENT_QUOTES | ENT_HTML5, 'UTF-8' );
+        $content     = str_replace( "\u{00A0}", ' ', $content );
+        $content     = trim( $content );
+        if ( $post_type === 'tmw_category_page' && $content === '' && count( $chips ) > 1 ) {
+            foreach ( array_slice( $chips, 1 ) as $chip ) {
+                $reasons[] = 'active_chip_unused:' . $chip . ':empty_content';
+            }
+        }
+        $details['rank_math_focus_keyword'] = $focus_csv;
+        $details['visible_content_empty']   = ( $content === '' );
+
         // Gate: quality score — fail-closed: score of 0 means not yet evaluated.
         $quality_threshold = (int) ( $thresholds['min_quality'] ?? 45 );
         if ( $quality === 0 ) {
@@ -517,6 +536,30 @@ class IndexReadinessGate {
         }
 
         return false;
+    }
+
+    /**
+     * Parse Rank Math's comma-separated focus keyword chips, preserving the
+     * stored chip text while trimming empty/duplicate entries.
+     *
+     * @return string[]
+     */
+    private static function parse_focus_keyword_csv( string $csv ): array {
+        $chips = [];
+        $seen  = [];
+        foreach ( explode( ',', $csv ) as $chip ) {
+            $chip = trim( (string) $chip );
+            if ( $chip === '' ) {
+                continue;
+            }
+            $key = function_exists( 'mb_strtolower' ) ? mb_strtolower( $chip, 'UTF-8' ) : strtolower( $chip );
+            if ( isset( $seen[ $key ] ) ) {
+                continue;
+            }
+            $seen[ $key ] = true;
+            $chips[]      = $chip;
+        }
+        return $chips;
     }
 
     /**

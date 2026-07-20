@@ -10,6 +10,7 @@ final class CategoryGenerationTransaction {
         '_tmwseo_rankmath_chip_report','_tmwseo_image_analysis','_tmwseo_ready_to_index',
         'rank_math_robots','_tmwseo_category_generation_status','_tmwseo_category_generation_error',
         '_tmwseo_category_last_save_result','_tmwseo_category_transaction_result',
+        '_tmwseo_category_active_chip_set',
     ];
     public static function canonicalize(string $html): string { return str_replace(["\r\n","\r"], "\n", trim($html)); }
     private static function hash(string $html): string { return hash('sha256', self::canonicalize($html)); }
@@ -53,7 +54,7 @@ final class CategoryGenerationTransaction {
             foreach(['persist_metadata','persist_chips','evaluate_readiness','apply_robots'] as $step) if(isset($ctx[$step])&&is_callable($ctx[$step])) { call_user_func($ctx[$step],$id,$stored); $r['state']='metadata_mutated'; }
             $r['finalization_status']='complete'; $r['state']='finalized'; $r['ok']=true; $r['robots_after']=get_post_meta($id,'rank_math_robots',true);
             $owner=(string)get_post_meta($id,'_tmwseo_category_generation_run_id',true);
-            if ($owner!=='' && $owner!==$run) return self::non_owner_result($r,'transaction_ownership_lost',['Transaction ownership changed before final result storage.'],['superseding_run_id'=>$owner]);
+            if ($owner!=='' && $owner!==$run) return self::fail($r,$snapshot,'transaction_ownership_lost',['Transaction ownership changed before final result storage. Superseding run: '.$owner]);
             self::store($r);
             // Attachment work is explicitly post-commit: core category state never claims a rollback for it.
             if(isset($ctx['post_commit'])&&is_callable($ctx['post_commit'])) try { call_user_func($ctx['post_commit'],$id,$stored); $r['post_commit_status']='complete'; } catch(\Throwable $e) { $r['post_commit_status']='failed'; $r['post_commit_reasons']=[$e->getMessage()]; }
@@ -69,7 +70,7 @@ final class CategoryGenerationTransaction {
             $id=(int)$r['post_id']; $owner=(string)get_post_meta($id,'_tmwseo_category_generation_run_id',true);
             if($owner!=='' && $owner!==$r['run_id']) return self::non_owner_result($r,'transaction_ownership_lost',array_merge($r['reasons'],['Transaction ownership changed before rollback.']),['superseding_run_id'=>$owner,'rollback_status'=>'not_attempted']);
             wp_update_post(['ID'=>$id,'post_content'=>$snapshot['content']],true);
-            foreach($snapshot['meta'] as $k=>$values){ delete_post_meta($id,$k); foreach($values as $v)add_post_meta($id,$k,$v); }
+            foreach($snapshot['meta'] as $k=>$values){ delete_post_meta($id,$k); foreach($values as $v){ if(function_exists('add_post_meta')) add_post_meta($id,$k,$v); else update_post_meta($id,$k,$v); } }
             clean_post_cache($id); $bad=[];
             if(self::canonicalize((string)get_post_field('post_content',$id))!==self::canonicalize($snapshot['content']))$bad[]='post_content';
             foreach($snapshot['meta'] as $k=>$values) if(get_post_meta($id,$k,false)!==$values)$bad[]='meta:'.$k;

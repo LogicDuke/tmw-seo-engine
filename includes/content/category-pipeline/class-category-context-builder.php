@@ -153,10 +153,12 @@ class CategoryContextBuilder {
 			}
 		}
 		$parts['approved_keywords'] = $approved;
-		// v5.9.12 — the exact stored Rank Math chips (source of truth for
-		// planning + validation) when the pack was built from the stored CSV.
-		if ( (string) ( $keyword_pack['rankmath_source'] ?? '' ) === 'stored_rank_math_csv'
-			&& ! empty( $keyword_pack['rankmath_additional'] ) && is_array( $keyword_pack['rankmath_additional'] ) ) {
+		// v5.9.15 — every active Rank Math extra is an enforced chip,
+		// regardless of source. Stored CSV, approved-pool first generation,
+		// and regenerated/stale CSV paths all converge on the same contract:
+		// the active extras in rankmath_additional are planned, placed, and
+		// validated as exact phrases before anything is persisted.
+		if ( ! empty( $keyword_pack['rankmath_additional'] ) && is_array( $keyword_pack['rankmath_additional'] ) ) {
 			$parts['stored_chips'] = array_values( array_filter( array_map( 'strval', $keyword_pack['rankmath_additional'] ), 'strlen' ) );
 		}
 		$parts['keywords_source']   = (string) ( $keyword_pack['content_terms_source'] ?? ( isset( $keyword_pack['sources']['category_pool'] ) ? 'category_db_approved' : '' ) );
