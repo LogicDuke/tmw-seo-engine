@@ -424,11 +424,52 @@ class CategoryKeywordPlacement {
 			$matches = $m[0];
 			for ( $i = count( $matches ) - 1; $i >= 0 && $replaced < $limit; $i-- ) {
 				[ $match, $offset ] = $matches[ $i ];
-				$part = substr_replace( $part, $replacement, (int) $offset, strlen( (string) $match ) );
+				$this_replacement = self::article_safe_replacement( $part, (int) $offset, $replacement, strlen( (string) $match ) );
+				$part = substr_replace( $part, $this_replacement, (int) $offset, strlen( (string) $match ) );
 				$replaced++;
 			}
 			$parts[ $pi ] = $part;
 		}
 		return implode( '', $parts );
+	}
+
+	/**
+	 * Grammar-safe article collapse and boundary de-duplication. When the exact
+	 * keyword being replaced is immediately preceded by an article ("the", "a",
+	 * "an", "this", "that") and the neutral reference we substitute in begins
+	 * with its own article, the replacement's leading article is dropped so we
+	 * never emit a double determiner ("the this category"). Separately, when the
+	 * replacement's LAST word would duplicate the word immediately following the
+	 * match, or its FIRST word would duplicate the word immediately preceding,
+	 * the duplicated boundary word is removed so we never emit "field field" or
+	 * "the the". This is a correctness fix in the density-repair swap; it changes
+	 * no counts and loosens no threshold — it only prevents an ungrammatical
+	 * splice when a frame's wording meets the neutral reference at a boundary.
+	 */
+	private static function article_safe_replacement( string $text, int $offset, string $replacement, int $match_len = 0 ): string {
+		// (1) Article collapse when the replacement starts with an article and
+		//     the preceding word is already an article.
+		if ( preg_match( '/^(the|a|an|this|that)\s+(.*)$/i', $replacement, $rm ) ) {
+			$before = substr( $text, 0, $offset );
+			if ( preg_match( '/(?:^|[^\p{L}\p{N}])(the|a|an|this|that)\s+$/iu', $before ) ) {
+				$replacement = $rm[2];
+			}
+		}
+		// (2) Boundary de-duplication against the following word.
+		$after = substr( $text, $offset + $match_len );
+		if ( preg_match( '/^\s*([\p{L}\p{N}]+)/u', $after, $am )
+			&& preg_match( '/([\p{L}\p{N}]+)\s*$/u', $replacement, $rm2 )
+			&& strtolower( $am[1] ) === strtolower( $rm2[1] ) ) {
+			// Drop the replacement's trailing duplicate word.
+			$replacement = (string) preg_replace( '/\s*[\p{L}\p{N}]+\s*$/u', '', $replacement );
+		}
+		// (3) Boundary de-duplication against the preceding word.
+		$before2 = substr( $text, 0, $offset );
+		if ( preg_match( '/([\p{L}\p{N}]+)\s*$/u', $before2, $bm )
+			&& preg_match( '/^\s*([\p{L}\p{N}]+)/u', $replacement, $rm3 )
+			&& strtolower( $bm[1] ) === strtolower( $rm3[1] ) ) {
+			$replacement = (string) preg_replace( '/^\s*[\p{L}\p{N}]+\s*/u', '', $replacement );
+		}
+		return $replacement;
 	}
 }

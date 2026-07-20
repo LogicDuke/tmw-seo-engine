@@ -33,6 +33,20 @@ final class CategoryInterchangeabilityGuard {
 	/** Max share of body paragraphs that may be token-free boilerplate shapes. */
 	private const MAX_BOILERPLATE_SHARE = 0.34;
 
+	/**
+	 * Domain vocabulary shared across every category page: a paragraph using
+	 * any of it is advancing the category topic (not content-free filler),
+	 * even if it does not restate the subject noun. Used only by the
+	 * boilerplate-dominance check to avoid false positives on natural prose;
+	 * cross-category structural reuse is enforced elsewhere.
+	 */
+	private const DOMAIN_VOCAB = [
+		'listing', 'performer', 'clip', 'session', 'platform', 'directory',
+		'video', 'model', 'browse', 'browsing', 'room', 'theme', 'trait',
+		'live', 'recorded', 'private', 'public', 'paid', 'free', 'page',
+		'destination', 'shortlist', 'thumbnail', 'schedule',
+	];
+
 	/** Known generic boilerplate heading shapes (theme tokens removed). */
 	private const GENERIC_HEADING_SHAPES = [
 		'where the listings lead',
@@ -90,8 +104,15 @@ final class CategoryInterchangeabilityGuard {
 			$reasons[] = 'generic_heading_shape';
 		}
 
-		// (3) Boilerplate dominance: paragraphs whose shape (theme tokens
-		// removed) carries no theme vocabulary at all.
+		// (3) Boilerplate dominance: a paragraph counts as boilerplate ONLY
+		// when it carries neither the category's own theme vocabulary NOR any
+		// domain vocabulary — i.e. it could sit unchanged on any website. A
+		// paragraph that advances the category topic (browsing, listings,
+		// access, format, platforms, sessions) is category-relevant even when
+		// it does not restate the subject noun, which is how natural prose
+		// reads. Cross-category STRUCTURAL reuse is caught separately by
+		// cross_shape() and by CategoryParagraphUniquenessGuard; this check
+		// only rejects content-free filler.
 		$paras = self::paragraphs( $html );
 		$boiler = 0; $counted = 0;
 		foreach ( $paras as $p ) {
@@ -101,6 +122,11 @@ final class CategoryInterchangeabilityGuard {
 			$has_term = false;
 			foreach ( $terms as $t ) {
 				if ( strpos( $pl, $t ) !== false ) { $has_term = true; break; }
+			}
+			if ( ! $has_term ) {
+				foreach ( self::DOMAIN_VOCAB as $t ) {
+					if ( strpos( $pl, $t ) !== false ) { $has_term = true; break; }
+				}
 			}
 			if ( ! $has_term ) { $boiler++; }
 		}
