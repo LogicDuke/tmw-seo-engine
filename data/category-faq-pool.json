@@ -1,0 +1,416 @@
+{
+  "_meta": {
+    "version": "1.1.0+5.9.5",
+    "description": "Category-specific FAQ pool for tmw_category_page TemplatePool generation. v1.1.0 adds keyword_intent bucket using {{secondary_keywords}} and {{content_terms}} placeholders. These resolve to empty string when no approved pool keywords exist. Answers are neutral and factual: no platform claims, no best/verified/official/guaranteed language.",
+    "placeholders": {
+      "{{category_name}}": "Display name of the category",
+      "{{site_name}}": "Site display name",
+      "{{models_url}}": "URL of the models directory",
+      "{{videos_url}}": "URL of the videos directory",
+      "{{focus_keyword}}": "Primary focus keyword",
+      "{{secondary_keywords}}": "Comma-separated Rank Math extra keywords from approved pool",
+      "{{content_terms}}": "Comma-separated content keyword terms from approved pool (beyond top 4)"
+    },
+    "selection_rule": "Pick 1 question per bucket per page. Use abs(crc32(post_id + bucket_position)) mod question_count as index.",
+    "buckets_count": 9,
+    "min_questions_per_bucket": 6,
+    "note": "v5.9.5: implementation-language answers rewritten to visitor-facing wording (no site-mechanics phrasing)."
+  },
+  "buckets": {
+    "category_meaning": {
+      "label": "Category meaning and purpose",
+      "questions": [
+        {
+          "id": "cm_01",
+          "q": "What does the {{category_name}} category include?",
+          "a": "It includes webcam model profiles and video listings that share the {{category_name}} theme. The page gathers relevant content from the {{site_name}} directory into one browsable archive."
+        },
+        {
+          "id": "cm_02",
+          "q": "Is {{category_name}} about live cams, videos, or both?",
+          "a": "It covers both. Model profiles linked from this page may include live cam room links, and the connected video listings cover recorded clip content under the same theme."
+        },
+        {
+          "id": "cm_03",
+          "q": "What makes {{category_name}} different from a general webcam directory?",
+          "a": "A general directory shows all performers without a theme filter. {{category_name}} narrows the listing to a specific browsing focus, which reduces the time it takes to find relevant content."
+        },
+        {
+          "id": "cm_04",
+          "q": "Why does {{site_name}} have a dedicated {{category_name}} page?",
+          "a": "A dedicated category page makes it easier for visitors who already know their browsing preference to find matching content directly without sorting through unrelated listings."
+        },
+        {
+          "id": "cm_05",
+          "q": "Does this page show all available {{category_name}} content on the site?",
+          "a": "This page links to the main directories that contain {{category_name}} content. Individual profile and video pages within those directories contain the most complete and current information."
+        },
+        {
+          "id": "cm_06",
+          "q": "How is {{category_name}} organised on {{site_name}}?",
+          "a": "The category brings together model profile pages, their associated video listings, and the related category links between them. This page is the starting point that connects those sections."
+        },
+        {
+          "id": "cm_07",
+          "q": "How current is the {{category_name}} content on this page?",
+          "a": "Individual model and video pages reflect the most current availability for each listing. This category page is refreshed as new profiles and videos are added; check individual profile pages for the latest details."
+        },
+        {
+          "id": "cm_08",
+          "q": "Are all performers on this page available in {{category_name}}?",
+          "a": "Performers appear under {{category_name}} because their profiles and videos match this focus. Check individual profile pages for current availability details."
+        }
+      ]
+    },
+    "browsing_help": {
+      "label": "Browsing help and navigation",
+      "questions": [
+        {
+          "id": "bh_01",
+          "q": "How do I start browsing {{category_name}}?",
+          "a": "Use the Models Directory or Videos Directory links on this page. Both are accessible without an account and contain the listings most relevant to this category theme."
+        },
+        {
+          "id": "bh_02",
+          "q": "Do I need an account to browse {{category_name}}?",
+          "a": "No. The {{site_name}} directory pages, including {{category_name}}, are browsable without registration. An account is only required if you choose to use a linked external platform."
+        },
+        {
+          "id": "bh_03",
+          "q": "Can I filter {{category_name}} listings by specific criteria?",
+          "a": "Use the filtering and sorting options available in the Models Directory or Videos Directory. This category page provides the theme-level overview; the directory pages have the interactive controls."
+        },
+        {
+          "id": "bh_04",
+          "q": "What is the easiest way to find a specific performer in {{category_name}}?",
+          "a": "Open the Models Directory from this page and use the search or filter options to find the performer by name. If you already know their handle on a specific platform, their profile page will show available outbound links."
+        },
+        {
+          "id": "bh_05",
+          "q": "Where do I go if this category page does not have what I need?",
+          "a": "Use the Similar Categories section on this page to find a related theme, or navigate to the main {{site_name}} directory and browse by tag to find a closer match."
+        },
+        {
+          "id": "bh_06",
+          "q": "Can I bookmark this {{category_name}} page for future visits?",
+          "a": "Yes. Bookmarking the category page gives you a quick return path, though URL changes are possible if the page is reorganised."
+        },
+        {
+          "id": "bh_07",
+          "q": "How many performers are in the {{category_name}} category?",
+          "a": "The number varies as profiles are added or updated. The Models Directory link on this page shows the current count for this theme."
+        },
+        {
+          "id": "bh_08",
+          "q": "Is there a way to see new additions to {{category_name}}?",
+          "a": "The Models Directory and Videos Directory on {{site_name}} include sorting options that let you view recently added or updated listings, including those tagged with the {{category_name}} theme."
+        }
+      ]
+    },
+    "model_discovery": {
+      "label": "Finding specific models",
+      "questions": [
+        {
+          "id": "md_01",
+          "q": "How do I find a {{category_name}} model who matches a specific style?",
+          "a": "Open a model profile from the directory and review the bio and platform links. If the style described does not match, use the related category links on that profile to move to a closer match."
+        },
+        {
+          "id": "md_02",
+          "q": "What information is on a {{category_name}} model profile page?",
+          "a": "Profile pages typically include a bio, platform links, availability context, and related category tags. They are the main source of detail for any performer listed under {{category_name}}."
+        },
+        {
+          "id": "md_03",
+          "q": "How do I know if a {{category_name}} performer is currently active?",
+          "a": "Check the individual profile page for availability notes and platform links. Platform pages linked from profiles show real-time room status more accurately than this category page."
+        },
+        {
+          "id": "md_04",
+          "q": "Are all {{category_name}} models listed in the {{site_name}} directory?",
+          "a": "The directory includes performers who have been added through the site's standard listing process. New models in this category may be added over time as profiles are created or updated."
+        },
+        {
+          "id": "md_05",
+          "q": "Can I follow a {{category_name}} performer across multiple platforms?",
+          "a": "Yes. Model profile pages on {{site_name}} list the platform links recorded for each performer. Use those links to follow the same performer on different services."
+        },
+        {
+          "id": "md_06",
+          "q": "What if a {{category_name}} performer I am looking for is not in the directory?",
+          "a": "The directory reflects performers who have been listed on {{site_name}}. If a specific performer is not shown, this page cannot indicate their availability — check the platform you know they use directly."
+        },
+        {
+          "id": "md_07",
+          "q": "Do {{category_name}} model profiles include video content?",
+          "a": "Many model profiles include links to associated video pages. The Videos Directory also lists clip content tagged with the {{category_name}} theme independently of performer profiles."
+        },
+        {
+          "id": "md_08",
+          "q": "How are {{category_name}} performers selected for the directory?",
+          "a": "Performers appear in this category because their profiles and videos match its focus. No performer is ranked above another — the page presents the available listings neutrally."
+        }
+      ]
+    },
+    "live_chat_context": {
+      "label": "Live chat and platform context",
+      "questions": [
+        {
+          "id": "lc_01",
+          "q": "What platforms do {{category_name}} performers typically use?",
+          "a": "Platform availability varies by performer. Model profile pages on {{site_name}} list listed platforms for each performer individually rather than providing a site-wide platform claim."
+        },
+        {
+          "id": "lc_02",
+          "q": "Can I access a {{category_name}} live room from this page?",
+          "a": "Not directly. This page provides directory navigation links. Live room access is available through individual model profile pages, which link to available platform links."
+        },
+        {
+          "id": "lc_03",
+          "q": "Are {{category_name}} live rooms free to access?",
+          "a": "Platform pricing varies. Access and pricing vary by platform. Check the destination platform for current access details. The platform pages linked from performer profiles contain current pricing and access information."
+        },
+        {
+          "id": "lc_04",
+          "q": "How do I start a private chat with a {{category_name}} model?",
+          "a": "Private chat options are managed on the platform each performer uses, not through {{site_name}}. Open the performer's profile page, follow the platform link shown on the profile page, and use that platform's native interface to request a private session."
+        },
+        {
+          "id": "lc_05",
+          "q": "Can I find {{category_name}} performers who stream at a specific time?",
+          "a": "Some profile pages on {{site_name}} include schedule or availability notes where performers have provided that information. For real-time status, the platform pages linked from profiles will have the most current status."
+        },
+        {
+          "id": "lc_06",
+          "q": "Is it safe to visit the platforms linked from {{category_name}} profiles?",
+          "a": "{{site_name}} links to external platforms included in the directory. Use the links shown on profile pages where possible rather than searching the platform directly."
+        },
+        {
+          "id": "lc_07",
+          "q": "Can I tip {{category_name}} performers through the site?",
+          "a": "Tipping is handled on the platform each performer uses. {{site_name}} is a directory and does not process payments or tips. Use the platform links on the performer's profile page to access the tipping interface."
+        },
+        {
+          "id": "lc_08",
+          "q": "Do {{category_name}} performers interact with visitors in their rooms?",
+          "a": "Interaction style varies by performer and platform. Profile pages may include context about a performer's chat preferences if they have provided that information. Platform room pages reflect real-time availability for interaction."
+        }
+      ]
+    },
+    "related_categories": {
+      "label": "Related categories and themes",
+      "questions": [
+        {
+          "id": "rc_01",
+          "q": "What categories are related to {{category_name}}?",
+          "a": "Related categories depend on the specific theme overlap. The category tag links on model and video profile pages within {{category_name}} connect to the most directly related themes on {{site_name}}."
+        },
+        {
+          "id": "rc_02",
+          "q": "How do I find categories similar to {{category_name}}?",
+          "a": "Open any model or video page linked from this category and look at the tag or category links at the bottom of that page. Those links connect to themes that the same content has been classified under."
+        },
+        {
+          "id": "rc_03",
+          "q": "Does {{site_name}} have a list of all available categories?",
+          "a": "Yes. The main site navigation and the category archive pages on {{site_name}} list available themes. The main Models and Videos directories also include category filter options."
+        },
+        {
+          "id": "rc_04",
+          "q": "Can I browse multiple categories at the same time?",
+          "a": "The {{site_name}} directory allows filtering by multiple tags in some views. Category archive pages like this one focus on a single theme, but the underlying directory pages support broader filtering."
+        },
+        {
+          "id": "rc_05",
+          "q": "Are there sub-categories within {{category_name}}?",
+          "a": "The {{site_name}} category structure uses tags to create finer distinctions within broad themes. Check the tag links on individual profile pages to find more specific variations of the {{category_name}} theme."
+        },
+        {
+          "id": "rc_06",
+          "q": "What if {{category_name}} is too broad for what I am looking for?",
+          "a": "Use the tag filtering available in the Models and Videos directories to narrow down listings. The profile and video pages within {{category_name}} also carry more specific tags that can guide you to a closer match."
+        },
+        {
+          "id": "rc_07",
+          "q": "Does {{site_name}} add new categories over time?",
+          "a": "The site's category structure evolves as new content themes are identified through the browsing patterns of site visitors. New category pages may be added when there are enough listings to justify a dedicated archive."
+        },
+        {
+          "id": "rc_08",
+          "q": "Can I suggest a related category for {{category_name}}?",
+          "a": "Yes, if {{site_name}} makes contact or support options available, you can use those channels to suggest a related category for {{category_name}}. The site does not list a dedicated category suggestion form in this plugin data, so use the contact or support page if one is available."
+        }
+      ]
+    },
+    "safety_and_expectations": {
+      "label": "Safety and realistic expectations",
+      "questions": [
+        {
+          "id": "se_01",
+          "q": "Is it safe to browse {{category_name}} on {{site_name}}?",
+          "a": "{{site_name}} is a directory that links to external platforms rather than hosting live streams directly. The platform links on profile pages go to platforms listed in the directory. Apply your usual browsing precautions when visiting any external platform."
+        },
+        {
+          "id": "se_02",
+          "q": "Will I be charged for browsing this {{category_name}} page?",
+          "a": "No. Browsing {{site_name}} directory pages including this category page is free. Costs may apply if you follow a platform link and choose to use a paid feature on that platform."
+        },
+        {
+          "id": "se_03",
+          "q": "What should I expect when I follow a link from a {{category_name}} profile?",
+          "a": "Following a platform link from a profile page takes you to the performer's room or profile on the named platform. What you see on arrival depends on the platform's layout and whether the performer is currently active."
+        },
+        {
+          "id": "se_04",
+          "q": "How does {{site_name}} decide which performers appear in {{category_name}}?",
+          "a": "Performers appear in the directory based on the site listing process. Identity checks are managed by each platform, not by {{site_name}}. Profile pages list platform links as recorded in the directory."
+        },
+        {
+          "id": "se_05",
+          "q": "What if the platform link on a {{category_name}} profile page is no longer working?",
+          "a": "Platform links can become outdated if a performer changes their handle or moves to a different platform. If you find a broken link, navigate to the performer's profile page and check whether updated links are listed."
+        },
+        {
+          "id": "se_06",
+          "q": "Is the {{category_name}} content on this site adult material?",
+          "a": "Yes. {{site_name}} is an adult directory. All content is intended for adult visitors only. The directory links lead to webcam and video platforms that contain adult content."
+        },
+        {
+          "id": "se_07",
+          "q": "Can I trust the profile information on {{category_name}} pages?",
+          "a": "Profile information on {{site_name}} reflects what was recorded at the time of the most recent profile update. Check individual platform pages for current information."
+        },
+        {
+          "id": "se_08",
+          "q": "Are there any restrictions on who can view {{category_name}} content?",
+          "a": "Access to {{site_name}} is restricted to adults. Some platforms linked from profile pages have their own age verification requirements. These are enforced at the platform level, not by the {{site_name}} directory."
+        }
+      ]
+    },
+    "internal_navigation": {
+      "label": "Site navigation and structure",
+      "questions": [
+        {
+          "id": "in_01",
+          "q": "How is {{site_name}} organised beyond the {{category_name}} page?",
+          "a": "{{site_name}} is structured as a directory with model profile pages, video listings, and category archive pages. The category pages like this one connect to the underlying directories through related site links."
+        },
+        {
+          "id": "in_02",
+          "q": "Where is the Models Directory on {{site_name}}?",
+          "a": "The Models Directory is accessible through the navigation links on this page and through the main site menu. It lists all performer profiles including those tagged under {{category_name}}."
+        },
+        {
+          "id": "in_03",
+          "q": "Where is the Videos Directory on {{site_name}}?",
+          "a": "The Videos Directory is accessible through the navigation links on this page and through the main site menu. It lists clip and archive pages including content connected to the {{category_name}} theme."
+        },
+        {
+          "id": "in_04",
+          "q": "Can I get back to the {{category_name}} page from a model profile?",
+          "a": "Yes. Model profile pages on {{site_name}} include category and tag links that lead back to the relevant archive pages, including this one."
+        },
+        {
+          "id": "in_05",
+          "q": "Does {{site_name}} have a search function?",
+          "a": "The site's main navigation includes search and filtering options that cover the full directory. Use those to find performers or videos by name or theme if the category page does not surface what you need."
+        },
+        {
+          "id": "in_06",
+          "q": "Do the site links on this {{category_name}} page stay current?",
+          "a": "The site links on this page point to {{site_name}} directory pages. If a link appears broken, return to the main directory to find the current listing."
+        },
+        {
+          "id": "in_07",
+          "q": "How are category pages different from tag pages on {{site_name}}?",
+          "a": "Category pages like this one provide an editorial overview with context, navigation links, and FAQs. Tag pages are typically more automated archive listings. Both serve as discovery layers but at different levels of detail."
+        },
+        {
+          "id": "in_08",
+          "q": "Is there a sitemap for {{site_name}}?",
+          "a": "{{site_name}} maintains a standard sitemap for search engine indexing. The main navigation menu is the most practical way for visitors to explore the directory structure across categories including {{category_name}}."
+        }
+      ]
+    },
+    "profile_selection": {
+      "label": "Choosing between profiles",
+      "questions": [
+        {
+          "id": "ps_01",
+          "q": "How do I choose between multiple {{category_name}} profiles?",
+          "a": "Open the profiles you are considering and compare the platform links, bio context, and availability notes. Differences in platform choice, streaming style, and schedule often become clear at the profile level rather than from the category overview."
+        },
+        {
+          "id": "ps_02",
+          "q": "What makes one {{category_name}} performer a better match than another?",
+          "a": "Platform preference, streaming schedule, and chat style are the main differentiators. Profile pages on {{site_name}} provide this context where performers have supplied it, helping you make a more informed choice before clicking through."
+        },
+        {
+          "id": "ps_03",
+          "q": "Can I compare {{category_name}} profiles side by side?",
+          "a": "The {{site_name}} directory does not have a built-in comparison tool, but you can open multiple profile tabs and review them side by side using your browser. Each profile page contains the same structured information, making comparison straightforward."
+        },
+        {
+          "id": "ps_04",
+          "q": "Does the order performers appear in {{category_name}} indicate quality or popularity?",
+          "a": "Directory order is a neutral directory order, not a quality ranking. No performer in this category is editorially promoted above another."
+        },
+        {
+          "id": "ps_05",
+          "q": "What if the first {{category_name}} profile I open is not what I expected?",
+          "a": "Use your browser's back button to return to this category page and open a different profile. The category overview is designed to be used as a browsing layer you can return to rather than a single-choice landing page."
+        },
+        {
+          "id": "ps_06",
+          "q": "Are there any {{category_name}} performer recommendations on this page?",
+          "a": "This page does not make personal recommendations. It presents available listings neutrally so visitors can make their own choices based on the profile information provided."
+        },
+        {
+          "id": "ps_07",
+          "q": "How do I know which {{category_name}} performers are most active?",
+          "a": "Activity levels are best judged from platform pages, which show current room status in real time. Profile pages on {{site_name}} provide context and listed links but do not display live activity metrics."
+        },
+        {
+          "id": "ps_08",
+          "q": "Can I save {{category_name}} profiles for later?",
+          "a": "Bookmarking individual profile pages on {{site_name}} is a practical way to return to a listing. Profile page URLs can change if a post is renamed; check the link is still active on return visits."
+        }
+      ]
+    },
+    "keyword_intent": {
+      "label": "Keyword intent - topic-specific browsing questions",
+      "questions": [
+        {
+          "id": "ki_01",
+          "q": "What types of content are in the {{category_name}} category?",
+          "a": "The category includes webcam model profiles and video listings that share the {{category_name}} theme. Common search topics in this area include {{secondary_keywords}}. Profile pages give the most detailed view of what each performer offers."
+        },
+        {
+          "id": "ki_02",
+          "q": "Is {{category_name}} the same as {{secondary_keywords}}?",
+          "a": "These are related search terms for the same general category focus. The {{category_name}} category page covers model profiles and video content that match most of these variations. Individual profile pages provide more detail on each performer style."
+        },
+        {
+          "id": "ki_03",
+          "q": "What is the difference between {{category_name}} and related search terms?",
+          "a": "Search terms like {{secondary_keywords}} often lead to the same category of webcam content. This page collects models and videos that match the broad theme. If you are looking for something more specific, the tag links on profile pages will help you narrow further."
+        },
+        {
+          "id": "ki_04",
+          "q": "Can I find specific styles within {{category_name}}?",
+          "a": "Yes. The category covers a range of performer styles and content types within the {{category_name}} theme. Related searches such as {{content_terms}} may be covered by the same model profiles or by adjacent category pages accessible through the site tag structure."
+        },
+        {
+          "id": "ki_05",
+          "q": "Where do {{category_name}} searches usually lead?",
+          "a": "Searches related to {{category_name}} - including variations like {{secondary_keywords}} - typically lead to directory pages like this one and to individual model or video pages within the same theme. This page is the starting point; individual profiles contain the full listing detail."
+        },
+        {
+          "id": "ki_06",
+          "q": "Are there specific sub-topics within {{category_name}}?",
+          "a": "The {{category_name}} theme includes several related sub-topics and performer styles. Related search areas such as {{content_terms}} may fall under the same category or under closely linked tags. Model profile pages link to relevant tags that help explore those sub-topics directly."
+        }
+      ]
+    }
+  }
+}

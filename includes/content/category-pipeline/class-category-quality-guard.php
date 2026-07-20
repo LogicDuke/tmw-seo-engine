@@ -1,0 +1,643 @@
+<?php
+/**
+ * CategoryQualityGuard — Stage 6 of the universal category pipeline.
+ *
+ * Deterministic pre-save validation and repair. Two complementary layers:
+ *
+ *  1. Banned-phrase handling for every documented failure (placeholder
+ *     language, implementation language, generic archive filler).
+ *  2. Pattern-based validation that does not depend on the fixed list:
+ *     keyword dumps, comma-separated keyword lists, repeated sentences,
+ *     duplicate paragraphs, close-variant clusters, empty-value headings.
+ *
+ * analyze() reports issues without changing anything; repair() applies
+ * bounded, grammar-safe fixes and reports every action taken. The guard
+ * NEVER inserts synthetic phrases — repairs remove or neutralise, they do
+ * not substitute fake vocabulary (the root cause of the documented
+ * placeholder failure on live pages).
+ *
+ * @package TMWSEO\Engine\Content\CategoryPipeline
+ * @since   5.9.7
+ */
+
+namespace TMWSEO\Engine\Content\CategoryPipeline;
+
+if ( ! defined( 'ABSPATH' ) ) { exit; }
+
+class CategoryQualityGuard {
+
+	private const EM_DASH_PATTERN = '/(?:—|&mdash;|&#8212;|&#x2014;)/iu';
+
+	/**
+	 * Documented failure phrases. Matched case-insensitively in visible text.
+	 *
+	 * @var string[]
+	 */
+	public const BANNED_PHRASES = [
+		// Placeholder/taxonomy-analysis language (documented live failure).
+		'related room-browsing intent',
+		'similar public cam-room searches',
+		'nearby cam-room queries',
+		'room-browsing intent',
+		'cam-room queries',
+		'cam-room searches',
+		// Generic archive / implementation filler (audit list).
+		'this archive page indexes',
+		'archive page indexes relevant model cards',
+		'share a recognisable theme',
+		'share a recognizable theme',
+		'recognisable theme',
+		'recognizable theme',
+		'neutral directory archive',
+		'same browsing structure',
+		'designed to reduce browsing friction',
+		'category archive layer',
+		'move between listings efficiently',
+		'practical overview before they click through',
+		'one consistent theme',
+		'directory context',
+		'related category tags',
+		'browsing theme',
+		'archive layer',
+		// ── v5.9.9: every metaphorical / manufactured phrase documented in
+		// the real live-output PDF (July 2026 audit). These are regression
+		// anchors; the structural patterns below catch the phrase FAMILIES.
+		'discovery currency',
+		'the discovery currency is',
+		'attention buys',
+		'money buys the interacting',
+		'shortlist mostly builds itself',
+		'the shortlist builds itself',
+		'timing tail',
+		'taste dog',
+		'tail wagging',
+		'the text stands down',
+		'stands in wherever',
+		'overlap is doing real work',
+		'doing real work',
+		'never runs dry',
+		'trait assembles',
+		'pages sort, platforms operate',
+		'the open side knowingly',
+		'the search is effectively over',
+		'the search effectively ends',
+		'survives contact with the room',
+		'survives contact with',
+		'relevance came free',
+		'came free with the category',
+		'answer immediately',
+		'without wasting clicks',
+		'wasting clicks',
+		'retire it',
+		'head-to-head comparisons flatter',
+		'flatter the wrong qualities',
+		'the deciding signal is visible',
+		'wears very differently',
+		'the label has done the gathering',
+		'count on the trait and count against',
+		'attention spend',
+		'keeps the attention spend honest',
+		'the content stands in',
+		'a clean finish respects that order',
+		'the fallback that never',
+	];
+
+	/**
+	 * Sentence-starter patterns that signal template/page-about-the-page prose.
+	 *
+	 * @var string[]
+	 */
+	private const BANNED_PATTERNS = [
+		'/\bvisitors arrive from searches including\b/iu',
+		'/\bcovering searches such as\b/iu',
+		'/\bthis (?:page|section|collection) covers performer profiles and video listings with a clearly\b/iu',
+		'/\bsuits visitors who prefer organised discovery over open-ended browsing\b/iu',
+		// ── v5.9.8 low-value prose detector ────────────────────────────
+		// Rhetorical openings that describe nothing about the category.
+		'/(?:^|[.!?]\s+)(?:think of\b|consider (?:this|it)\b|every category page\b|some categories\b|picture (?:this|it)\b|imagine\b)/iu',
+		// Self-referential writing about the page/generator instead of the category.
+		'/\bthis category page\b/iu',
+		'/\b(?:page|category)\b[^.?!]{0,30}\banswers? one question\b/iu',
+		'/\bcategories are (?:moods|specifics)\b/iu',
+		// Metaphors that add no practical meaning.
+		'/\b(?:shelf|shelves|drawer|drawers)\b/iu',
+		'/\bwidest doors?\b/iu',
+		'/\bwell-?labell?ed\b/iu',
+		'/\btwo widest\b/iu',
+		// ── v5.9.9 structural natural-language rules ────────────────────
+		// These target the phrase FAMILIES behind the documented failures,
+		// not just the exact strings (requirement: "do not solve this only
+		// with a small blacklist").
+		// 1. Commerce metaphors applied to attention/behaviour
+		//    ("attention buys the watching", "the discovery currency").
+		'/\b(?:attention|patience|curiosity|interest|time)\s+(?:buys|pays for|purchases)\b/iu',
+		'/\b(?:currency|economy)\s+(?:is|of)\s+(?:descriptions?|attention|clicks?)\b/iu',
+		// 2. Personified page mechanics ("the page loaded and the trait
+		//    retired", "rooms answer", "labels gather", "the search ends
+		//    itself").
+		'/\b(?:rooms?|labels?|traits?|pages?)\s*,?\s*unlike\s+(?:rooms?|labels?|traits?|pages?)\b/iu',
+		'/\b(?:trait|label|theme|category)(?:\'s)?\s+(?:filtering\s+)?job\s+(?:ended|is done|finished)\b/iu',
+		// 3. Slogan-like triadic endings ("trait assembles, pages sort,
+		//    platforms operate"): three short verb-final clauses joined by
+		//    commas closing a sentence.
+		'/\b\p{L}+\s+\p{L}+s,\s*\p{L}+\s+\p{L}+s?,\s*(?:and\s+)?\p{L}+\s+\p{L}+s?\s*(?:—|\.|$)/u',
+		// 4. Fake-certainty idioms about searches/choices completing
+		//    themselves.
+		'/\b(?:search|choice|shortlist|decision)\s+(?:is\s+)?(?:effectively|basically|essentially|mostly)\s+(?:over|ends?|finished|builds? itself|done)\b/iu',
+		'/\b(?:builds?|sorts?|finishes|completes?)\s+(?:itself|themselves)\b/iu',
+		// 5. Anthropomorphic transaction framing of viewing.
+		'/\bcosts? nothing but attention\b/iu',
+	];
+
+	/** Max em dashes allowed in a single paragraph (v5.9.9 structural rule). */
+	public const MAX_EM_DASHES_PER_PARAGRAPH = 1;
+
+	/**
+	 * Analyze visible content. Returns a list of issues; empty = clean.
+	 *
+	 * @param string   $html
+	 * @param string[] $keywords Exact keyword phrases in play (primary + pool).
+	 * @return array<int,array{type:string,detail:string}>
+	 */
+	public static function analyze( string $html, array $keywords = [] ): array {
+		$issues  = [];
+		$visible = self::visible( $html );
+		$lc      = self::lc( $visible );
+
+		foreach ( self::BANNED_PHRASES as $phrase ) {
+			if ( strpos( $lc, self::lc( $phrase ) ) !== false ) {
+				$issues[] = [ 'type' => 'banned_phrase', 'detail' => $phrase ];
+			}
+		}
+		foreach ( self::BANNED_PATTERNS as $pattern ) {
+			if ( preg_match( $pattern, $visible ) ) {
+				$issues[] = [ 'type' => 'banned_pattern', 'detail' => $pattern ];
+			}
+		}
+
+		foreach ( self::sentences( $visible ) as $sentence ) {
+			$exact = self::count_exact_keywords( $sentence, $keywords );
+			if ( $exact >= 3 ) {
+				$issues[] = [ 'type' => 'keyword_dump_sentence', 'detail' => self::snippet( $sentence ) ];
+			}
+		}
+
+		foreach ( self::duplicate_phrase_units( $html ) as $sentence ) {
+			foreach ( self::duplicate_tracked_phrases( $sentence, $keywords ) as $phrase ) {
+				$issues[] = [ 'type' => 'duplicate_tracked_phrase', 'detail' => $phrase . ': ' . self::snippet( $sentence ) ];
+			}
+		}
+
+		if ( preg_match( '/(?:[^,.]{2,60},\s*){3,}[^,.]{2,60}/u', $visible, $m ) ) {
+			// A run of 4+ comma-separated short chunks — check keyword content.
+			if ( self::count_exact_keywords( (string) $m[0], $keywords ) >= 3 ) {
+				$issues[] = [ 'type' => 'keyword_list', 'detail' => self::snippet( (string) $m[0] ) ];
+			}
+		}
+
+		foreach ( self::repeated_sentences( $visible ) as $repeated ) {
+			$issues[] = [ 'type' => 'repeated_sentence', 'detail' => self::snippet( $repeated ) ];
+		}
+
+		// v5.9.11 — abstract-filler structure detection. The audited live
+		// output still carried reusable low-information sentences built
+		// around abstract nouns ("The destination shapes the session",
+		// "the trait gathers the field"). This is STRUCTURAL, not a string
+		// blacklist: a sentence trips when its subject and object heads are
+		// both drawn from the abstract-filler vocabulary and it carries no
+		// concrete anchor, or when filler nouns dominate a short sentence.
+		foreach ( self::abstract_filler_sentences( $visible, $keywords ) as $hit ) {
+			$issues[] = [ 'type' => 'abstract_filler_structure', 'detail' => self::snippet( $hit ) ];
+		}
+
+		// Cross-sentence skeleton repetition WITHIN a page: two sentences
+		// sharing one determiner-FILLER-verb-determiner-FILLER skeleton
+		// read as assembled modules even when the nouns differ.
+		foreach ( self::repeated_filler_skeletons( $visible ) as $hit ) {
+			$issues[] = [ 'type' => 'repeated_filler_skeleton', 'detail' => $hit ];
+		}
+
+		foreach ( self::duplicate_paragraphs( $html ) as $dup ) {
+			$issues[] = [ 'type' => 'duplicate_paragraph', 'detail' => self::snippet( $dup ) ];
+		}
+
+		// v5.9.9 — em-dash density: at most one per paragraph. Chains of
+		// em dashes were a fingerprint of the documented AI-style prose.
+		foreach ( self::paragraphs_text( $html ) as $paragraph ) {
+			$dashes = (int) preg_match_all( self::EM_DASH_PATTERN, $paragraph );
+			if ( $dashes > self::MAX_EM_DASHES_PER_PARAGRAPH ) {
+				$issues[] = [ 'type' => 'em_dash_overuse', 'detail' => 'x' . $dashes . ': ' . self::snippet( $paragraph ) ];
+			}
+		}
+
+		foreach ( self::paragraphs_text( $html ) as $paragraph ) {
+			$families = self::family_hits_per_paragraph( $paragraph, $keywords );
+			foreach ( $families as $family => $hits ) {
+				if ( $hits >= 3 ) {
+					$issues[] = [ 'type' => 'family_cluster', 'detail' => $family . ' x' . $hits ];
+				}
+			}
+		}
+
+		return $issues;
+	}
+
+	/**
+	 * Bounded, grammar-safe repair. Removes or neutralises; never inserts
+	 * synthetic phrases.
+	 *
+	 * @param string   $html
+	 * @param string[] $keywords
+	 * @return array{html:string,actions:array<int,string>}
+	 */
+	public static function repair( string $html, array $keywords = [] ): array {
+		$actions = [];
+
+		// 1. Drop whole sentences that carry a banned phrase or pattern —
+		//    a sentence built around filler has no salvageable core.
+		//    v5.9.12: the STRUCTURAL abstract-filler detector is enforced
+		//    here too — a det-FILLER…VERB…det-FILLER sentence with no
+		//    concrete anchor is information-free by definition and is
+		//    dropped whole, so the persisted HTML can never carry the
+		//    audited boilerplate family regardless of which generator
+		//    produced the draft.
+		$html = self::rewrite_text_nodes( $html, static function ( string $text ) use ( $keywords, &$actions ): string {
+			$sentences = preg_split( '/(?<=[.!?])\s+/u', $text ) ?: [ $text ];
+			$kept      = [];
+			foreach ( $sentences as $sentence ) {
+				$lc      = self::lc( $sentence );
+				$banned  = false;
+				foreach ( self::BANNED_PHRASES as $phrase ) {
+					if ( strpos( $lc, self::lc( $phrase ) ) !== false ) { $banned = true; break; }
+				}
+				if ( ! $banned ) {
+					foreach ( self::BANNED_PATTERNS as $pattern ) {
+						if ( preg_match( $pattern, $sentence ) ) { $banned = true; break; }
+					}
+				}
+				if ( ! $banned && ! empty( self::abstract_filler_sentences( $sentence, $keywords ) ) ) {
+					$banned    = true;
+					$actions[] = 'dropped_abstract_filler_sentence: ' . self::snippet( $sentence );
+					continue;
+				}
+				if ( $banned ) {
+					$actions[] = 'dropped_banned_sentence: ' . self::snippet( $sentence );
+					continue;
+				}
+				$kept[] = $sentence;
+			}
+			return implode( ' ', $kept );
+		} );
+
+		// 2. Keyword-dump sentences: keep the first two exact keywords, strip
+		//    later ones down to a neutral reference, or drop the sentence if
+		//    it is a bare list.
+		$html = self::rewrite_text_nodes( $html, static function ( string $text ) use ( $keywords, &$actions ): string {
+			$sentences = preg_split( '/(?<=[.!?])\s+/u', $text ) ?: [ $text ];
+			foreach ( $sentences as $i => $sentence ) {
+				if ( self::count_exact_keywords( $sentence, $keywords ) < 3 ) { continue; }
+				$seen  = 0;
+				$terms = array_values( array_filter( array_map( static function ( $kw ) {
+					$kw = trim( (string) $kw );
+					return $kw === '' ? null : preg_quote( $kw, '/' );
+				}, $keywords ) ) );
+				$new   = $sentence;
+				if ( ! empty( $terms ) ) {
+					$pattern = '/(?:,\s*(?:and\s+)?)?(?<![\p{L}\p{N}])(?:' . implode( '|', $terms ) . ')(?![\p{L}\p{N}])/iu';
+					$new     = (string) preg_replace_callback( $pattern, static function ( $m ) use ( &$seen ) {
+						$seen++;
+						return $seen <= 2 ? $m[0] : '';
+					}, $new );
+				}
+				$new = (string) preg_replace( '/\s{2,}/', ' ', $new );
+				$new = (string) preg_replace( '/,\s*([.!?])/', '$1', $new );
+				$new = (string) preg_replace( '/\s+,/', ',', $new );
+				if ( trim( $new ) !== trim( $sentence ) ) {
+					$actions[]       = 'trimmed_keyword_dump: ' . self::snippet( $sentence );
+					$sentences[ $i ] = $new;
+				}
+			}
+			return implode( ' ', $sentences );
+		} );
+
+		// 2b. Em-dash overuse: keep the first em dash in each PARAGRAPH,
+		//     soften the rest to commas (grammar-safe: " — " reads as ", ").
+		//     Counted per <p> block, not per text node — inline anchors
+		//     split a paragraph into several text nodes, and a per-node
+		//     count would let two dashes coexist around a link.
+		$html = (string) preg_replace_callback( '/(<p[^>]*>)(.*?)(<\/p>)/isu', static function ( $pm ) use ( &$actions ): string {
+			$inner = (string) $pm[2];
+			$count = (int) preg_match_all( self::EM_DASH_PATTERN, strip_tags( $inner ) );
+			if ( $count <= self::MAX_EM_DASHES_PER_PARAGRAPH ) { return $pm[0]; }
+			// Walk tag/text segments so replacements never touch markup.
+			$seen  = 0;
+			$parts = preg_split( '/(<[^>]+>)/u', $inner, -1, PREG_SPLIT_DELIM_CAPTURE );
+			foreach ( $parts as $pi => $part ) {
+				if ( $part === '' || $part[0] === '<' ) { continue; }
+				$parts[ $pi ] = (string) preg_replace_callback( self::EM_DASH_PATTERN, static function ( $m ) use ( &$seen ) {
+					$seen++;
+					return $seen <= self::MAX_EM_DASHES_PER_PARAGRAPH ? $m[0] : ', ';
+				}, $part );
+			}
+			$new_inner = implode( '', $parts );
+			if ( $new_inner !== $inner ) { $actions[] = 'softened_extra_em_dashes'; }
+			return $pm[1] . $new_inner . $pm[3];
+		}, $html );
+
+		// 3. Remove repeated sentences beyond their first occurrence (page-wide).
+		$seen_sentences = [];
+		$html = self::rewrite_text_nodes( $html, static function ( string $text ) use ( &$seen_sentences, &$actions ): string {
+			$sentences = preg_split( '/(?<=[.!?])\s+/u', $text ) ?: [ $text ];
+			$kept      = [];
+			foreach ( $sentences as $sentence ) {
+				$key = self::lc( trim( preg_replace( '/\s+/u', ' ', $sentence ) ?: '' ) );
+				if ( strlen( $key ) >= 40 && isset( $seen_sentences[ $key ] ) ) {
+					$actions[] = 'removed_repeated_sentence: ' . self::snippet( $sentence );
+					continue;
+				}
+				$seen_sentences[ $key ] = true;
+				$kept[]                 = $sentence;
+			}
+			return implode( ' ', $kept );
+		} );
+
+		// 4. Drop paragraphs that became empty and headings left with no body.
+		//    An <h2> directly followed by an <h3> is a legitimate structure
+		//    (the FAQ block), so only an <h2> followed by another <h2> or the
+		//    end of content counts as empty; an <h3> is empty when followed
+		//    by any heading or the end.
+		$before = $html;
+		$html   = (string) preg_replace( '/<p[^>]*>\s*<\/p>/iu', '', $html );
+		$html   = (string) preg_replace( '/<h2[^>]*>[^<]*<\/h2>\s*(?=<h2|$)/iu', '', $html );
+		$html   = (string) preg_replace( '/<h3[^>]*>[^<]*<\/h3>\s*(?=<h[23]|$)/iu', '', $html );
+		if ( $html !== $before ) {
+			$actions[] = 'removed_empty_blocks';
+		}
+
+		return [ 'html' => $html, 'actions' => $actions ];
+	}
+
+	// ── helpers ───────────────────────────────────────────────────────────
+
+	/** Apply a callback to text nodes only; tags stay untouched. */
+	public static function rewrite_text_nodes( string $html, callable $callback ): string {
+		$parts = preg_split( '/(<[^>]+>)/', $html, -1, PREG_SPLIT_DELIM_CAPTURE );
+		if ( ! is_array( $parts ) ) { return $html; }
+		foreach ( $parts as $i => $part ) {
+			if ( $part === '' || ( $part[0] ?? '' ) === '<' ) { continue; }
+			$parts[ $i ] = (string) $callback( $part );
+		}
+		return implode( '', $parts );
+	}
+
+	/** @param string[] $keywords */
+	public static function count_exact_keywords( string $text, array $keywords ): int {
+		return count( self::position_consuming_keyword_matches( $text, $keywords ) );
+	}
+
+	/** @param string[] $keywords @return array<int,array{keyword:string,start:int,end:int}> */
+	public static function position_consuming_keyword_matches( string $text, array $keywords ): array {
+		$phrases = [];
+		foreach ( $keywords as $kw ) {
+			$kw = trim( (string) $kw );
+			$key = self::lc( $kw );
+			if ( $kw === '' || isset( $phrases[ $key ] ) ) { continue; }
+			$phrases[ $key ] = $kw;
+		}
+		usort( $phrases, static function ( string $a, string $b ): int {
+			return str_word_count( $b ) <=> str_word_count( $a ) ?: strlen( $b ) <=> strlen( $a );
+		} );
+		$candidates = [];
+		foreach ( $phrases as $kw ) {
+			if ( preg_match_all( '/(?<![\p{L}\p{N}])' . preg_quote( $kw, '/' ) . '(?![\p{L}\p{N}])/iu', $text, $m, PREG_OFFSET_CAPTURE ) ) {
+				foreach ( $m[0] as $hit ) {
+					$start = (int) $hit[1];
+					$candidates[] = [ 'keyword' => $kw, 'start' => $start, 'end' => $start + strlen( (string) $hit[0] ) ];
+				}
+			}
+		}
+		usort( $candidates, static function ( array $a, array $b ): int {
+			$alen = (int) $a['end'] - (int) $a['start'];
+			$blen = (int) $b['end'] - (int) $b['start'];
+			return ( (int) $a['start'] <=> (int) $b['start'] ) ?: ( $blen <=> $alen );
+		} );
+		$matches = [];
+		$occupied = [];
+		foreach ( $candidates as $candidate ) {
+			$blocked = false;
+			for ( $i = (int) $candidate['start']; $i < (int) $candidate['end']; $i++ ) {
+				if ( isset( $occupied[ $i ] ) ) { $blocked = true; break; }
+			}
+			if ( $blocked ) { continue; }
+			for ( $i = (int) $candidate['start']; $i < (int) $candidate['end']; $i++ ) { $occupied[ $i ] = true; }
+			$matches[] = $candidate;
+		}
+		return $matches;
+	}
+
+	/** @param string[] $keywords @return string[] */
+	public static function duplicate_tracked_phrases( string $text, array $keywords ): array {
+		$out = [];
+		$seen = [];
+		$text = self::normalize_phrase( $text );
+		foreach ( $keywords as $kw ) {
+			$key = self::normalize_phrase( (string) $kw );
+			if ( $key === '' || isset( $seen[ $key ] ) ) { continue; }
+			$seen[ $key ] = true;
+			if ( preg_match_all( '/(?<![\p{L}\p{N}])' . preg_quote( $key, '/' ) . '(?![\p{L}\p{N}])/iu', $text ) >= 2 ) { $out[] = $key; }
+		}
+		return $out;
+	}
+
+	public static function normalize_phrase( string $phrase ): string {
+		$phrase = self::lc( html_entity_decode( $phrase, ENT_QUOTES, 'UTF-8' ) );
+		$phrase = preg_replace( '/[^\p{L}\p{N}]+/u', ' ', $phrase ) ?: '';
+		return trim( preg_replace( '/\s+/u', ' ', $phrase ) ?: '' );
+	}
+
+	/** @return string[] */
+	/** Abstract-filler vocabulary: reusable nouns that carry no category-specific information. */
+	private const FILLER_NOUNS = [
+		'destination', 'destinations', 'field', 'route', 'routes', 'side', 'sides',
+		'fit', 'visit', 'visits', 'signal', 'signals', 'shortlist', 'ground',
+		'doorway', 'session', 'sessions', 'trait', 'label', 'theme', 'pick', 'picks',
+	];
+
+	/** Generic verbs that pair with filler nouns to form information-free claims. */
+	private const FILLER_VERBS = [
+		'shapes', 'shape', 'gathers', 'gather', 'gathered', 'settles', 'settle',
+		'carries', 'carry', 'holds', 'hold', 'opens', 'open', 'opened',
+		'closes', 'close', 'closed', 'covers', 'cover', 'points', 'point',
+		'fills', 'fill', 'narrows', 'narrow', 'widens', 'widen',
+	];
+
+	/** Concrete anchors that rescue a sentence: real entities, data, or keywords. */
+	private const CONCRETE_ANCHORS = [
+		'performer', 'performers', 'model', 'models', 'video', 'videos', 'clip',
+		'clips', 'page', 'pages', 'listing', 'listings', 'platform', 'platforms',
+		'room', 'rooms', 'price', 'pricing', 'terms', 'name', 'names', 'directory',
+	];
+
+	/**
+	 * Sentences whose informational core is filler-on-filler (v5.9.11).
+	 *
+	 * Two structural triggers, no literal blacklist:
+	 *  1. subject-object pattern: "<det> FILLER ... FILLER_VERB ... <det> FILLER"
+	 *     with no concrete anchor and no exact keyword in the sentence;
+	 *  2. saturation: a sentence of <= 14 words carrying 3+ filler nouns and
+	 *     no concrete anchor.
+	 *
+	 * @param string   $visible
+	 * @param string[] $keywords
+	 * @return string[]
+	 */
+	private static function abstract_filler_sentences( string $visible, array $keywords = [] ): array {
+		$hits    = [];
+		$fillers = implode( '|', array_map( static function ( $w ) { return preg_quote( (string) $w, '/' ); }, self::FILLER_NOUNS ) );
+		$verbs   = implode( '|', array_map( static function ( $w ) { return preg_quote( (string) $w, '/' ); }, self::FILLER_VERBS ) );
+		$pattern = '/\\b(?:the|a|an|this|that|its|each|every)\\s+(?:' . $fillers . ')\\b[^.!?]{0,40}?\\b(?:' . $verbs . ')\\b[^.!?]{0,40}?\\b(?:the|a|an|this|that|its|each|every)\\s+(?:' . $fillers . ')\\b/iu';
+
+		foreach ( self::sentences( $visible ) as $sentence ) {
+			if ( self::has_concrete_anchor( $sentence, $keywords ) ) { continue; }
+			if ( preg_match( $pattern, $sentence ) ) {
+				$hits[] = $sentence;
+				continue;
+			}
+			$words = preg_split( '/\\s+/u', trim( $sentence ) ) ?: [];
+			if ( count( $words ) <= 14 ) {
+				$filler_hits = (int) preg_match_all( '/\\b(?:' . $fillers . ')\\b/iu', $sentence );
+				if ( $filler_hits >= 3 ) { $hits[] = $sentence; }
+			}
+		}
+		return $hits;
+	}
+
+	/** True when a sentence names anything concrete: an entity noun, a digit, or an exact tracked keyword. */
+	private static function has_concrete_anchor( string $sentence, array $keywords ): bool {
+		if ( preg_match( '/[0-9]/', $sentence ) ) { return true; }
+		$anchors = implode( '|', array_map( static function ( $w ) { return preg_quote( (string) $w, '/' ); }, self::CONCRETE_ANCHORS ) );
+		if ( preg_match( '/\\b(?:' . $anchors . ')\\b/iu', $sentence ) ) { return true; }
+		foreach ( $keywords as $kw ) {
+			$kw = trim( (string) $kw );
+			if ( $kw === '' ) { continue; }
+			if ( preg_match( '/(?<![\\p{L}\\p{N}])' . preg_quote( $kw, '/' ) . '(?![\\p{L}\\p{N}])/iu', $sentence ) ) { return true; }
+		}
+		return false;
+	}
+
+	/**
+	 * Determiner-FILLER-verb skeletons repeated across a page's sentences.
+	 * Semantic-pattern detection: the nouns may differ, the reused structure
+	 * is what reads as an assembled module.
+	 *
+	 * @return string[] skeleton descriptors ("filler_skeleton x2: the-FILLER-VERB-the-FILLER")
+	 */
+	private static function repeated_filler_skeletons( string $visible ): array {
+		$fillers = implode( '|', array_map( static function ( $w ) { return preg_quote( (string) $w, '/' ); }, self::FILLER_NOUNS ) );
+		$verbs   = implode( '|', array_map( static function ( $w ) { return preg_quote( (string) $w, '/' ); }, self::FILLER_VERBS ) );
+		$seen    = [];
+		$out     = [];
+		foreach ( self::sentences( $visible ) as $sentence ) {
+			if ( ! preg_match( '/\\b(?:the|a|an|this|that)\\s+(?:' . $fillers . ')\\b\\s+\\b(' . $verbs . ')\\b(?:\\s+\\w+){0,3}?\\s+\\b(?:the|a|an|this|that)\\s+(?:' . $fillers . ')\\b/iu', $sentence, $m ) ) { continue; }
+			$skeleton = 'det-FILLER-' . self::lc( (string) $m[1] ) . '-det-FILLER';
+			if ( isset( $seen[ $skeleton ] ) ) {
+				$out[] = 'x2+: ' . $skeleton . ' — ' . self::snippet( $sentence );
+			} else {
+				$seen[ $skeleton ] = true;
+			}
+		}
+		return $out;
+	}
+
+	private static function sentences( string $visible ): array {
+		return preg_split( '/(?<=[.!?])\s+/u', $visible ) ?: [];
+	}
+
+
+	/** @return string[] Sentence-like units for duplicate phrase checks; block tags are hard boundaries. */
+	private static function duplicate_phrase_units( string $html ): array {
+		$with_boundaries = (string) preg_replace( '/<\/?(?:p|h[1-6]|li|blockquote|div|section|article|br)[^>]*>/iu', "\n", $html );
+		$parts = preg_split( '/\n+/u', $with_boundaries ) ?: [];
+		$out = [];
+		foreach ( $parts as $part ) {
+			$text = self::visible( (string) $part );
+			foreach ( self::sentences( $text ) as $sentence ) {
+				$sentence = trim( $sentence );
+				if ( $sentence !== '' ) { $out[] = $sentence; }
+			}
+		}
+		return $out;
+	}
+
+	/** @return string[] repeated sentence texts */
+	private static function repeated_sentences( string $visible ): array {
+		$seen = [];
+		$out  = [];
+		foreach ( self::sentences( $visible ) as $sentence ) {
+			$key = self::lc( trim( preg_replace( '/\s+/u', ' ', $sentence ) ?: '' ) );
+			if ( strlen( $key ) < 40 ) { continue; }
+			if ( isset( $seen[ $key ] ) && ! isset( $out[ $key ] ) ) {
+				$out[ $key ] = $sentence;
+			}
+			$seen[ $key ] = true;
+		}
+		return array_values( $out );
+	}
+
+	/** @return string[] */
+	private static function duplicate_paragraphs( string $html ): array {
+		$seen = [];
+		$out  = [];
+		foreach ( self::paragraphs_text( $html ) as $paragraph ) {
+			$key = self::lc( trim( preg_replace( '/\s+/u', ' ', $paragraph ) ?: '' ) );
+			if ( strlen( $key ) < 60 ) { continue; }
+			if ( isset( $seen[ $key ] ) && ! isset( $out[ $key ] ) ) {
+				$out[ $key ] = $paragraph;
+			}
+			$seen[ $key ] = true;
+		}
+		return array_values( $out );
+	}
+
+	/** @return string[] visible text of each <p> */
+	public static function paragraphs_text( string $html ): array {
+		$out = [];
+		if ( preg_match_all( '/<p[^>]*>(.*?)<\/p>/isu', $html, $m ) ) {
+			foreach ( $m[1] as $inner ) {
+				$out[] = self::visible( (string) $inner );
+			}
+		}
+		return $out;
+	}
+
+	/**
+	 * @param string[] $keywords
+	 * @return array<string,int> family => exact hits in this paragraph
+	 */
+	private static function family_hits_per_paragraph( string $paragraph, array $keywords ): array {
+		$hits = [];
+		foreach ( self::position_consuming_keyword_matches( $paragraph, $keywords ) as $match ) {
+			$family = CategoryKeywordPlanner::root_family( (string) $match['keyword'] );
+			$hits[ $family ] = ( $hits[ $family ] ?? 0 ) + 1;
+		}
+		return $hits;
+	}
+
+	public static function visible( string $html ): string {
+		// Replace tags with a space so sentence boundaries survive across
+		// block edges (an <h3>question?</h3><p>Answer.</p> must not merge
+		// into one pseudo-sentence).
+		$text = (string) preg_replace( '/<[^>]+>/', ' ', $html );
+		$text = (string) preg_replace( '/[ \t]{2,}/', ' ', $text );
+		return trim( html_entity_decode( $text, ENT_QUOTES, 'UTF-8' ) );
+	}
+
+	private static function snippet( string $s ): string {
+		$s = trim( preg_replace( '/\s+/u', ' ', $s ) ?: '' );
+		return strlen( $s ) > 90 ? substr( $s, 0, 87 ) . '...' : $s;
+	}
+
+	private static function lc( string $s ): string {
+		return function_exists( 'mb_strtolower' ) ? mb_strtolower( $s, 'UTF-8' ) : strtolower( $s );
+	}
+}

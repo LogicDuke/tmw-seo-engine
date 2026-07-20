@@ -1,0 +1,115 @@
+# TMW SEO Engine v1.1.2 — Model Title and Video Anchor Fix
+
+Tags: `[TMW-SEO-FIX]` `[TMW-MODEL-RANKING]` `[TMW-INTERNAL-LINKS]`
+
+## Summary
+
+This change applies the narrow v1.1.2 audit recommendations for future/generated model SEO titles and plugin-generated video internal anchor text only. It does not change indexing controls, robots, canonical, sitemap, IndexNow, Rank Math global settings, theme files, frontend layout, repair eligibility, or broad backfill behavior.
+
+## Files changed
+
+- `includes/content/class-template-content.php`
+- `tests/TemplateContentTitleAnchorTest.php`
+- `codex-reports/tmw-seo-engine-v1.1.2-model-title-video-anchor-fix.md`
+
+## Exact behavior changed
+
+### Model SEO title generation
+
+`TemplateContent::build_default_model_seo_title()` now uses the existing `$primary_platform_label` argument when it represents a real platform label.
+
+- Known platform title:
+  - `{Model Name} {Platform Label} Webcam Model & Live Cam Guide {year}`
+  - Example: `Anisyia LiveJasmin Webcam Model & Live Cam Guide 2026`
+- Unknown platform fallback title:
+  - `{Model Name} Webcam Model & Live Cam Profile Guide {year}`
+  - Example: `Abby Murray Webcam Model & Live Cam Profile Guide 2026`
+- Empty platform labels and the neutral fallback label `official profile links` are treated as unknown platform cases.
+- The method trims/strips tags from model names and platform labels, collapses platform-label whitespace, keeps denylist safety checks, keeps separator normalization through `normalize_seo_title_separator()`, and keeps the existing `TitleFixer::shorten(..., 65)` behavior.
+- No resolver calls were added to the title builder.
+- No title write conditions or repair eligibility checks were changed.
+
+### Video internal anchor generation
+
+`TemplateContent::model_video_anchor_text()` now returns stronger model-specific internal anchor text:
+
+- With model name: `Watch a video featuring {Model Name}`
+- Empty model name fallback: `Watch a video featuring this model`
+
+The existing call site still escapes the helper output with `esc_html()`.
+
+
+## Codex review follow-up
+
+Codex review identified that the v1.1.2 formulas no longer include the legacy `model_title_allow_words()` power-word tokens, while `TemplateContent::is_weak_auto_model_title()` still required one of those tokens after confirming a year/number. That meant the repair path could classify the current generated titles as weak.
+
+## Compatibility fix
+
+`TemplateContent::is_weak_auto_model_title()` now recognizes the approved v1.1.2 generated-title structures as strong when the title has all of the following:
+
+- a model identity signal, either the supplied model name or meaningful title text before the intent phrase when no model name is supplied;
+- a year/number;
+- one of the approved v1.1.2 intent phrases:
+  - `Webcam Model & Live Cam Guide`
+  - `Webcam Model & Live Cam Profile Guide`
+
+Legacy generated titles still use the existing power-word allow-list path, and obviously weak/generic titles remain weak, including v1.1.2-shaped titles without the supplied model name or with only generic identity text.
+
+
+## Second Codex review follow-up — placeholder platform labels
+
+Codex review found that ClaudeContent can use the placeholder label `the platform`. If that value is passed into `TemplateContent::build_default_model_seo_title()`, it must not be treated as a real platform name because it would produce titles like `Alice the platform Webcam Model & Live Cam Guide 2026`.
+
+The title builder now treats the following generic/non-platform labels as unknown platform labels and uses the fallback formula instead:
+
+- empty string
+- `official profile links`
+- `the platform`
+- `platform`
+- `official platform`
+- `profile links`
+- `official profile`
+- `webcam platform`
+
+Confirmed expected behavior:
+
+- `build_default_model_seo_title('Alice', 'the platform', 123)` returns `Alice Webcam Model & Live Cam Profile Guide {year}`.
+- `build_default_model_seo_title('Alice', 'official profile links', 123)` returns `Alice Webcam Model & Live Cam Profile Guide {year}`.
+- `build_default_model_seo_title('Alice', 'LiveJasmin', 123)` returns `Alice LiveJasmin Webcam Model & Live Cam Guide {year}`.
+
+No indexing controls were changed: robots, noindex, canonical, sitemap, IndexNow, Rank Math global settings, theme files, and frontend layout remain untouched.
+
+## Why `- Top Models` was not hardcoded
+
+`- Top Models` was intentionally not hardcoded because the audit noted that live/staging confirmation is needed first to prove Rank Math will not also append the site name. Adding a site-name suffix here without that confirmation could create duplicated suffixes in generated SEO titles.
+
+## Manual title preservation note
+
+No indexing controls were changed: robots, noindex, canonical, sitemap, IndexNow, Rank Math global settings, theme files, and frontend layout remain untouched.
+
+This PR intentionally does not broaden title write conditions or manual Rank Math title overwrite logic. The only repair-path compatibility change is the narrow `is_weak_auto_model_title()` recognition for the approved v1.1.2 formulas, and existing manual title preservation behavior remains unchanged.
+
+## Existing content/backfill note
+
+Existing stored `post_content` and existing stored Rank Math titles will not automatically change until normal regeneration or an explicitly requested future backfill/repair pass. This PR does not run or add broad backfill/regeneration commands.
+
+## Verification commands and results
+
+- `php -l includes/content/class-template-content.php`
+  - Result: `No syntax errors detected in includes/content/class-template-content.php`
+- `rg -n "build_default_model_seo_title|model_video_anchor_text|Watch a video from this model|Watch a video featuring" includes/content/class-template-content.php`
+  - Result: found the updated builder, escaped call site, updated helper strings, and no remaining `Watch a video from this model` string in `includes/content/class-template-content.php`.
+- `php -l tests/TemplateContentTitleAnchorTest.php`
+  - Result: `No syntax errors detected in tests/TemplateContentTitleAnchorTest.php`
+- `php -r 'require "tests/bootstrap/wordpress-stubs.php"; require_once TMWSEO_ENGINE_PATH . "includes/services/class-title-fixer.php"; require_once TMWSEO_ENGINE_PATH . "includes/content/class-template-content.php"; /* focused title, weak-title, and anchor assertions */'`
+  - Result: `TemplateContent placeholder platform label smoke checks passed`
+- `rg -n "is_weak_auto_model_title|model_title_allow_words|build_default_model_seo_title|Webcam Model & Live Cam Guide|Webcam Model & Live Cam Profile Guide" includes/content/class-template-content.php tests`
+  - Result: found the updated builder formulas, the weak-title predicate compatibility logic, legacy allow-list fallback, and focused tests.
+- `rg -n "official profile links|the platform|build_default_model_seo_title|Webcam Model & Live Cam Guide|Webcam Model & Live Cam Profile Guide" includes/content/class-template-content.php tests codex-reports`
+  - Result: found the title-builder placeholder rejection list, related existing placeholder references, focused tests, and report notes.
+- `phpunit --filter TemplateContentTitleAnchorTest`
+  - Result: not run successfully in this container because `phpunit` is not installed (`/bin/bash: line 1: phpunit: command not found`).
+
+## Final recommendation
+
+A later dry-run backfill may be useful if the site owner wants existing stored model titles and existing generated model page bodies to pick up the new title and anchor text formulas. That dry run should be separate from this PR, explicitly requested, and reviewed for manual Rank Math title preservation before any write pass runs.

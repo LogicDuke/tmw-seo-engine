@@ -1,0 +1,13 @@
+/* global TMWSEOPublicProfileImport */
+(function () {
+  function ready(callback) { if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', callback); else callback(); }
+  function addText(parent, text) { parent.appendChild(document.createTextNode(String(text))); }
+  function list(parent, title, values) { var keys = Object.keys(values || {}); if (!keys.length) return; var details=document.createElement('details'), summary=document.createElement('summary'); addText(summary,title); details.appendChild(summary); var ul=document.createElement('ul'); keys.forEach(function(k){var li=document.createElement('li'); addText(li,k + ': ' + (Array.isArray(values[k]) ? values[k].join(', ') : values[k])); ul.appendChild(li);}); details.appendChild(ul); parent.appendChild(details); }
+  ready(function () {
+    var button=document.getElementById('tmwseo-public-profile-import'), input=document.getElementById('tmwseo_public_profile_source_url'), result=document.getElementById('tmwseo-public-profile-import-result');
+    if (!button || !input || !result || !window.TMWSEOPublicProfileImport) return;
+    button.addEventListener('click', function () { var form=new window.FormData(); form.append('action','tmwseo_public_profile_import'); form.append('post_id',button.dataset.postId||''); form.append('nonce',button.dataset.nonce||''); form.append('source_url',input.value||''); button.disabled=true; result.textContent='Validating source URL…';
+      window.fetch(TMWSEOPublicProfileImport.ajaxUrl,{method:'POST',credentials:'same-origin',body:form}).then(function(response){return response.json();}).then(function(payload){ var data=payload&&payload.data?payload.data:{}; result.textContent=''; var message=document.createElement('p'); addText(message,data.message||'The profile import request could not be completed.'); result.appendChild(message); if(data.status==='ok'){ var preview=document.createElement('div'); preview.className='tmwseo-public-profile-candidate'; addText(preview,'Candidate preview — Provider: '+data.provider+'; Source URL: '+data.source_url+'; Username: '+data.username+(data.display_name?'; Display name: '+data.display_name:'')+'. Nothing has been saved.'); list(preview,'Candidate fields',data.raw_fields); list(preview,'Attributes',data.attributes); list(preview,'Warnings',(data.warnings||[]).reduce(function(o,v,i){o[i+1]=v;return o;},{})); list(preview,'Fetch diagnostics',data.diagnostics); result.appendChild(preview); }}).catch(function(){result.textContent='The profile import request could not be completed.';}).finally(function(){button.disabled=false;});
+    });
+  });
+}());

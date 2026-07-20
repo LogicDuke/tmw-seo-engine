@@ -1,0 +1,138 @@
+<?php
+namespace TMWSEO\Engine\Admin\Tables;
+
+if (!defined('ABSPATH')) { exit; }
+
+if (!class_exists('WP_List_Table')) {
+    require_once ABSPATH . 'wp-admin/includes/class-wp-list-table.php';
+}
+
+class SeedRegistryTable extends \WP_List_Table {
+    private $status_filter;
+
+    public function __construct(string $status_filter = '') {
+        $this->status_filter = $status_filter;
+        parent::__construct([
+            'singular' => 'seed_candidate',
+            'plural'   => 'seed_candidates',
+            'ajax'     => false,
+        ]);
+    }
+
+    public function get_columns(): array {
+        return [
+            'cb'              => '<input type="checkbox" />',
+            'phrase'          => __('Phrase', 'tmwseo'),
+            'source'          => __('Source', 'tmwseo'),
+            'generation_rule' => __('Rule', 'tmwseo'),
+            'batch_id'        => __('Batch', 'tmwseo'),
+            'status'          => __('Status', 'tmwseo'),
+            'created_at'      => __('Created', 'tmwseo'),
+        ];
+    }
+
+    public function get_sortable_columns(): array {
+        return [
+            'phrase'     => ['phrase', true],
+            'created_at' => ['created_at', false],
+            'status'     => ['status', false],
+        ];
+    }
+
+    protected function get_bulk_actions(): array {
+        return [
+            'approve_candidate' => __('Approve', 'tmwseo'),
+            'reject_candidate'  => __('Reject', 'tmwseo'),
+        ];
+    }
+
+    protected function bulk_actions($which = ''): void {
+        if (is_null($this->_actions)) {
+            $this->_actions = $this->get_bulk_actions();
+        }
+
+        if (empty($this->_actions)) {
+            return;
+        }
+
+        $field_name = ($which === 'top') ? 'preview_bulk_action' : 'preview_bulk_action_bottom';
+        $button_id = ($which === 'top') ? 'doaction' : 'doaction2';
+
+        echo '<label for="' . esc_attr($field_name) . '" class="screen-reader-text">' . esc_html__('Select bulk action', 'tmwseo') . '</label>';
+        echo '<select name="' . esc_attr($field_name) . '" id="' . esc_attr($field_name) . '">';
+        echo '<option value="-1">' . esc_html__('Bulk actions', 'tmwseo') . '</option>';
+
+        foreach ($this->_actions as $key => $value) {
+            echo '<option value="' . esc_attr($key) . '">' . esc_html($value) . '</option>';
+        }
+
+        echo '</select>';
+        submit_button(__('Apply', 'tmwseo'), 'action', '', false, ['id' => $button_id]);
+    }
+
+    protected function column_cb($item): string {
+        return sprintf('<input type="checkbox" name="candidate_ids[]" value="%d" />', (int) ($item['id'] ?? 0));
+    }
+
+    public function column_default($item, $column_name): string {
+        return esc_html((string) ($item[$column_name] ?? ''));
+    }
+
+    public function prepare_items(): void {
+        global $wpdb;
+        $table = $wpdb->prefix . 'tmw_seed_expansion_candidates';
+
+        $this->_column_headers = [$this->get_columns(), [], $this->get_sortable_columns()];
+
+        $allowed_orderby = ['phrase', 'created_at', 'status'];
+        $orderby = isset($_GET['orderby']) ? sanitize_key((string) $_GET['orderby']) : 'created_at';
+        if (!in_array($orderby, $allowed_orderby, true)) {
+            $orderby = 'created_at';
+        }
+
+        $order = isset($_GET['order']) ? strtoupper(sanitize_key((string) $_GET['order'])) : 'DESC';
+        if (!in_array($order, ['ASC', 'DESC'], true)) {
+            $order = 'DESC';
+        }
+
+        $search = isset($_REQUEST['s']) ? sanitize_text_field(wp_unslash((string) $_REQUEST['s'])) : '';
+
+        $where_sql = ' WHERE 1=1';
+        $where_args = [];
+
+        if ($this->status_filter !== '') {
+            $where_sql .= ' AND status = %s';
+            $where_args[] = $this->status_filter;
+        } else {
+            $where_sql .= " AND status IN ('pending','fast_track')";
+        }
+
+        if ($search !== '') {
+            $where_sql .= ' AND (phrase LIKE %s OR generation_rule LIKE %s OR source LIKE %s)';
+            $term = '%' . $wpdb->esc_like($search) . '%';
+            $where_args[] = $term;
+            $where_args[] = $term;
+            $where_args[] = $term;
+        }
+
+        $total_sql = "SELECT COUNT(*) FROM {$table}{$where_sql}";
+        $total_items = (int) $wpdb->get_var($wpdb->prepare($total_sql, $where_args));
+
+        $per_page = $this->get_items_per_page('tmw_seed_registry_per_page', 50);
+        $current_page = $this->get_pagenum();
+        $offset = ($current_page - 1) * $per_page;
+
+        $sql = "SELECT id, phrase, source, generation_rule, batch_id, status, created_at FROM {$table}{$where_sql} ORDER BY {$orderby} {$order} LIMIT %d OFFSET %d";
+        $query_args = $where_args;
+        $query_args[] = $per_page;
+        $query_args[] = $offset;
+
+        $this->items = (array) $wpdb->get_results($wpdb->prepare($sql, $query_args), ARRAY_A);
+
+        $this->set_pagination_args([
+            'total_items' => $total_items,
+            'per_page'    => $per_page,
+            'total_pages' => (int) ceil($total_items / $per_page),
+        ]);
+    }
+}

@@ -1,0 +1,953 @@
+<?php
+
+declare(strict_types=1);
+
+namespace TMWSEO\Engine\Content;
+
+use PHPUnit\Framework\TestCase;
+
+require_once TMWSEO_ENGINE_PATH . 'includes/content/class-model-destination-resolver.php';
+require_once TMWSEO_ENGINE_PATH . 'includes/content/class-model-page-renderer.php';
+require_once TMWSEO_ENGINE_PATH . 'includes/content/class-template-content.php';
+require_once TMWSEO_ENGINE_PATH . 'includes/templates/class-template-engine.php';
+require_once TMWSEO_ENGINE_PATH . 'includes/affiliates/class-crakrevenue-cam-manager.php';
+require_once TMWSEO_ENGINE_PATH . 'includes/model/class-verified-links.php';
+
+class ModelDestinationResolverTest extends TestCase {
+
+    protected function tearDown(): void {
+        delete_option(\TMWSEO\Engine\Affiliates\CrakRevenueCamManager::PLATFORM_MAPPINGS_OPTION);
+        delete_option('tmwseo_platform_affiliate_settings');
+        parent::tearDown();
+    }
+
+    public function test_livejasmin_affiliate_builder_returns_canonical_ctwmsg_url(): void {
+        update_option('tmwseo_platform_affiliate_settings', [
+            'livejasmin' => [
+                'enabled' => 0,
+                'template' => '',
+                'psid' => 'Topmodels4u',
+                'pstool' => '205_1',
+                'psprogram' => 'revs',
+                'campaign_id' => '',
+                'subaffid' => '',
+                'siteid' => 'jasmin',
+                'categoryname' => 'girl',
+                'pagename' => 'freechat',
+            ],
+        ]);
+
+        $url = \TMWSEO\Engine\Platform\AffiliateLinkBuilder::build_affiliate_url('livejasmin', 'Anisyia');
+        $this->assertNotSame('', $url);
+        $this->assertSame('ctwmsg.com', (string) wp_parse_url($url, PHP_URL_HOST));
+        parse_str((string) wp_parse_url($url, PHP_URL_QUERY), $query);
+        $this->assertSame('Anisyia', (string) ($query['performerName'] ?? ''));
+        $this->assertSame('jasmin', (string) ($query['siteId'] ?? ''));
+        $this->assertSame('girl', (string) ($query['categoryName'] ?? ''));
+        $this->assertSame('freechat', (string) ($query['pageName'] ?? ''));
+        $this->assertSame('Topmodels4u', (string) (($query['prm']['psid'] ?? '')));
+        $this->assertSame('205_1', (string) (($query['prm']['pstool'] ?? '')));
+        $this->assertSame('revs', (string) (($query['prm']['psprogram'] ?? '')));
+        $this->assertStringNotContainsString('www.livejasmin.com', $url);
+    }
+
+    public function test_livejasmin_aliases_normalize_to_same_go_and_affiliate_routes(): void {
+        $aliases = ['LiveJasmin', 'live_jasmin', 'jasmin', 'LJ'];
+        foreach ($aliases as $alias) {
+            $go = \TMWSEO\Engine\Platform\AffiliateLinkBuilder::go_url($alias, 'Anisyia');
+            $affiliate = \TMWSEO\Engine\Platform\AffiliateLinkBuilder::build_affiliate_url($alias, 'Anisyia');
+            $this->assertStringContainsString('/go/livejasmin/Anisyia/', $go);
+            $this->assertSame('ctwmsg.com', (string) wp_parse_url($affiliate, PHP_URL_HOST));
+        }
+    }
+
+    public function test_go_livejasmin_route_resolves_to_canonical_ctwmsg_destination(): void {
+        update_option('tmwseo_platform_affiliate_settings', [
+            'livejasmin' => [
+                'enabled' => 1,
+                'template' => 'https://www.livejasmin.com/en/free/chat/{username}?psid={psid}&pstool={pstool}&psprogram={psprogram}',
+                'psid' => 'Topmodels4u',
+                'pstool' => '205_1',
+                'psprogram' => 'revs',
+                'campaign_id' => '',
+                'subaffid' => '',
+                'siteid' => 'jasmin',
+                'categoryname' => 'girl',
+                'pagename' => 'freechat',
+            ],
+        ]);
+
+        $destination = \TMWSEO\Engine\Platform\AffiliateLinkBuilder::resolve_go_destination('livejasmin', 'Anisyia');
+        $this->assertNotSame('', $destination);
+        $this->assertSame('ctwmsg.com', (string) wp_parse_url($destination, PHP_URL_HOST));
+        parse_str((string) wp_parse_url($destination, PHP_URL_QUERY), $query);
+        $this->assertSame('Anisyia', (string) ($query['performerName'] ?? ''));
+        $this->assertSame('Topmodels4u', (string) (($query['prm']['psid'] ?? '')));
+        $this->assertSame('205_1', (string) (($query['prm']['pstool'] ?? '')));
+        $this->assertSame('revs', (string) (($query['prm']['psprogram'] ?? '')));
+        $this->assertStringNotContainsString('www.livejasmin.com/en/free/chat', $destination);
+    }
+
+    public function test_go_livejasmin_alias_route_still_resolves_to_canonical_ctwmsg_destination(): void {
+        update_option('tmwseo_platform_affiliate_settings', [
+            'livejasmin' => [
+                'enabled' => 1,
+                'template' => 'https://www.livejasmin.com/en/free/chat/{username}?psid={psid}&pstool={pstool}&psprogram={psprogram}',
+                'psid' => 'Topmodels4u',
+                'pstool' => '205_1',
+                'psprogram' => 'revs',
+                'campaign_id' => '',
+                'subaffid' => '',
+                'siteid' => 'jasmin',
+                'categoryname' => 'girl',
+                'pagename' => 'freechat',
+            ],
+        ]);
+
+        $destination = \TMWSEO\Engine\Platform\AffiliateLinkBuilder::resolve_go_destination('live_jasmin', 'Anisyia');
+        $this->assertNotSame('', $destination);
+        $this->assertSame('ctwmsg.com', (string) wp_parse_url($destination, PHP_URL_HOST));
+        parse_str((string) wp_parse_url($destination, PHP_URL_QUERY), $query);
+        $this->assertSame('Anisyia', (string) ($query['performerName'] ?? ''));
+        $this->assertSame('jasmin', (string) ($query['siteId'] ?? ''));
+        $this->assertSame('freechat', (string) ($query['pageName'] ?? ''));
+        $this->assertSame('Topmodels4u', (string) (($query['prm']['psid'] ?? '')));
+        $this->assertSame('205_1', (string) (($query['prm']['pstool'] ?? '')));
+        $this->assertSame('revs', (string) (($query['prm']['psprogram'] ?? '')));
+        $this->assertStringNotContainsString('www.livejasmin.com/en/free/chat', $destination);
+    }
+
+
+    public function test_generated_seo_affiliate_url_uses_global_external_resolver(): void {
+        update_option('tmwseo_platform_affiliate_settings', [
+            'livejasmin' => [
+                'enabled' => 0,
+                'template' => '',
+                'psid' => 'Topmodels4u',
+                'pstool' => '205_1',
+                'psprogram' => 'revs',
+                'campaign_id' => '',
+                'subaffid' => 'model-body',
+                'siteid' => 'jasmin',
+                'categoryname' => 'girl',
+                'pagename' => 'freechat',
+            ],
+        ]);
+
+        $url = \TMWSEO\Engine\Platform\AffiliateLinkBuilder::build_seo_content_affiliate_url('livejasmin', 'Anisyia');
+        $this->assertNotSame('', $url);
+        $this->assertSame('ctwmsg.com', (string) wp_parse_url($url, PHP_URL_HOST));
+        $this->assertStringContainsString('Topmodels4u', $url);
+        $this->assertStringContainsString('model-body', $url);
+        $this->assertStringNotContainsString('/go/livejasmin/', $url);
+    }
+
+    public function test_generated_seo_affiliate_url_empty_without_config(): void {
+        $this->assertSame('', \TMWSEO\Engine\Platform\AffiliateLinkBuilder::build_seo_content_affiliate_url('livejasmin', 'Anisyia'));
+    }
+
+    public function test_resolver_uses_verified_cam_links_not_legacy_platform_rows_for_watch_ctas(): void {
+        $platform_links = [
+            ['platform' => 'chaturbate', 'username' => 'legacyalice', 'go_url' => 'https://example.test/go/chaturbate/legacyalice', 'is_primary' => 1],
+            ['platform' => 'fansly', 'username' => 'alicevip', 'go_url' => 'https://example.test/go/fansly/alicevip', 'is_primary' => 0],
+        ];
+        $verified = [
+            ['type' => 'chaturbate', 'url' => 'https://chaturbate.com/aliceofficial', 'label' => 'Chaturbate Official', 'is_active' => true],
+            ['type' => 'instagram', 'url' => 'https://instagram.com/alice', 'label' => 'Instagram', 'is_active' => true],
+            ['type' => 'linktree', 'url' => 'https://linktr.ee/alice', 'label' => 'Linktree', 'is_active' => true],
+            ['type' => 'personal_site', 'url' => 'https://alice.example', 'label' => 'Official Site', 'is_active' => true],
+        ];
+
+        $resolved = ModelDestinationResolver::resolve(55, $platform_links, $verified, ['summary' => '', 'platform_notes' => [], 'confirmed_facts' => []]);
+
+        $this->assertCount(1, $resolved['watch_cta_destinations']);
+        $watchPlatforms = array_map(static fn(array $r): string => (string)($r['platform'] ?? ''), $resolved['watch_cta_destinations']);
+        $this->assertSame(['chaturbate'], $watchPlatforms);
+        $this->assertSame('aliceofficial', $resolved['watch_cta_destinations'][0]['username'] ?? '');
+        $this->assertSame(['Chaturbate'], $resolved['active_platform_labels']);
+        $this->assertCount(1, $resolved['social_destinations']);
+        $this->assertCount(1, $resolved['link_hub_destinations']);
+        $this->assertCount(1, $resolved['personal_site_destinations']);
+    }
+
+
+    public function test_legacy_camsoda_platform_username_without_verified_link_is_not_watch_cta(): void {
+        $resolved = ModelDestinationResolver::resolve(620, [
+            ['platform' => 'camsoda', 'username' => 'abbymurray', 'go_url' => 'https://example.test/go/camsoda/abbymurray', 'is_primary' => 1],
+        ], [], ['summary' => '', 'platform_notes' => [], 'confirmed_facts' => []]);
+
+        $this->assertCount(0, $resolved['watch_cta_destinations']);
+        $this->assertSame([], $resolved['active_platform_labels']);
+    }
+
+    public function test_legacy_camsoda_platform_row_from_legacy_url_does_not_rehydrate_generate_cta(): void {
+        $resolved = ModelDestinationResolver::resolve(621, [
+            ['platform' => 'camsoda', 'profile_url' => 'https://www.camsoda.com/abbymurray', 'go_url' => '', 'is_primary' => 1],
+        ], [], ['summary' => '', 'platform_notes' => [], 'confirmed_facts' => []]);
+
+        $this->assertCount(0, $resolved['watch_cta_destinations']);
+        $this->assertSame(0, (int) ($resolved['source_of_truth_summary']['watch_cta_count'] ?? -1));
+    }
+
+    public function test_active_verified_camsoda_link_may_become_watch_cta(): void {
+        $resolved = ModelDestinationResolver::resolve(622, [], [
+            ['type' => 'camsoda', 'url' => 'https://www.camsoda.com/officialabby', 'label' => 'CamSoda', 'activity_level' => 'active'],
+        ], ['summary' => '', 'platform_notes' => [], 'confirmed_facts' => []]);
+
+        $this->assertCount(1, $resolved['watch_cta_destinations']);
+        $this->assertSame('camsoda', $resolved['watch_cta_destinations'][0]['platform'] ?? '');
+        $this->assertSame('officialabby', $resolved['watch_cta_destinations'][0]['username'] ?? '');
+    }
+
+    public function test_inactive_or_unknown_verified_camsoda_link_is_not_watch_cta(): void {
+        $inactive = ModelDestinationResolver::resolve(623, [], [
+            ['type' => 'camsoda', 'url' => 'https://www.camsoda.com/officialabby', 'label' => 'CamSoda', 'activity_level' => 'inactive'],
+        ], ['summary' => '', 'platform_notes' => [], 'confirmed_facts' => []]);
+        $unknown = ModelDestinationResolver::resolve(624, [], [
+            ['type' => 'camsoda', 'url' => 'https://www.camsoda.com/officialabby', 'label' => 'CamSoda', 'activity_level' => 'unknown'],
+        ], ['summary' => '', 'platform_notes' => [], 'confirmed_facts' => []]);
+
+        $this->assertCount(0, $inactive['watch_cta_destinations']);
+        $this->assertCount(0, $unknown['watch_cta_destinations']);
+    }
+
+    public function test_inactive_verified_links_survive_all_verified_destinations(): void {
+        $resolved = ModelDestinationResolver::resolve(77, [], [
+            ['type' => 'x', 'url' => 'https://x.com/alice', 'is_active' => true],
+            ['type' => 'youtube', 'url' => 'https://youtube.com/@alice', 'is_active' => false],
+        ], ['summary' => '', 'platform_notes' => [], 'confirmed_facts' => []]);
+
+        $this->assertCount(2, $resolved['all_verified_destinations']);
+        $this->assertSame('active', $resolved['all_verified_destinations'][0]['activity_level']);
+        $this->assertSame('inactive', $resolved['all_verified_destinations'][1]['activity_level']);
+        $this->assertSame(2, (int) ($resolved['source_of_truth_summary']['verified_count'] ?? 0));
+    }
+
+    public function test_inactive_verified_cam_rows_do_not_become_watch_ctas(): void {
+        $resolved = ModelDestinationResolver::resolve(
+            78,
+            [['platform' => 'chaturbate', 'username' => 'alice', 'go_url' => 'https://example.test/go/chaturbate/alice', 'is_primary' => 1]],
+            [['type' => 'chaturbate', 'url' => 'https://chaturbate.com/alice', 'is_active' => false]],
+            ['summary' => '', 'platform_notes' => [], 'confirmed_facts' => []]
+        );
+
+        $this->assertCount(1, $resolved['all_verified_destinations']);
+        $this->assertCount(0, $resolved['watch_cta_destinations']);
+        $this->assertFalse((bool) ($resolved['all_verified_destinations'][0]['is_cta_eligible'] ?? true));
+    }
+
+    public function test_verified_active_cam_row_overrides_platform_profiles_watch_destination(): void {
+        $resolved = ModelDestinationResolver::resolve(
+            79,
+            [['platform' => 'chaturbate', 'username' => 'alice', 'go_url' => 'https://example.test/go/chaturbate/alice', 'is_primary' => 1]],
+            [['type' => 'chaturbate', 'url' => 'https://chaturbate.com/aliceofficial', 'is_active' => true, 'label' => 'Chaturbate Official']],
+            ['summary' => '', 'platform_notes' => [], 'confirmed_facts' => []]
+        );
+
+        $this->assertCount(1, $resolved['watch_cta_destinations']);
+        $this->assertSame('verified_links', $resolved['watch_cta_destinations'][0]['source'] ?? '');
+    }
+
+    public function test_social_and_link_hub_are_never_watch_ctas(): void {
+        $resolved = ModelDestinationResolver::resolve(
+            80,
+            [],
+            [
+                ['type' => 'instagram', 'url' => 'https://instagram.com/alice', 'is_active' => true],
+                ['type' => 'linktree', 'url' => 'https://linktr.ee/alice', 'is_active' => true],
+            ],
+            ['summary' => '', 'platform_notes' => [], 'confirmed_facts' => []]
+        );
+        $this->assertCount(0, $resolved['watch_cta_destinations']);
+        $this->assertCount(2, $resolved['all_verified_destinations']);
+    }
+
+    public function test_extended_link_hub_types_map_to_link_hub_destinations_and_more_links_heading(): void {
+        $post = new \WP_Post();
+        $post->ID = 503;
+        $resolved = ModelDestinationResolver::resolve(503, [], [
+            ['type' => 'solo_to', 'url' => 'https://solo.to/alice', 'is_active' => true, 'label' => 'Solo.to'],
+            ['type' => 'carrd', 'url' => 'https://alice.carrd.co', 'is_active' => true, 'label' => 'Carrd'],
+            ['type' => 'link_me', 'url' => 'https://link.me/alice', 'is_active' => true, 'label' => 'Link.me'],
+            ['type' => 'friendsbio', 'url' => 'https://friendsbio.com/alice', 'is_active' => true, 'label' => 'Friends Bio'],
+        ], ['summary' => '', 'platform_notes' => [], 'confirmed_facts' => []]);
+
+        $this->assertCount(4, $resolved['link_hub_destinations']);
+        $this->assertCount(0, $resolved['social_destinations']);
+        $this->assertCount(0, $resolved['watch_cta_destinations']);
+
+        $payload = TemplateContent::build_model_renderer_support_payload($post, [
+            'name' => 'Alice',
+            'resolved_destinations' => $resolved,
+            'cta_links' => [],
+            'comparison_copy' => '',
+        ]);
+
+        $this->assertStringContainsString('<h3>More Links</h3>', (string) ($payload['external_info_html'] ?? ''));
+    }
+
+    public function test_fansites_are_never_watch_ctas_even_when_marked_active(): void {
+        $resolved = ModelDestinationResolver::resolve(
+            82,
+            [],
+            [
+                ['type' => 'fansly', 'url' => 'https://fansly.com/alice', 'is_active' => true],
+            ],
+            ['summary' => '', 'platform_notes' => [], 'confirmed_facts' => []]
+        );
+
+        $this->assertCount(1, $resolved['fan_platform_destinations']);
+        $this->assertCount(0, $resolved['watch_cta_destinations']);
+        $this->assertFalse((bool) ($resolved['fan_platform_destinations'][0]['is_cta_eligible'] ?? true));
+    }
+
+    public function test_template_payload_splits_non_live_and_social_destinations(): void {
+        $post = new \WP_Post();
+        $post->ID = 500;
+        $resolved = ModelDestinationResolver::resolve(500, [], [
+            ['type' => 'chaturbate', 'url' => 'https://chaturbate.com/alice', 'is_active' => false, 'label' => 'Chaturbate'],
+            ['type' => 'fansly', 'url' => 'https://fansly.com/alice', 'is_active' => true, 'label' => 'Fansly'],
+            ['type' => 'personal_site', 'url' => 'https://alice.example', 'is_active' => true, 'label' => 'Alice Site'],
+            ['type' => 'instagram', 'url' => 'https://instagram.com/alice', 'is_active' => true, 'label' => 'Instagram'],
+            ['type' => 'linktree', 'url' => 'https://linktr.ee/alice', 'is_active' => true, 'label' => 'Linktree'],
+            ['type' => 'youtube', 'url' => 'https://youtube.com/@alice', 'is_active' => true, 'label' => 'YouTube'],
+        ], ['summary' => '', 'platform_notes' => [], 'confirmed_facts' => []]);
+
+        $payload = TemplateContent::build_model_renderer_support_payload($post, [
+            'name' => 'Alice',
+            'resolved_destinations' => $resolved,
+            'cta_links' => [],
+            'comparison_copy' => '',
+        ]);
+
+        $this->assertStringContainsString('Visit Profile on Chaturbate', (string) ($payload['official_destinations_section_html'] ?? ''));
+        $this->assertStringContainsString('Visit Fan Page on Fansly', (string) ($payload['official_destinations_section_html'] ?? ''));
+        $this->assertStringContainsString('Visit Official Site on Alice Site', (string) ($payload['official_destinations_section_html'] ?? ''));
+        $this->assertStringContainsString('Follow on Instagram', (string) ($payload['community_destinations_section_html'] ?? ''));
+        $this->assertStringContainsString('Open Link Hub on Linktree', (string) ($payload['community_destinations_section_html'] ?? ''));
+        $this->assertStringContainsString('Visit Channel on YouTube', (string) ($payload['community_destinations_section_html'] ?? ''));
+    }
+
+    public function test_top_watch_cta_and_official_links_keep_livejasmin_routed_not_raw_profile(): void {
+        $post = new \WP_Post();
+        $post->ID = 777;
+
+        $resolved = ModelDestinationResolver::resolve(
+            777,
+            [['platform' => 'livejasmin', 'username' => 'Anisyia', 'go_url' => '', 'is_primary' => 1]],
+            [
+                ['type' => 'livejasmin', 'url' => 'https://www.livejasmin.com/en/chat/Anisyia', 'is_active' => true, 'label' => 'LiveJasmin'],
+                ['type' => 'livejasmin', 'url' => 'https://www.livejasmin.com/en/free/chat/Anisyia', 'is_active' => false, 'label' => 'LiveJasmin'],
+            ],
+            ['summary' => '', 'platform_notes' => [], 'confirmed_facts' => []]
+        );
+
+        $payload = TemplateContent::build_model_renderer_support_payload($post, [
+            'name' => 'Anisyia',
+            'resolved_destinations' => $resolved,
+            'cta_links' => [],
+            'comparison_copy' => '',
+        ]);
+
+        $watch = (string) ($payload['watch_section_html'] ?? '');
+        $official = (string) ($payload['official_destinations_section_html'] ?? '');
+        $this->assertStringContainsString('/go/livejasmin/Anisyia/', $watch);
+        $this->assertStringContainsString('/go/livejasmin/Anisyia/', $official);
+        $this->assertStringNotContainsString('https://www.livejasmin.com/en/free/chat/Anisyia', $watch . $official);
+    }
+
+    public function test_model_generated_seo_content_uses_external_affiliate_resolver(): void {
+        update_option('tmwseo_platform_affiliate_settings', [
+            'livejasmin' => [
+                'enabled' => 0,
+                'template' => '',
+                'psid' => 'Topmodels4u',
+                'pstool' => '205_1',
+                'psprogram' => 'revs',
+                'campaign_id' => '',
+                'subaffid' => 'model-seo',
+                'siteid' => 'jasmin',
+                'categoryname' => 'girl',
+                'pagename' => 'freechat',
+            ],
+        ]);
+
+        $post = new \WP_Post();
+        $post->ID = 780;
+        $resolved = ModelDestinationResolver::resolve(
+            780,
+            [['platform' => 'livejasmin', 'username' => 'Anisyia', 'go_url' => '', 'is_primary' => 1]],
+            [],
+            ['summary' => '', 'platform_notes' => [], 'confirmed_facts' => []]
+        );
+
+        $payload = TemplateContent::build_model_renderer_support_payload($post, [
+            'name' => 'Anisyia',
+            'resolved_destinations' => $resolved,
+            'cta_links' => (array) ($resolved['watch_cta_destinations'] ?? []),
+            'comparison_copy' => '',
+        ]);
+
+        $watch = (string) ($payload['watch_section_html'] ?? '');
+        $external = (string) ($payload['external_info_html'] ?? '');
+        $this->assertStringContainsString('/go/livejasmin/Anisyia/', $watch, 'Frontend/click-tracking CTA should preserve /go/.');
+        $this->assertStringContainsString('href="https://ctwmsg.com/', $external);
+        $this->assertStringContainsString('rel="sponsored nofollow noopener"', $external);
+        $this->assertStringContainsString('target="_blank"', $external);
+        $this->assertStringNotContainsString('/go/livejasmin/', $external);
+        $this->assertStringNotContainsString('https://www.livejasmin.com/en/chat/Anisyia', $external);
+    }
+
+    public function test_model_generated_seo_content_skips_affiliate_when_config_missing(): void {
+        $post = new \WP_Post();
+        $post->ID = 781;
+        $resolved = ModelDestinationResolver::resolve(
+            781,
+            [['platform' => 'livejasmin', 'username' => 'Anisyia', 'go_url' => '', 'is_primary' => 1]],
+            [],
+            ['summary' => '', 'platform_notes' => [], 'confirmed_facts' => []]
+        );
+
+        $payload = TemplateContent::build_model_renderer_support_payload($post, [
+            'name' => 'Anisyia',
+            'resolved_destinations' => $resolved,
+            'cta_links' => (array) ($resolved['watch_cta_destinations'] ?? []),
+            'comparison_copy' => '',
+        ]);
+
+        $external = (string) ($payload['external_info_html'] ?? '');
+        $this->assertStringNotContainsString('ctwmsg.com', $external);
+        $this->assertStringNotContainsString('/go/livejasmin/', $external);
+        $this->assertStringNotContainsString('www.livejasmin.com', $external);
+    }
+
+    public function test_mixed_livejasmin_inputs_normalize_to_single_canonical_flow(): void {
+        update_option('tmwseo_platform_affiliate_settings', [
+            'livejasmin' => [
+                'enabled' => 0,
+                'template' => '',
+                'psid' => 'Topmodels4u',
+                'pstool' => '205_1',
+                'psprogram' => 'revs',
+                'campaign_id' => '',
+                'subaffid' => '',
+                'siteid' => 'jasmin',
+                'categoryname' => 'girl',
+                'pagename' => 'freechat',
+            ],
+        ]);
+
+        $post = new \WP_Post();
+        $post->ID = 778;
+
+        $resolved = ModelDestinationResolver::resolve(
+            778,
+            [['platform' => 'livejasmin', 'username' => 'Anisyia', 'go_url' => '/go/livejasmin/Anisyia/', 'is_primary' => 1]],
+            [
+                ['type' => 'livejasmin', 'url' => 'https://ctwmsg.com/?performerName=Anisyia&siteId=jasmin&categoryName=girl&pageName=freechat&prm%5Bpsid%5D=Topmodels4u&prm%5Bpstool%5D=205_1&prm%5Bpsprogram%5D=revs', 'is_active' => true, 'label' => 'LiveJasmin'],
+                ['type' => 'livejasmin', 'url' => 'https://www.livejasmin.com/en/free/chat/Anisyia?psid=Topmodels4u&pstool=205_1&psprogram=revs', 'is_active' => false, 'label' => 'LiveJasmin'],
+            ],
+            ['summary' => '', 'platform_notes' => [], 'confirmed_facts' => []]
+        );
+
+        $payload = TemplateContent::build_model_renderer_support_payload($post, [
+            'name' => 'Anisyia',
+            'resolved_destinations' => $resolved,
+            'cta_links' => [],
+            'comparison_copy' => '',
+        ]);
+
+        $watch = (string) ($payload['watch_section_html'] ?? '');
+        $official = (string) ($payload['official_destinations_section_html'] ?? '');
+        $final = $watch . $official;
+        $this->assertStringContainsString('/go/livejasmin/Anisyia/', $final);
+        $this->assertStringNotContainsString('www.livejasmin.com/en/free/chat/Anisyia', $final);
+
+        $destination = \TMWSEO\Engine\Platform\AffiliateLinkBuilder::resolve_go_destination('livejasmin', 'Anisyia');
+        $this->assertSame('ctwmsg.com', (string) wp_parse_url($destination, PHP_URL_HOST));
+    }
+
+    public function test_non_livejasmin_links_remain_unchanged_when_livejasmin_is_normalized(): void {
+        $resolved = ModelDestinationResolver::resolve(
+            779,
+            [['platform' => 'livejasmin', 'username' => 'Anisyia', 'go_url' => '', 'is_primary' => 1]],
+            [
+                ['type' => 'camsoda', 'url' => 'https://www.camsoda.com/anisyia', 'is_active' => false, 'label' => 'CamSoda'],
+                ['type' => 'fansly', 'url' => 'https://fansly.com/anisyia/posts', 'is_active' => true, 'label' => 'Fansly'],
+                ['type' => 'instagram', 'url' => 'https://instagram.com/anisyia', 'is_active' => true, 'label' => 'Instagram'],
+                ['type' => 'linktree', 'url' => 'https://linktr.ee/anisyia', 'is_active' => true, 'label' => 'Linktree'],
+            ],
+            ['summary' => '', 'platform_notes' => [], 'confirmed_facts' => []]
+        );
+
+        $this->assertNotEmpty($resolved['fan_platform_destinations']);
+        $this->assertSame('https://fansly.com/anisyia/posts', (string) ($resolved['fan_platform_destinations'][0]['url'] ?? ''));
+        $this->assertNotEmpty($resolved['social_destinations']);
+        $this->assertSame('https://instagram.com/anisyia', (string) ($resolved['social_destinations'][0]['url'] ?? ''));
+        $this->assertNotEmpty($resolved['link_hub_destinations']);
+        $this->assertSame('https://linktr.ee/anisyia', (string) ($resolved['link_hub_destinations'][0]['url'] ?? ''));
+    }
+
+    public function test_verified_camsoda_link_routes_in_frontend_sections_when_mapping_enabled(): void {
+        update_option(\TMWSEO\Engine\Affiliates\CrakRevenueCamManager::PLATFORM_MAPPINGS_OPTION, [
+            'camsoda' => [
+                'enabled' => 1,
+                'selected_offer_id' => 5170,
+                'approval_status' => 'approved',
+                'template_url' => 'https://t.acrsmartcam.com/999999/5170/12311?aff_sub5=SF_FIXTUREONLY0000&model={username}',
+            ],
+        ]);
+
+        $post = new \WP_Post();
+        $post->ID = 504;
+        $resolved = ModelDestinationResolver::resolve(504, [], [
+            ['type' => 'camsoda', 'url' => 'https://www.camsoda.com/anisyia', 'is_active' => false, 'label' => 'CamSoda'],
+        ], ['summary' => '', 'platform_notes' => [], 'confirmed_facts' => []]);
+
+        $payload = TemplateContent::build_model_renderer_support_payload($post, [
+            'name' => 'Anisyia',
+            'resolved_destinations' => $resolved,
+            'cta_links' => [],
+            'comparison_copy' => '',
+        ]);
+
+        $official = (string) ($payload['official_destinations_section_html'] ?? '');
+        $this->assertStringContainsString('https://t.acrsmartcam.com/999999/5170/12311?aff_sub5=SF_FIXTUREONLY0000&amp;model=anisyia', $official);
+    }
+
+    public function test_schema_sameas_stays_clean_even_when_frontend_verified_link_is_routed(): void {
+        update_option(\TMWSEO\Engine\Affiliates\CrakRevenueCamManager::PLATFORM_MAPPINGS_OPTION, [
+            'camsoda' => [
+                'enabled' => 1,
+                'selected_offer_id' => 5170,
+                'approval_status' => 'approved',
+                'template_url' => 'https://t.acrsmartcam.com/999999/5170/12311?aff_sub5=SF_FIXTUREONLY0000&model={username}',
+            ],
+        ]);
+        update_post_meta(505, \TMWSEO\Engine\Model\VerifiedLinks::META_KEY, [
+            ['type' => 'camsoda', 'url' => 'https://www.camsoda.com/anisyia', 'is_active' => 1],
+        ]);
+
+        $same_as = \TMWSEO\Engine\Model\VerifiedLinks::get_schema_urls(505);
+        $this->assertContains('https://www.camsoda.com/anisyia', $same_as);
+        $this->assertNotContains('https://t.acrsmartcam.com/999999/5170/12311?aff_sub5=SF_FIXTUREONLY0000&model=anisyia', $same_as);
+    }
+
+    public function test_frontend_verified_link_falls_back_to_clean_url_when_mapping_disabled_or_template_unsafe(): void {
+        $post = new \WP_Post();
+        $post->ID = 506;
+
+        update_option(\TMWSEO\Engine\Affiliates\CrakRevenueCamManager::PLATFORM_MAPPINGS_OPTION, [
+            'camsoda' => [
+                'enabled' => 0,
+                'selected_offer_id' => 5170,
+                'approval_status' => 'approved',
+                'template_url' => 'https://t.acrsmartcam.com/999999/5170/12311?aff_sub5=SF_FIXTUREONLY0000&model={username}',
+            ],
+        ]);
+        $resolved_disabled = ModelDestinationResolver::resolve(506, [], [
+            ['type' => 'camsoda', 'url' => 'https://www.camsoda.com/anisyia', 'is_active' => false, 'label' => 'CamSoda'],
+        ], ['summary' => '', 'platform_notes' => [], 'confirmed_facts' => []]);
+        $payload_disabled = TemplateContent::build_model_renderer_support_payload($post, [
+            'name' => 'Anisyia',
+            'resolved_destinations' => $resolved_disabled,
+            'cta_links' => [],
+            'comparison_copy' => '',
+        ]);
+        $this->assertStringContainsString('https://www.camsoda.com/anisyia', (string) ($payload_disabled['official_destinations_section_html'] ?? ''));
+
+        update_option(\TMWSEO\Engine\Affiliates\CrakRevenueCamManager::PLATFORM_MAPPINGS_OPTION, [
+            'camsoda' => [
+                'enabled' => 1,
+                'selected_offer_id' => 5170,
+                'approval_status' => 'approved',
+                'template_url' => 'https://t.acrsmartcam.com/999999/5170/12311?aff_sub5=SF_FIXTUREONLY0000&model=Anisyia',
+            ],
+        ]);
+        $resolved_unsafe = ModelDestinationResolver::resolve(506, [], [
+            ['type' => 'camsoda', 'url' => 'https://www.camsoda.com/anisyia', 'is_active' => false, 'label' => 'CamSoda'],
+        ], ['summary' => '', 'platform_notes' => [], 'confirmed_facts' => []]);
+        $payload_unsafe = TemplateContent::build_model_renderer_support_payload($post, [
+            'name' => 'Anisyia',
+            'resolved_destinations' => $resolved_unsafe,
+            'cta_links' => [],
+            'comparison_copy' => '',
+        ]);
+        $this->assertStringContainsString('https://www.camsoda.com/anisyia', (string) ($payload_unsafe['official_destinations_section_html'] ?? ''));
+    }
+
+    public function test_manual_html_links_are_not_rewritten_globally(): void {
+        update_option(\TMWSEO\Engine\Affiliates\CrakRevenueCamManager::PLATFORM_MAPPINGS_OPTION, [
+            'camsoda' => [
+                'enabled' => 1,
+                'selected_offer_id' => 5170,
+                'approval_status' => 'approved',
+                'template_url' => 'https://t.acrsmartcam.com/999999/5170/12311?aff_sub5=SF_FIXTUREONLY0000&model={username}',
+            ],
+        ]);
+
+        $html = ModelPageRenderer::render('Anisyia', [
+            'external_info_html' => '<p><a href="https://www.camsoda.com/anisyia" rel="noopener external">Manual editor link</a></p>',
+        ]);
+
+        $this->assertStringContainsString('href="https://www.camsoda.com/anisyia"', $html);
+        $this->assertStringNotContainsString('t.acrsmartcam.com', $html);
+    }
+
+    public function test_comparison_html_uses_only_live_cam_destinations(): void {
+        $post = new \WP_Post();
+        $post->ID = 501;
+        $resolved = ModelDestinationResolver::resolve(501, [], [
+            ['type' => 'chaturbate', 'url' => 'https://chaturbate.com/alice', 'is_active' => true, 'label' => 'Chaturbate'],
+            ['type' => 'fansly', 'url' => 'https://fansly.com/alice', 'is_active' => true, 'label' => 'Fansly'],
+        ], ['summary' => '', 'platform_notes' => [], 'confirmed_facts' => []]);
+
+        $payload = TemplateContent::build_model_renderer_support_payload($post, [
+            'name' => 'Alice',
+            'resolved_destinations' => $resolved,
+            'cta_links' => (array) ($resolved['watch_cta_destinations'] ?? []),
+            'comparison_copy' => 'Comparison seed',
+        ]);
+
+        $this->assertStringContainsString('Chaturbate', (string) ($payload['comparison_section_html'] ?? ''));
+        $this->assertStringNotContainsString('Fansly', (string) ($payload['comparison_section_html'] ?? ''));
+        $this->assertStringNotContainsString('Watch Live on Fansly', (string) ($payload['comparison_section_html'] ?? ''));
+    }
+
+    public function test_resolver_maps_legacy_activity_to_is_active_state(): void {
+        $resolved = ModelDestinationResolver::resolve(81, [], [
+            ['type' => 'x', 'url' => 'https://x.com/alice', 'is_active' => true],
+            ['type' => 'youtube', 'url' => 'https://youtube.com/@alice', 'is_active' => false],
+        ], ['summary' => '', 'platform_notes' => [], 'confirmed_facts' => []]);
+
+        $this->assertSame('active', $resolved['all_verified_destinations'][0]['activity_level']);
+        $this->assertSame('inactive', $resolved['all_verified_destinations'][1]['activity_level']);
+    }
+
+    public function test_sparse_data_fallback_still_available(): void {
+        $payload = TemplateContent::build_sparse_model_payload('Alice', [], ['reason' => 'insufficient_performer_data']);
+        $this->assertNotEmpty($payload['intro_paragraphs']);
+        $this->assertSame('insufficient_performer_data', $payload['model_data_notice']);
+    }
+
+    public function test_single_active_platform_uses_before_you_click_heading(): void {
+        $html = ModelPageRenderer::render('Alice', [
+            'active_platforms' => ['Chaturbate'],
+            'comparison_section_paragraphs' => ['Run checks before joining.'],
+        ]);
+
+        $this->assertStringContainsString('<h2>Before You Click</h2>', $html);
+        $this->assertStringNotContainsString('<h2>Live Platform Comparison</h2>', $html);
+    }
+
+    public function test_multi_active_platform_keeps_comparison_heading(): void {
+        $html = ModelPageRenderer::render('Alice', [
+            'active_platforms' => ['Chaturbate', 'Stripchat'],
+            'comparison_section_paragraphs' => ['Compare both active rooms.'],
+        ]);
+
+        $this->assertStringContainsString('<h2>Live Platform Comparison</h2>', $html);
+    }
+
+    public function test_structurally_rich_sparse_payload_uses_practical_faq_items(): void {
+        $payload = TemplateContent::build_sparse_model_payload('Alice', ['Chaturbate'], [
+            'reason' => 'insufficient_performer_data',
+            'signals' => [
+                'platform_links' => 1,
+                'active_platforms' => 1,
+                'tags' => 1,
+            ],
+        ]);
+
+        $faq_questions = array_map(static fn(array $item): string => (string) ($item['q'] ?? ''), (array) ($payload['faq_items'] ?? []));
+        $this->assertContains('Which link should I open first?', $faq_questions);
+        $this->assertNotContains('Why is this page short right now?', $faq_questions);
+        $this->assertNotContains('What is already verified on this page?', $faq_questions);
+    }
+
+    public function test_truly_sparse_payload_keeps_diagnostic_faq_fallback(): void {
+        $payload = TemplateContent::build_sparse_model_payload('Alice', [], [
+            'reason' => 'insufficient_performer_data',
+            'signals' => [
+                'platform_links' => 0,
+                'active_platforms' => 0,
+                'tags' => 0,
+            ],
+        ]);
+
+        $faq_questions = array_map(static fn(array $item): string => (string) ($item['q'] ?? ''), (array) ($payload['faq_items'] ?? []));
+        $this->assertContains('Why is this page short right now?', $faq_questions);
+        $this->assertContains('What is already verified on this page?', $faq_questions);
+    }
+
+    public function test_sparse_payload_weaves_secondary_keywords_into_visible_sections(): void {
+        $payload = TemplateContent::build_sparse_model_payload(
+            'Alice',
+            ['Chaturbate'],
+            ['reason' => 'insufficient_performer_data'],
+            ['alice private live chat', 'alice verified profile links', 'alice live stream schedule'],
+            ['fallback phrase']
+        );
+
+        $this->assertStringContainsString('alice private live chat', (string) ($payload['intro_paragraphs'][1] ?? ''));
+        $this->assertStringContainsString('alice verified profile links', (string) ($payload['features_section_paragraphs'][0] ?? ''));
+        $faq_answers = array_map(static fn(array $item): string => (string) ($item['a'] ?? ''), (array) ($payload['faq_items'] ?? []));
+        $this->assertStringContainsString('alice live stream schedule', implode(' ', $faq_answers));
+    }
+
+    public function test_sparse_payload_adds_heading_safe_secondary_keyword_slots(): void {
+        $payload = TemplateContent::build_sparse_model_payload(
+            'Alice',
+            ['Chaturbate'],
+            ['reason' => 'insufficient_performer_data'],
+            ['private live chat', 'verified profile links', 'alice stream schedule checks', 'best alice free stream links'],
+            ['fallback']
+        );
+
+        $slots = (array) ($payload['secondary_heading_slots'] ?? []);
+        $this->assertNotEmpty($slots);
+        $flattened = [];
+        array_walk_recursive($slots, static function ($value) use (&$flattened): void {
+            $flattened[] = (string) $value;
+        });
+        $joined = implode(' ', $flattened);
+        $this->assertStringContainsString('private live chat', $joined);
+        $this->assertStringContainsString('verified profile links', $joined);
+        $this->assertStringContainsString('alice stream schedule checks', $joined);
+        $this->assertContains('best alice free stream links', (array) ($slots['unusable'] ?? []));
+    }
+
+    public function test_support_payload_adds_secondary_keyword_to_verification_copy(): void {
+        $post = new \WP_Post();
+        $post->ID = 94;
+        $post->post_title = 'Alice';
+        $post->post_type = 'model';
+
+        $payload = TemplateContent::build_model_renderer_support_payload($post, [
+            'name' => 'Alice',
+            'resolved_destinations' => [
+                'watch_cta_destinations' => [],
+                'active_platform_labels' => [],
+                'source_of_truth_summary' => [],
+            ],
+            'rankmath_additional' => ['alice verified profile links', 'alice private live chat', 'alice stream updates'],
+        ]);
+
+        $paragraphs = (array) ($payload['official_links_section_paragraphs'] ?? []);
+        $this->assertNotEmpty($paragraphs);
+        $this->assertStringContainsString('alice stream updates', implode(' ', $paragraphs));
+    }
+
+    public function test_single_platform_intro_wording_drops_old_fallback_pattern(): void {
+        $method = new \ReflectionMethod(TemplateContent::class, 'build_seed_intro_paragraphs');
+        $method->setAccessible(true);
+
+        /** @var array<int,string> $lines */
+        $lines = $method->invoke(null, 'Alice', [], ['Chaturbate'], 'Fallback intro', 'Fallback second');
+        $intro = implode(' ', $lines);
+
+        $this->assertStringContainsString('In this review pass, Chaturbate was the only live-room destination confirmed active.', $intro);
+        $this->assertStringNotContainsString('one live-room destination is currently confirmed active:', $intro);
+        $this->assertStringNotContainsString('is active on Chaturbate', $intro);
+        $this->assertStringNotContainsString('has active profiles on', $intro);
+    }
+
+    public function test_verification_notes_use_review_scoped_active_language(): void {
+        $method = new \ReflectionMethod(TemplateContent::class, 'build_verification_process_paragraph');
+        $method->setAccessible(true);
+
+        // v5.8.11-final-copy contract:
+        //   - When verified_count > 0, build_official_links_summary() already
+        //     emits the "Latest check: N profile links found" sentence, so
+        //     build_verification_process_paragraph() returns '' to avoid two
+        //     near-identical paragraphs and to keep "latest grouped link
+        //     check" wording out of the page.
+        //   - When verified_count is zero, it returns a short status note
+        //     that does NOT contain "latest grouped link check" or any
+        //     phrasing that competes with the summary.
+        $populated = (string) $method->invoke(null, [
+            'source_of_truth_summary' => [
+                'verified_count' => 4,
+                'watch_cta_count' => 1,
+            ],
+        ]);
+        $this->assertSame('', trim($populated), 'Verification paragraph is suppressed when a non-zero verified_count is present.');
+
+        $empty = (string) $method->invoke(null, []);
+        $this->assertNotSame('', trim($empty), 'Verification paragraph still surfaces when there are no verified destinations.');
+        $this->assertStringNotContainsString('latest grouped link check', $empty, 'Verification paragraph must not reintroduce the deduped "latest grouped link check" wording.');
+        $this->assertStringContainsString('most recent automated review', $empty);
+    }
+
+    public function test_single_platform_checklist_intro_uses_review_pass_wording(): void {
+        $method = new \ReflectionMethod(TemplateContent::class, 'build_platform_comparison');
+        $method->setAccessible(true);
+
+        $post = new \WP_Post();
+        $post->ID = 811;
+
+        $html = (string) $method->invoke(
+            null,
+            $post,
+            'Alice',
+            [
+                [
+                    'label' => 'LiveJasmin',
+                    'go_url' => 'https://www.livejasmin.com/en/chat/Alice',
+                    'platform' => 'livejasmin',
+                    'username' => 'alice',
+                ],
+            ],
+            '',
+            []
+        );
+
+        $this->assertStringContainsString('This review pass found one confirmed active live-room destination (LiveJasmin)', $html);
+        $this->assertStringNotContainsString('Only one live-room destination is currently confirmed active in this review', $html);
+    }
+
+    public function test_support_payload_includes_truthful_guidance_sections(): void {
+        $post = new \WP_Post();
+        $post->ID = 502;
+        $resolved = ModelDestinationResolver::resolve(502, [], [
+            ['type' => 'chaturbate', 'url' => 'https://chaturbate.com/alice', 'is_active' => false, 'label' => 'Chaturbate'],
+            ['type' => 'fansly', 'url' => 'https://fansly.com/alice', 'is_active' => true, 'label' => 'Fansly'],
+            ['type' => 'instagram', 'url' => 'https://instagram.com/alice', 'is_active' => true, 'label' => 'Instagram'],
+        ], ['summary' => '', 'platform_notes' => [], 'confirmed_facts' => []]);
+
+        $payload = TemplateContent::build_model_renderer_support_payload($post, [
+            'name' => 'Alice',
+            'resolved_destinations' => $resolved,
+            'cta_links' => [],
+            'comparison_copy' => '',
+        ]);
+
+        $official_lines = implode(' ', (array) ($payload['official_destinations_section_paragraphs'] ?? []));
+        $community_lines = implode(' ', (array) ($payload['community_destinations_section_paragraphs'] ?? []));
+        $links_lines = implode(' ', (array) ($payload['official_links_section_paragraphs'] ?? []));
+
+        $this->assertStringContainsString('not currently treated as active live-room links', $official_lines);
+        $this->assertStringContainsString('not presented as direct live-room shortcuts', $community_lines);
+        $this->assertStringContainsString('Verification notes:', $links_lines);
+    }
+
+    public function test_depth_guardrail_expands_short_content_with_practical_sections(): void {
+        $method = new \ReflectionMethod(TemplateContent::class, 'ensure_minimum_useful_depth');
+        $method->setAccessible(true);
+
+        $short_html = '<p>Short page body.</p>';
+        $expanded = (string) $method->invoke(null, $short_html, 'Alice', ['Chaturbate', 'Stripchat'], [], 'Chaturbate', 'seed-1');
+        $plain = trim(strip_tags($expanded));
+        $word_count = str_word_count($plain);
+
+        $this->assertGreaterThanOrEqual(620, $word_count);
+        $this->assertStringContainsString('How to Decide Where to Start', $expanded);
+        $this->assertStringContainsString('Verification and Review Method', $expanded);
+    }
+
+    public function test_varied_features_are_utility_focused_not_boilerplate_hype(): void {
+        $method = new \ReflectionMethod(TemplateContent::class, 'render_varied_features');
+        $method->setAccessible(true);
+        $html = (string) $method->invoke(null, 'Alice', ['chatty'], 'Chaturbate', 'seed-utility');
+
+        $this->assertStringContainsString('Truth-first routing', $html);
+        $this->assertStringNotContainsString('Respectful community', $html);
+        $this->assertStringNotContainsString('HD video quality', $html);
+    }
+
+    public function test_renderer_adds_focus_keyword_to_meaningful_subheading(): void {
+        $html = ModelPageRenderer::render('Alice', [
+            'focus_keyword' => 'Alice',
+            'intro_paragraphs' => ['Intro line'],
+            'features_section_paragraphs' => ['Feature details'],
+            'official_links_section_paragraphs' => ['Links summary'],
+        ]);
+
+        $this->assertStringContainsString('<h2>Features and Platform Experience for Alice</h2>', $html);
+    }
+
+    public function test_renderer_weaves_secondary_keyword_into_subheadings_without_dumping_all_keywords(): void {
+        $html = ModelPageRenderer::render('Alice', [
+            'focus_keyword' => 'Alice',
+            'active_platforms' => ['Chaturbate'],
+            'features_section_paragraphs' => ['Feature details'],
+            'comparison_section_paragraphs' => ['Compare before joining.'],
+            'questions_section_paragraphs' => ['FAQ intro.'],
+            'faq_items' => [['q' => 'How do I verify links?', 'a' => 'Use verified links first.']],
+            'official_links_section_paragraphs' => ['Links summary'],
+            'secondary_heading_slots' => [
+                'features' => ['private live chat', 'alice stream schedule checks'],
+                'official_links' => ['verified profile links'],
+                'faq' => ['alice backup profile access'],
+            ],
+        ]);
+
+        $this->assertStringContainsString('<h2>Features and Platform Experience for Alice and private live chat</h2>', $html);
+        $this->assertStringContainsString('<h3>Feature check for alice stream schedule checks</h3>', $html);
+        $this->assertStringContainsString('<h2>Where Are the Official Links and Other Profiles? and verified profile links</h2>', $html);
+        $this->assertStringContainsString('<h3>Verification steps for alice backup profile access</h3>', $html);
+        $this->assertStringNotContainsString('related keywords', strtolower($html));
+    }
+
+    public function test_support_payload_builds_heading_paths_for_each_usable_secondary_keyword(): void {
+        $post = new \WP_Post();
+        $post->ID = 95;
+        $post->post_title = 'Alice';
+        $post->post_type = 'model';
+
+        $payload = TemplateContent::build_model_renderer_support_payload($post, [
+            'name' => 'Alice',
+            'resolved_destinations' => [
+                'watch_cta_destinations' => [],
+                'active_platform_labels' => [],
+                'source_of_truth_summary' => [],
+            ],
+            'rankmath_additional' => [
+                'alice private live chat',
+                'verified profile links',
+                'live stream schedule and status checks for this performer today',
+                'best free alice stream links',
+            ],
+        ]);
+
+        $slots = (array) ($payload['secondary_heading_slots'] ?? []);
+        $this->assertNotEmpty($slots);
+        $flattened = [];
+        array_walk_recursive($slots, static function ($value) use (&$flattened): void {
+            $flattened[] = (string) $value;
+        });
+        $joined = implode(' ', $flattened);
+        $this->assertStringContainsString('alice private live chat', $joined);
+        $this->assertStringContainsString('verified profile links', $joined);
+        $this->assertStringContainsString('live stream schedule and status checks for this performer', $joined);
+        $this->assertContains('best free alice stream links', (array) ($slots['unusable'] ?? []));
+    }
+
+    public function test_depth_guardrail_target_is_raised_for_rank_math_alignment(): void {
+        $method = new \ReflectionMethod(TemplateContent::class, 'ensure_minimum_useful_depth');
+        $method->setAccessible(true);
+
+        $short_html = '<p>Short page body.</p>';
+        $expanded = (string) $method->invoke(null, $short_html, 'Alice', ['Chaturbate', 'Stripchat'], [], 'Chaturbate', 'seed-2');
+        $plain = trim(strip_tags($expanded));
+        $word_count = str_word_count($plain);
+
+        $this->assertGreaterThanOrEqual(640, $word_count);
+        $this->assertStringContainsString('How to Use Backup Destinations Safely', $expanded);
+    }
+
+    public function test_faq_name_mentions_are_limited_to_reduce_density_spikes(): void {
+        $method = new \ReflectionMethod(TemplateContent::class, 'build_seed_faq_items');
+        $method->setAccessible(true);
+
+        $items = (array) $method->invoke(null, [], [[
+            'q' => 'How do I find Alice quickly?',
+            'a' => 'Alice is easiest to find when Alice uses verified links and Alice keeps one handle.',
+        ]], 'Alice');
+
+        $answer = (string) ($items[0]['a'] ?? '');
+        $this->assertStringContainsString('Alice is easiest to find', $answer);
+        $this->assertStringContainsString('this performer uses verified links', $answer);
+        $this->assertSame(1, substr_count($answer, 'Alice'));
+    }
+}

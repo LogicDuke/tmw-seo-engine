@@ -1,0 +1,457 @@
+{
+  "_meta": {
+    "version": "1.2.0",
+    "description": "Category landing page section templates for tmw_category_page TemplatePool generation. v1.1.0 added keyword-enriched variants (intro_10, covers_09, who_09, tips_09, similar_09, close_09) using {{secondary_keywords}} and {{content_terms}} placeholders; these resolve to empty string when no approved pool keywords exist. v1.2.0 (plugin 5.9.5): all implementation-language phrasing rewritten to visitor-facing category copy.",
+    "placeholders": {
+      "{{category_name}}": "Display name of the category (e.g. Blonde Webcam Models)",
+      "{{category_slug}}": "URL slug of the category page",
+      "{{focus_keyword}}": "Primary focus keyword for Rank Math",
+      "{{secondary_keywords}}": "Comma-separated Rank Math extra keywords from approved pool (top 4)",
+      "{{related_categories}}": "Comma-separated related category names",
+      "{{related_models}}": "Comma-separated related model page names",
+      "{{site_name}}": "Site display name",
+      "{{models_url}}": "URL of the models directory",
+      "{{videos_url}}": "URL of the videos directory",
+      "{{category_context}}": "Optional one-sentence context for this category type",
+      "{{platform_context}}": "Optional platform or network context sentence",
+      "{{internal_links}}": "Optional pre-built HTML internal link list",
+      "{{safe_live_context}}": "Optional safe framing sentence about live availability",
+      "{{content_terms}}": "Comma-separated content keyword terms from approved pool (beyond top 4, up to 16)"
+    },
+    "selection_rule": "Deterministic: abs(crc32(post_id . category_slug . section_key)) mod variant_count",
+    "sections": [
+      "intro",
+      "what_this_category_covers",
+      "who_this_category_is_for",
+      "how_to_browse",
+      "live_cam_and_model_discovery_tips",
+      "similar_categories",
+      "what_to_check_before_opening_profile",
+      "internal_navigation",
+      "closing_context"
+    ]
+  },
+  "sections": {
+    "intro": {
+      "label": "Introduction",
+      "variants": [
+        {
+          "id": "intro_01",
+          "body": "<p>{{category_name}} brings together a focused collection of webcam model profiles and video listings that share a common theme. This page is the starting point for visitors who want to explore a specific type of performer or content style without navigating across unrelated sections. Use the directory links below to move deeper into individual profiles or clip archives that match your interest.</p>"
+        },
+        {
+          "id": "intro_02",
+          "body": "<p>If you are looking for {{category_name}}, this page groups the most relevant model profiles and video pages under one accessible archive. Visitors can scan listings at their own pace, compare what is available, and follow related site links into profile pages or video sections that fit their preference. No sign-up is needed to browse.</p>"
+        },
+        {
+          "id": "intro_03",
+          "body": "<p>{{category_name}} is a discovery page for a specific webcam category. It collects models and videos that share the same focus so you can move between listings efficiently. Whether you are new to webcam browsing or returning to find something specific, the structure here is built for quick, practical exploration.</p>"
+        },
+        {
+          "id": "intro_04",
+          "body": "<p>This {{category_name}} directory page gives you a single place to find model profiles and video listings that match one clear browsing intent. The categories, related site links, and navigation below are part of the same site directory, so every destination you follow stays within a familiar structure.</p>"
+        },
+        {
+          "id": "intro_05",
+          "body": "<p>Browsing {{category_name}} starts here. This archive page indexes relevant model cards and video clips so visitors can scan quickly, choose what looks interesting, and navigate deeper without retracing their steps. The focus is on practical discovery rather than promotion — every link on this page points to a real site destination.</p>"
+        },
+        {
+          "id": "intro_06",
+          "body": "<p>{{category_name}} is one of the category pages on {{site_name}} that helps visitors find models and videos around a specific theme. From this page you can browse profile listings, check related video archives, and use the navigation links below to explore the full breadth of what the site offers within this topic.</p>"
+        },
+        {
+          "id": "intro_07",
+          "body": "<p>Looking for {{category_name}}? This page collects performers and video content that share the same browsing focus and organises them into a single, scannable archive. The section headings below will help you understand what this category covers, who it is for, and how to find what you are looking for as efficiently as possible.</p>"
+        },
+        {
+          "id": "intro_08",
+          "body": "<p>{{category_name}} is a category on {{site_name}} designed to reduce browsing friction. Rather than searching through unrelated listings, visitors land here and immediately have access to relevant profiles, connected videos, and related site links that lead further into the same theme. Use the sections below to orient yourself before clicking through.</p>"
+        },
+        {
+          "id": "intro_09",
+          "body": "<p>This is the {{category_name}} archive on {{site_name}}. It exists to help people find webcam models and video content that share a particular style or theme without requiring them to guess at search terms or browse multiple unrelated pages. Everything linked from here stays within the same topic cluster.</p>"
+        },
+        {
+          "id": "intro_10",
+          "body": "<p>{{category_name}} is a directory archive for a focused webcam category. This page collects model profiles and video listings that match the same intent, covering searches such as {{secondary_keywords}}. Scan the sections below to find a starting point, then follow the site links to individual profiles or video pages that match what you are looking for.</p>"
+        }
+      ]
+    },
+    "what_this_category_covers": {
+      "label": "What This Category Covers",
+      "variants": [
+        {
+          "id": "covers_01",
+          "h2": "What This Category Covers",
+          "body": "<p>{{category_name}} is a theme-based archive that collects webcam model profiles and video listings under one browsing focus. The page does not alter any site taxonomy, create new categories, or change how listings are indexed elsewhere — it simply surfaces what already exists in a way that matches a clear visitor intent. Models listed here may stream across multiple platforms, and video entries link to clip pages within the same site.</p>"
+        },
+        {
+          "id": "covers_02",
+          "h2": "What This Category Covers",
+          "body": "<p>This category page covers webcam models and associated video content grouped under the {{category_name}} theme. Listings come from the site's own directory and reflect what performers and content creators have made available. The page does not make platform claims on behalf of third-party services and does not alter any profile, ranking, or indexing status.</p>"
+        },
+        {
+          "id": "covers_03",
+          "h2": "What This Category Covers",
+          "body": "<p>{{category_name}} connects visitors to relevant model profiles and video content that share one clear focus. It covers the range of performers who match this topic, the video clips associated with the same focus, and the site navigation paths that let you move between related sections on {{site_name}}.</p>"
+        },
+        {
+          "id": "covers_04",
+          "h2": "What This Category Covers",
+          "body": "<p>The {{category_name}} category gathers model profile pages and video archive links that share a common topic. Coverage includes both profile-style model pages and clip-based video pages, so visitors interested in live interaction and those interested in recorded content can both find relevant starting points here.</p>"
+        },
+        {
+          "id": "covers_05",
+          "h2": "What This Category Covers",
+          "body": "<p>Under the {{category_name}} umbrella you will find model profiles featuring performers who match this theme and video listings connected to the same browsing interest. The archive is maintained as part of the {{site_name}} directory and reflects available content at the time of the most recent page generation. Individual profile and video pages contain the most current availability information.</p>"
+        },
+        {
+          "id": "covers_06",
+          "h2": "What This Category Covers",
+          "body": "<p>{{category_name}} covers performers and video content that share a recognisable theme for webcam browsing. This includes model cards in the main directory, associated video clips, and related category tags. The page does not editorially rank performers against each other — it presents available listings as a neutral directory archive.</p>"
+        },
+        {
+          "id": "covers_07",
+          "h2": "What This Category Covers",
+          "body": "<p>This page covers webcam models and video content under the {{category_name}} theme. It draws from the {{site_name}} directory to surface profiles and clips that are already published and linked within the site. No external data is pulled in, and no platform availability is implied beyond what individual profile pages indicate.</p>"
+        },
+        {
+          "id": "covers_08",
+          "h2": "What This Category Covers",
+          "body": "<p>The content covered by {{category_name}} includes performer profiles that match this browsing focus and video listings that carry the same topic. Coverage spans beginner-friendly listings through to more detailed profile pages, making the category useful whether you are exploring casually or looking for something specific.</p>"
+        },
+        {
+          "id": "covers_09",
+          "h2": "What This Category Covers",
+          "body": "<p>{{category_name}} covers performer profiles and video listings with a clearly recognisable focus. Visitors arrive from searches including {{secondary_keywords}}, and this page is designed to orient them with a practical overview before they click through to individual profile or video pages. Coverage is neutral - no platform is promoted over another, and no performer is ranked editorially.</p>"
+        }
+      ]
+    },
+    "who_this_category_is_for": {
+      "label": "Who This Category Is For",
+      "variants": [
+        {
+          "id": "who_01",
+          "h2": "Who This Category Is For",
+          "body": "<p>{{category_name}} is for adult visitors who want to browse webcam performers and related video content under a specific theme. It suits first-time visitors who need orientation before clicking into profiles as well as returning users who already know what they are looking for and want to find it quickly. The page does not require an account or sign-in to browse.</p>"
+        },
+        {
+          "id": "who_02",
+          "h2": "Who This Category Is For",
+          "body": "<p>This page is aimed at adults who are searching for webcam models or video content that fits the {{category_name}} theme. It is equally useful for people who are casually exploring and for visitors who have a specific performer or style in mind. The archive format means you can scan quickly and move on to individual pages that match your preference.</p>"
+        },
+        {
+          "id": "who_03",
+          "h2": "Who This Category Is For",
+          "body": "<p>{{category_name}} suits visitors who prefer organised discovery over open-ended browsing. If you find scrolling through a large unfiltered directory time-consuming, a focused category page like this narrows the field to a specific theme so you spend less time skipping past irrelevant listings. It also helps returning visitors find the same theme again without restarting from the homepage.</p>"
+        },
+        {
+          "id": "who_04",
+          "h2": "Who This Category Is For",
+          "body": "<p>Adult visitors looking for {{category_name}} content are the primary audience for this page. That includes people discovering this type of webcam content for the first time as well as regular users who return to the same theme regularly. The navigation structure is designed to be equally useful for both groups without assuming prior knowledge of how the site works.</p>"
+        },
+        {
+          "id": "who_05",
+          "h2": "Who This Category Is For",
+          "body": "<p>This category page is for adults who want to browse {{category_name}} profiles and video listings in an organised way. It is also useful for visitors who found this page through a search and want to check that the content matches what they were looking for before navigating deeper. The sections below give context before any click-through is needed.</p>"
+        },
+        {
+          "id": "who_06",
+          "h2": "Who This Category Is For",
+          "body": "<p>Anyone with a browsing interest in {{category_name}} will find this page a practical starting point. The archive covers the range of available model profiles and video content within this theme, so whether you prefer watching recorded clips or visiting live rooms, there are relevant destinations to follow from here.</p>"
+        },
+        {
+          "id": "who_07",
+          "h2": "Who This Category Is For",
+          "body": "<p>{{category_name}} is for adults who want a dedicated landing point for a specific webcam category rather than starting from a general directory every time. The page works well as a bookmark for returning visitors and as an orientation layer for new ones. Every link from this page leads to content within the same site, so the browsing experience stays consistent.</p>"
+        },
+        {
+          "id": "who_08",
+          "h2": "Who This Category Is For",
+          "body": "<p>This page is designed for adults who search specifically for {{category_name}} rather than browsing general webcam listings. It is useful whether you want to check what is currently available, compare a handful of performers, or find a video clip that matches a particular style. The page is browsable without a site account.</p>"
+        },
+        {
+          "id": "who_09",
+          "h2": "Who This Category Is For",
+          "body": "<p>This page is for adults browsing webcam content related to {{category_name}}. It is a practical starting point for visitors coming from topic searches such as {{secondary_keywords}}. Whether you are scanning for a specific style of performer or browsing more casually, the directory structure here narrows the listings to one consistent theme so you can navigate without filtering through unrelated content.</p>"
+        }
+      ]
+    },
+    "how_to_browse": {
+      "label": "How to Browse This Category",
+      "variants": [
+        {
+          "id": "browse_01",
+          "h2": "How to Browse This Category",
+          "body": "<p>Start by scanning the model cards on this page. Each card links to a full profile where you can check platform availability, read a short description, and follow outbound links to live rooms or fan pages. From any profile page you can navigate back to this category or continue to related categories using the related site links. The video section follows the same pattern — click a clip title to reach the full video page with additional context.</p>"
+        },
+        {
+          "id": "browse_02",
+          "h2": "How to Browse This Category",
+          "body": "<p>Use the Models Directory link below to see all performer profiles available under {{category_name}}. From there, open any profile that looks relevant and use the platform links to check availability. If you want video content, the Videos Directory link leads to clip listings for the same theme. Both directories are navigable without an account.</p>"
+        },
+        {
+          "id": "browse_03",
+          "h2": "How to Browse This Category",
+          "body": "<p>The most efficient way to browse {{category_name}} is to use the site links at the bottom of this page. The Models Directory shows performer profiles sorted by the site's standard display order. The Videos Directory shows clip listings in the same theme. If you find a performer you want to follow, open their profile page and use the links there to reach the platform directly.</p>"
+        },
+        {
+          "id": "browse_04",
+          "h2": "How to Browse This Category",
+          "body": "<p>Browsing {{category_name}} works in two stages. First, use this page to get an overview of what the theme covers and which navigation paths are available. Second, follow the directory links to model profiles or video pages that match your preference. Once inside a profile or clip page, the related tags and site links let you pivot into adjacent themes without returning to this page.</p>"
+        },
+        {
+          "id": "browse_05",
+          "h2": "How to Browse This Category",
+          "body": "<p>You can browse {{category_name}} by starting at the Models Directory to check performer profiles, or by going directly to the Videos Directory if clip content is more relevant to you. Both sections are independently navigable and linked within the site so you can move between them without losing your place in the site hierarchy. Individual pages include additional context that this category-level page does not duplicate.</p>"
+        },
+        {
+          "id": "browse_06",
+          "h2": "How to Browse This Category",
+          "body": "<p>To get the most out of {{category_name}}, open the Models Directory from the navigation links below and filter or scroll to find performers that match your interest. Click any model card to reach a full profile page with listed platform links. For video content, use the Videos Directory in the same way. Neither section requires registration for basic browsing.</p>"
+        },
+        {
+          "id": "browse_07",
+          "h2": "How to Browse This Category",
+          "body": "<p>Browsing this category is straightforward: the model and video links at the bottom of this page take you directly to the relevant directory sections on {{site_name}}. From those sections, you can sort, scan, and open individual pages at your own pace. If a particular model or video leads you to a related theme, the tag links on that page will bring you back to a connected category.</p>"
+        },
+        {
+          "id": "browse_08",
+          "h2": "How to Browse This Category",
+          "body": "<p>{{category_name}} is part of a broader directory structure on {{site_name}}. To navigate it effectively, use the main directory links below as entry points and then follow the site links from profile or video pages to go deeper. The related category links in the next section can also help you move laterally into themes that overlap with {{category_name}} without restarting your search.</p>"
+        }
+      ]
+    },
+    "live_cam_and_model_discovery_tips": {
+      "label": "Live Cam and Model Discovery Tips",
+      "variants": [
+        {
+          "id": "tips_01",
+          "h2": "Live Cam and Model Discovery Tips",
+          "body": "<p>When browsing live cam profiles under {{category_name}}, a few habits make the process faster. Check a profile's availability section first — this tells you which platforms the performer is listed on so you know where to look before clicking outbound. If a room shows as offline on one platform, the model may be live on another listed platform. Use the profile's listed links rather than searching directly on the platform to avoid landing on unrelated accounts.</p>"
+        },
+        {
+          "id": "tips_02",
+          "h2": "Live Cam and Model Discovery Tips",
+          "body": "<p>Finding live models in {{category_name}} is easier when you use profile pages as your starting point rather than platform searches. The profile pages on {{site_name}} include direct links to listed platform accounts, so you skip the step of filtering through similarly-named performers on a crowded platform directory. Open the profile, check the platform links, and follow the one that matches your preference.</p>"
+        },
+        {
+          "id": "tips_03",
+          "h2": "Live Cam and Model Discovery Tips",
+          "body": "<p>Model discovery in {{category_name}} works best when you combine the directory overview with the individual profile detail pages. The overview shows you the range of performers available; the profile pages tell you which platforms each model uses, what their schedule looks like if listed, and what related content is available. Use both layers rather than relying on one alone.</p>"
+        },
+        {
+          "id": "tips_04",
+          "h2": "Live Cam and Model Discovery Tips",
+          "body": "<p>A few practical tips for discovering {{category_name}} performers: start with the Models Directory to see who is listed, open profiles for models who look relevant, and check the platform links on each profile before clicking outbound. If you are interested in a specific performer across multiple visits, bookmarking their {{site_name}} profile page may be more consistent than bookmarking a platform page directly, since platform URLs can change.</p>"
+        },
+        {
+          "id": "tips_05",
+          "h2": "Live Cam and Model Discovery Tips",
+          "body": "<p>Discovering the right {{category_name}} model takes less time when you follow the category and profile links already on the page. Most model profiles link to related profiles in the same category, so if your first choice is offline you can move to a similar performer quickly. The video pages connected to this category also provide a useful reference point for finding performers whose style you might enjoy in a live context.</p>"
+        },
+        {
+          "id": "tips_06",
+          "h2": "Live Cam and Model Discovery Tips",
+          "body": "<p>When looking for live webcam sessions in {{category_name}}, check a profile's listed platform links and note the display name shown for each. Searching directly on the platform for that exact display name is more practical than searching by description alone. The profile page on {{site_name}} exists to give you that listed handle so your search on the platform starts from the right place.</p>"
+        },
+        {
+          "id": "tips_07",
+          "h2": "Live Cam and Model Discovery Tips",
+          "body": "<p>For model discovery in {{category_name}}, the most useful starting point is a profile page rather than a platform search. Profile pages on {{site_name}} include listed platform links, which reduces the chance of navigating to an unrelated account with a similar name. From there, follow the listed platform link directly or search on the platform using the name shown on the profile.</p>"
+        },
+        {
+          "id": "tips_08",
+          "h2": "Live Cam and Model Discovery Tips",
+          "body": "<p>Live availability in {{category_name}} varies by performer and by time of day. Rather than checking a platform directly, use the model profile pages on {{site_name}} as your first stop — they show which platforms each performer uses and may include context about typical availability. That context is more useful than a real-time status check that may have changed by the time you click through.</p>"
+        },
+        {
+          "id": "tips_09",
+          "h2": "Live Cam and Model Discovery Tips",
+          "body": "<p>When exploring {{category_name}} performers, it helps to use the profile pages as a starting filter rather than going directly to a platform. Profile pages include listed platform links, bio context, and related category tags. If you are looking for something more specific within this theme - such as {{secondary_keywords}} - the tag links on individual model pages are the fastest way to move between related styles without returning to this archive each time.</p>"
+        }
+      ]
+    },
+    "similar_categories": {
+      "label": "Similar Categories to Explore",
+      "variants": [
+        {
+          "id": "similar_01",
+          "h2": "Similar Categories to Explore",
+          "body": "<p>If {{category_name}} matches part of your interest but not all of it, there are related categories on {{site_name}} that may complete the picture. Browse adjacent themes to find performers or video content that overlaps with this one. The site category structure is designed so that related themes link to each other, making it easier to move laterally without starting a new search.</p>"
+        },
+        {
+          "id": "similar_02",
+          "h2": "Similar Categories to Explore",
+          "body": "<p>{{category_name}} sits alongside a number of related categories on {{site_name}}. If you find that this category covers part of what you are looking for, the related category links in the site's taxonomy will take you to pages with a slightly different focus but a similar browsing structure. Each category page follows the same format, so navigation remains consistent as you move between them.</p>"
+        },
+        {
+          "id": "similar_03",
+          "h2": "Similar Categories to Explore",
+          "body": "<p>Visitors interested in {{category_name}} may also find value in the related categories available through the main site navigation. These connected themes share some browsing intent with this page but cover different performer types or content styles. Use the site's tag and category links to move between related areas without losing the directory context you already have.</p>"
+        },
+        {
+          "id": "similar_04",
+          "h2": "Similar Categories to Explore",
+          "body": "<p>Beyond {{category_name}}, {{site_name}} organises model and video content into a range of other themed categories. If the performers or videos here are close but not exactly what you need, a related category page may have a better match. The site's linking structure connects overlapping themes so you can navigate between them without returning to the homepage.</p>"
+        },
+        {
+          "id": "similar_05",
+          "h2": "Similar Categories to Explore",
+          "body": "<p>{{category_name}} is one of several themed archive pages on {{site_name}}. Related categories cover overlapping styles, performer types, and video content themes. If you reach the end of what this category offers and want to keep exploring, the site category links in the site's navigation bar or in the footer are the fastest way to find a related page.</p>"
+        },
+        {
+          "id": "similar_06",
+          "h2": "Similar Categories to Explore",
+          "body": "<p>Webcam categories often overlap, and {{category_name}} is no exception. Visitors who enjoy this category tend to find value in related themes that share some of the same performer characteristics or content styles. The {{site_name}} directory organises these related categories through related site links on individual model and video pages, making it easy to discover adjacent content without extra searching.</p>"
+        },
+        {
+          "id": "similar_07",
+          "h2": "Similar Categories to Explore",
+          "body": "<p>If you have browsed through the {{category_name}} listings and want to continue exploring, the most direct path is through related categories linked from within individual model or video pages. These adjacent themes are identified through the site's existing tag structure and share at least one browsing characteristic with this category. Following those related site links is a faster route to related content than starting a new directory search.</p>"
+        },
+        {
+          "id": "similar_08",
+          "h2": "Similar Categories to Explore",
+          "body": "<p>The {{site_name}} directory contains multiple themed categories that may complement {{category_name}}. Exploring related themes is a useful way to broaden your search when the current category has a limited number of listings or when you want a slightly different angle on the same browsing interest. Category tag links on profile and video pages connect these themes directly.</p>"
+        },
+        {
+          "id": "similar_09",
+          "h2": "Similar Categories to Explore",
+          "body": "<p>{{category_name}} sits alongside several related themes on {{site_name}}. If you arrived looking for something more specific - such as {{secondary_keywords}} - the related category and tag links on individual model and video pages will take you closer to that focus. Each connected category follows the same directory structure, so navigating between related themes does not require returning to the homepage.</p>"
+        }
+      ]
+    },
+    "what_to_check_before_opening_profile": {
+      "label": "What to Check Before Opening a Profile",
+      "variants": [
+        {
+          "id": "check_01",
+          "h2": "What to Check Before Opening a Profile",
+          "body": "<p>Before opening a model profile from {{category_name}}, it is worth taking a moment to review what the profile page includes. Look for the platform links section, which tells you which sites the performer uses. Check whether a schedule or availability note is present. Review the bio section if available, as it provides context that is not always visible on the platform page itself. This preparation reduces the chance of clicking through to an offline room or an unrelated account.</p>"
+        },
+        {
+          "id": "check_02",
+          "h2": "What to Check Before Opening a Profile",
+          "body": "<p>When you land on a {{category_name}} profile page, check that the platform links shown match the performer you are looking for before clicking outbound. Some platform names are common across many accounts, so reviewing the handle shown on the profile page can help you reach the right destination. Use the destination platform to check current status.</p>"
+        },
+        {
+          "id": "check_03",
+          "h2": "What to Check Before Opening a Profile",
+          "body": "<p>Before clicking through from a {{category_name}} profile, check the listed platforms and note the handle for each one. If the performer has multiple platform entries, the profile page will indicate which are live-room destinations and which are fan or support pages. Following the right type of link for your intent — live room versus fan content — saves time and avoids a dead end on an offline page.</p>"
+        },
+        {
+          "id": "check_04",
+          "h2": "What to Check Before Opening a Profile",
+          "body": "<p>A few things are worth reviewing before opening any profile from the {{category_name}} category. First, check that the profile name matches who you are looking for. Second, look at the platform list to see which services the model uses. Third, if a schedule is available, check it before committing to a click-through. These steps take less than a minute and make the browsing experience more efficient.</p>"
+        },
+        {
+          "id": "check_05",
+          "h2": "What to Check Before Opening a Profile",
+          "body": "<p>Profile pages under {{category_name}} contain more information than is visible from the category listing. Before navigating to a platform link, open the full profile to review availability details, platform handles, and any bio context provided. This extra step is especially useful when you are choosing between multiple similar performers and want to compare what each one offers before making a decision.</p>"
+        },
+        {
+          "id": "check_06",
+          "h2": "What to Check Before Opening a Profile",
+          "body": "<p>When browsing {{category_name}} profiles, take note of the platform links available for each performer before clicking outbound. If a model has accounts on more than one platform, the profile page will list them separately. Deciding which platform to use before you click — based on your preferred interface or existing account — means fewer redirects and a smoother experience once you arrive.</p>"
+        },
+        {
+          "id": "check_07",
+          "h2": "What to Check Before Opening a Profile",
+          "body": "<p>Before following a link from a {{category_name}} profile to an external platform, check that you are on the correct profile page for the performer you want. Look at the display name, bio, and any platform handles listed. Comparing those details against what you see after you click through can help you reach the right account. This is a straightforward precaution worth building into your browsing habit regardless of which category you use.</p>"
+        },
+        {
+          "id": "check_08",
+          "h2": "What to Check Before Opening a Profile",
+          "body": "<p>{{category_name}} profile pages include a platform links section that is the most important thing to check before clicking outbound. That section lists available destinations rather than inferred ones, so use it as your primary navigation tool. If you see multiple platforms listed, match the type of link — live room, fan page, social profile — to what you are actually looking for before you follow it.</p>"
+        }
+      ]
+    },
+    "internal_navigation": {
+      "label": "Browse Models and Videos",
+      "variants": [
+        {
+          "id": "nav_01",
+          "h2": "Browse Models and Videos",
+          "body": "<p>The two core navigation hubs for {{category_name}} content on {{site_name}} are the Models Directory and the Videos Directory. Both are linked within the site and cover the full range of available listings within this theme and across the broader site.</p><ul><li><a href=\"{{models_url}}\">Browse the Models Directory</a></li><li><a href=\"{{videos_url}}\">Browse the Videos Directory</a></li></ul>"
+        },
+        {
+          "id": "nav_02",
+          "h2": "Find Models and Videos on This Site",
+          "body": "<p>The {{category_name}} listings on {{site_name}} are reachable through two main directories. The Models Directory covers performer profile pages; the Videos Directory covers clip and archive pages. Both are accessible without an account and are the main site starting points for this theme.</p><ul><li><a href=\"{{models_url}}\">Models Directory</a></li><li><a href=\"{{videos_url}}\">Videos Directory</a></li></ul>"
+        },
+        {
+          "id": "nav_03",
+          "h2": "Navigation: Models and Videos",
+          "body": "<p>Use the links below to access the {{site_name}} model and video archives directly. Each directory is independently navigable and covers {{category_name}} content alongside the broader site catalogue.</p><ul><li><a href=\"{{models_url}}\">Webcam Models Directory</a> — profile pages for performers listed on {{site_name}}</li><li><a href=\"{{videos_url}}\">Videos Directory</a> — clip and archive pages connected to this and other categories</li></ul>"
+        },
+        {
+          "id": "nav_04",
+          "h2": "Explore the Site Directories",
+          "body": "<p>From this {{category_name}} page, there are two main paths into the broader {{site_name}} archive. The Models Directory contains performer profiles with platform links and availability information. The Videos Directory contains clip listings that may connect to performers in this or related categories.</p><ul><li><a href=\"{{models_url}}\">Go to the Models Directory</a></li><li><a href=\"{{videos_url}}\">Go to the Videos Directory</a></li></ul>"
+        },
+        {
+          "id": "nav_05",
+          "h2": "Where to Go Next",
+          "body": "<p>After reading through this {{category_name}} overview, the natural next step is to open one of the two core directories below. Both are part of {{site_name}} and stay within the same site structure, so you will not be redirected to an external platform from these links — that step happens from within individual profile or video pages.</p><ul><li><a href=\"{{models_url}}\">Models Directory</a></li><li><a href=\"{{videos_url}}\">Videos Directory</a></li></ul>"
+        },
+        {
+          "id": "nav_06",
+          "h2": "Site Navigation for This Category",
+          "body": "<p>The quickest way to continue browsing {{category_name}} content is through the directory links below. These links take you to the {{site_name}} listing pages where performers and video content are organised by the same site taxonomy that supports this category page.</p><ul><li><a href=\"{{models_url}}\">Models Directory — {{site_name}}</a></li><li><a href=\"{{videos_url}}\">Videos Directory — {{site_name}}</a></li></ul>"
+        },
+        {
+          "id": "nav_07",
+          "h2": "Directory Links",
+          "body": "<p>The {{site_name}} directories below cover the full range of model and video content across all categories including {{category_name}}. Use them as entry points for in-depth browsing after reading the overview sections on this page.</p><ul><li><a href=\"{{models_url}}\">Browse Webcam Models</a></li><li><a href=\"{{videos_url}}\">Browse Webcam Videos</a></li></ul>"
+        },
+        {
+          "id": "nav_08",
+          "h2": "Continue Browsing",
+          "body": "<p>Both directories linked below are maintained as part of {{site_name}} and cover {{category_name}} content alongside all other themes available on the site. Opening either directory is the recommended way to move from this overview page into actual performer or video listings.</p><ul><li><a href=\"{{models_url}}\">Webcam Models Directory</a></li><li><a href=\"{{videos_url}}\">Webcam Videos Directory</a></li></ul>"
+        }
+      ]
+    },
+    "closing_context": {
+      "label": "Closing Context",
+      "variants": [
+        {
+          "id": "close_01",
+          "body": "<p>{{category_name}} on {{site_name}} is kept as a practical discovery page rather than a promotional one. The goal is to give visitors a practical way to find what they are looking for without having to sort through unrelated content. If the listings here change — because performers update their profiles or video pages are edited — the directory links above will always reflect the current state of the archive.</p>"
+        },
+        {
+          "id": "close_02",
+          "body": "<p>This {{category_name}} page is part of the {{site_name}} directory structure. It is generated from the same data that powers the models and videos sections of the site, which means the profile and video links you follow from here are part of the same consistent site archive. The directory presents listings without editorial promotion.</p>"
+        },
+        {
+          "id": "close_03",
+          "body": "<p>The {{category_name}} archive reflects what is currently available in the {{site_name}} directory under this theme. Content and performer availability can change, so individual profile pages are the best place to check current information. This category page functions as a browsing starting point rather than a real-time status board.</p>"
+        },
+        {
+          "id": "close_04",
+          "body": "<p>Navigating {{category_name}} through {{site_name}} gives you a structured path into a specific category focus without bypassing the context that makes that browsing more efficient. The directory organisation is updated as the underlying profile and video pages change.</p>"
+        },
+        {
+          "id": "close_05",
+          "body": "<p>Every section on this {{category_name}} page is designed to reduce browsing friction. The overview sections give context before you click; the directory links take you to the actual listings; the FAQ section covers the questions most visitors have before navigating deeper. Use the page as a starting point and follow the related site links at your own pace.</p>"
+        },
+        {
+          "id": "close_06",
+          "body": "<p>{{category_name}} is one part of the broader {{site_name}} directory. The site maintains separate sections for model profiles, video content, and category archives — this page belongs to the category archive layer. It is designed to make the directory more navigable for visitors who arrive with a specific theme in mind rather than a specific performer name.</p>"
+        },
+        {
+          "id": "close_07",
+          "body": "<p>If you have questions about how the {{site_name}} directory works or about a specific {{category_name}} listing, the FAQ section above covers the most common ones. For anything not addressed there, individual profile and video pages contain more detailed information about the content and platforms available for each entry.</p>"
+        },
+        {
+          "id": "close_08",
+          "body": "<p>The {{category_name}} page is refreshed as the site grows: new performers who match this focus are added over time, and existing listings are updated as platform availability changes. Returning to this page periodically is a simple way to see what is new without browsing the full directory each time.</p>"
+        },
+        {
+          "id": "close_09",
+          "body": "<p>The {{category_name}} archive on {{site_name}} is maintained as a neutral browsing resource. It is designed to serve visitors who arrive with a specific topic in mind - searches like {{secondary_keywords}} often lead to pages like this one. The directory structure is kept practical: sections provide context, and the related site links lead to real profile and video pages within the same site.</p>"
+        }
+      ]
+    }
+  }
+}

@@ -1,0 +1,120 @@
+{
+    "big-boob-cam": {
+        "grammar_repairs": [],
+        "repairs": [],
+        "faq_selection": [
+            {
+                "q": "How do I choose between performers who share the same trait?",
+                "bucket": "style_expectations",
+                "tier": "intent"
+            },
+            {
+                "q": "Do I need to keep the category label in mind while comparing pages?",
+                "bucket": "trait_vs_detail",
+                "tier": "intent"
+            },
+            {
+                "q": "Why do some pages state so much more than others?",
+                "bucket": "profile_detail",
+                "tier": "generic"
+            },
+            {
+                "q": "Does a listing here mean the site endorses it?",
+                "bucket": "category_membership",
+                "tier": "intent"
+            }
+        ]
+    },
+    "blonde-cam-models": {
+        "grammar_repairs": [
+            "normalized_punctuation_or_spacing"
+        ],
+        "repairs": [
+            "restored_link_following_space"
+        ],
+        "faq_selection": [
+            {
+                "q": "Will every performer here match the exact look I have in mind?",
+                "bucket": "style_expectations",
+                "tier": "intent"
+            },
+            {
+                "q": "Is the shared trait enough to choose by?",
+                "bucket": "trait_vs_detail",
+                "tier": "intent"
+            },
+            {
+                "q": "Are the listings here written by the performers?",
+                "bucket": "profile_detail",
+                "tier": "generic"
+            }
+        ]
+    },
+    "latina-cam-models": {
+        "grammar_repairs": [],
+        "repairs": [],
+        "faq_selection": [
+            {
+                "q": "Does this category tell me where performers are from or what they speak?",
+                "bucket": "language_region",
+                "tier": "intent"
+            },
+            {
+                "q": "What if a performer lists several languages?",
+                "bucket": "communication_fit",
+                "tier": "intent"
+            },
+            {
+                "q": "Why do some listings state so little?",
+                "bucket": "profile_detail",
+                "tier": "generic"
+            }
+        ]
+    },
+    "free-cam-chat": {
+        "grammar_repairs": [
+            "normalized_punctuation_or_spacing"
+        ],
+        "repairs": [
+            "restored_link_following_space"
+        ],
+        "faq_selection": [
+            {
+                "q": "Why do the free boundaries feel different from room to room?",
+                "bucket": "what_free_means",
+                "tier": "intent"
+            },
+            {
+                "q": "Can a listing here promise a specific price?",
+                "bucket": "cost_confirmation",
+                "tier": "intent"
+            },
+            {
+                "q": "Do private options work the same on every platform?",
+                "bucket": "private_sessions",
+                "tier": "intent"
+            }
+        ]
+    },
+    "amateur-cams": {
+        "grammar_repairs": [],
+        "repairs": [],
+        "faq_selection": [
+            {
+                "q": "How do I get from this page to something more specific?",
+                "bucket": "narrowing_search",
+                "tier": "intent"
+            },
+            {
+                "q": "Is being listed here a ranking or a recommendation?",
+                "bucket": "category_membership",
+                "tier": "intent"
+            },
+            {
+                "q": "Isn't a wide theme just harder to choose from?",
+                "bucket": "browsing_wide",
+                "tier": "intent"
+            }
+        ]
+    }
+}

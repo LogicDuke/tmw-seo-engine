@@ -1,0 +1,629 @@
+<?php
+namespace TMWSEO\Engine\Platform;
+
+use TMWSEO\Engine\Logs;
+use TMWSEO\Engine\Affiliates\CrakRevenueCamManager;
+
+if (!defined('ABSPATH')) { exit; }
+
+class AffiliateLinkBuilder {
+    /**
+     * Canonical LiveJasmin affiliate endpoint.
+     */
+    private const LIVEJASMIN_AFFILIATE_BASE = 'https://ctwmsg.com/';
+
+    /**
+     * Operator-approved default AWEmpire tracking values for LiveJasmin SEO body links.
+     *
+     * These defaults keep generated model pages from falling back to internal /go/
+     * URLs when the WP Admin affiliate settings are missing or only partly saved.
+     * Saved settings still win whenever they contain a non-empty value.
+     *
+     * @var array<string,string>
+     */
+    private const LIVEJASMIN_SEO_DEFAULTS = [
+        'psid'        => 'Topmodels4u',
+        'pstool'      => '205_1',
+        'psprogram'   => 'revs',
+        'campaign_id' => '',
+        'subaffid'    => '',
+        'siteid'      => 'jasmin',
+        'categoryname' => 'girl',
+        'pagename'    => 'freechat',
+    ];
+
+    /**
+     * Slug aliases that should resolve to the canonical LiveJasmin platform key.
+     *
+     * @var array<string,string>
+     */
+    private const PLATFORM_ALIASES = [
+        'livejasmin'  => 'livejasmin',
+        'live_jasmin' => 'livejasmin',
+        'jasmin'      => 'livejasmin',
+        'lj'          => 'livejasmin',
+    ];
+
+    public static function init(): void {
+        add_action('init', [__CLASS__, 'register_rewrite_rule']);
+        add_filter('query_vars', [__CLASS__, 'register_query_vars']);
+        add_action('template_redirect', [__CLASS__, 'maybe_handle_redirect']);
+    }
+
+    public static function register_rewrite_rule(): void {
+        add_rewrite_rule('^go/([^/]+)/([^/]+)/?$', 'index.php?tmw_go_platform=$matches[1]&tmw_go_username=$matches[2]', 'top');
+    }
+
+    public static function register_query_vars(array $vars): array {
+        $vars[] = 'tmw_go_platform';
+        $vars[] = 'tmw_go_username';
+
+        return $vars;
+    }
+
+    public static function build_profile_url($platform, $username): string {
+        $platform_slug = self::canonical_platform_slug((string) $platform);
+        $platform_data = PlatformRegistry::get($platform_slug);
+        if (!$platform_data) {
+            return '';
+        }
+
+        $clean_username = self::sanitize_username((string) $username);
+        if ($clean_username === '') {
+            return '';
+        }
+
+        $pattern = (string) ($platform_data['profile_url_pattern'] ?? '');
+        if ($pattern === '') {
+            return '';
+        }
+
+        return str_replace('{username}', rawurlencode($clean_username), $pattern);
+    }
+
+    /**
+     * Single global API for affiliate links inside generated SEO body content.
+     *
+     * GLOBAL GENERATED-SEO RULE:
+     * Generated SEO text/content blocks that need Rank Math outbound-link
+     * scoring must call this method instead of go_url(), build_affiliate_url(),
+     * or any raw /go/ helper. LiveJasmin returns only approved external
+     * affiliate destinations and returns an empty string when required platform
+     * username/tracking config is unavailable. CamSoda uses CrakRevenue routing
+     * when configured and falls back to the raw CamSoda profile URL so the
+     * generated page keeps a valid official clickable destination.
+     *
+     * Unlike build_affiliate_url(), this resolver never returns internal /go/
+     * routes. Generated post content needs a real outbound href so SEO tooling
+     * can detect an external link.
+     *
+     * @param string $platform Platform slug or alias.
+     * @param string $username Approved platform username.
+     * @return string External affiliate/profile URL, or empty string when the
+     *                platform cannot provide a safe generated-content URL.
+     */
+    public static function build_seo_content_affiliate_url( string $platform, string $username ): string {
+        $platform_slug = self::canonical_platform_slug( $platform );
+        if ( ! PlatformRegistry::get( $platform_slug ) ) {
+            return '';
+        }
+
+        $clean_username = self::sanitize_username( $username );
+        if ( $clean_username === '' ) {
+            return '';
+        }
+
+        if ( $platform_slug === 'livejasmin' ) {
+            $settings = self::with_livejasmin_seo_defaults( self::get_platform_affiliate_settings( $platform_slug ) );
+            if ( ! self::has_livejasmin_seo_affiliate_config( $settings ) ) {
+                return '';
+            }
+
+            $url = self::build_livejasmin_affiliate_url( $clean_username, $settings );
+            if ( $url === '' || ! self::is_external_url( $url ) ) {
+                return '';
+            }
+
+            return $url;
+        }
+
+        if ( $platform_slug === 'camsoda' ) {
+            return self::build_camsoda_seo_content_url( $clean_username );
+        }
+
+        return '';
+    }
+
+
+    /**
+     * Build the CamSoda URL used inside generated model-page content.
+     *
+     * CrakRevenue is preferred when the approved platform mapping/template is
+     * available. If the operator has not configured that mapping yet, return the
+     * raw CamSoda profile so the generated page never breaks its clickable
+     * official destination. Schema/sameAs still reads the original verified URL.
+     */
+    private static function build_camsoda_seo_content_url( string $username ): string {
+        $profile_url = self::build_profile_url( 'camsoda', $username );
+        if ( $profile_url === '' || ! self::is_external_url( $profile_url ) ) {
+            return '';
+        }
+
+        if ( class_exists( CrakRevenueCamManager::class ) ) {
+            $routed = CrakRevenueCamManager::maybe_route_verified_link( [
+                'type'           => 'camsoda',
+                'url'            => $profile_url,
+                'is_active'      => true,
+                'activity_level' => 'active',
+            ] );
+            if ( $routed !== '' && self::is_external_url( $routed ) ) {
+                return $routed;
+            }
+        }
+
+        return $profile_url;
+    }
+
+    /**
+     * Build the normal affiliate/profile destination used by redirect and
+     * non-generated-body contexts.
+     *
+     * This method may fall back to profile URLs and is intentionally preserved
+     * for existing /go/ redirect behavior. Generated SEO body content must use
+     * build_seo_content_affiliate_url() instead so Rank Math sees an approved
+     * external affiliate href only when tracking config exists.
+     */
+    public static function build_affiliate_url($platform, $username): string {
+        $platform_slug = self::canonical_platform_slug((string) $platform);
+        if (!PlatformRegistry::get($platform_slug)) {
+            return '';
+        }
+
+        $clean_username = self::sanitize_username((string) $username);
+        if ($clean_username === '') {
+            return '';
+        }
+
+        $profile_url = self::build_profile_url($platform_slug, $clean_username);
+        if ($profile_url === '') {
+            return '';
+        }
+
+        $settings = self::get_platform_affiliate_settings($platform_slug);
+        if ($platform_slug === 'livejasmin') {
+            $livejasmin = self::build_livejasmin_affiliate_url($clean_username, $settings);
+            if ($livejasmin !== '') {
+                return $livejasmin;
+            }
+        }
+
+        if (!empty($settings['enabled']) && !empty($settings['template'])) {
+            $built = self::build_from_template((string) $settings['template'], $platform_slug, $clean_username, $profile_url, $settings);
+            if ($built !== '') {
+                return $built;
+            }
+        }
+
+        $platform_data = PlatformRegistry::get($platform_slug);
+        $registry_pattern = is_array($platform_data) ? (string) ($platform_data['affiliate_link_pattern'] ?? '') : '';
+        if ($registry_pattern !== '') {
+            $built = self::build_from_template($registry_pattern, $platform_slug, $clean_username, $profile_url, []);
+            if ($built !== '') {
+                return $built;
+            }
+        }
+
+        return $profile_url;
+    }
+
+    /**
+     * Build the internal cloaked redirect URL for frontend/click-tracking UI.
+     *
+     * GLOBAL GENERATED-SEO RULE:
+     * - Use go_url() for frontend buttons, cards, theme links, and other places
+     *   where internal click tracking/cloaking is intentional.
+     * - Do NOT use go_url() inside generated SEO body text that is intended to
+     *   satisfy Rank Math outbound-link detection; Rank Math sees the site host
+     *   as internal and will not count the eventual redirect target.
+     * - Generated SEO body content must use build_seo_content_affiliate_url().
+     */
+    public static function go_url($platform, $username): string {
+        $platform_slug = self::canonical_platform_slug((string) $platform);
+        $clean_username = self::sanitize_username((string) $username);
+
+        return home_url('/go/' . rawurlencode($platform_slug) . '/' . rawurlencode($clean_username) . '/');
+    }
+
+    /**
+     * Return an ordered map of network/platform slugs that have affiliate routing
+     * currently configured and available for operator selection.
+     *
+     * Lookup order (both sources merged, networks take display precedence):
+     *   1. tmwseo_affiliate_networks — generic network keys (e.g. 'crack_revenue').
+     *      These are URL-rewriting templates not tied to a specific platform slug.
+     *   2. tmwseo_platform_affiliate_settings — platform-slug-keyed templates.
+     *      These require the network key to match a PlatformRegistry slug.
+     *
+     * Only enabled entries are included. Returns slug => label.
+     *
+     * @return array<string,string>  slug => human-readable label, alpha-sorted.
+     */
+    public static function get_configurable_network_keys(): array {
+        $keys = [];
+
+        // Network-level keys first (crack_revenue, etc.)
+        $networks = get_option( 'tmwseo_affiliate_networks', [] );
+        if ( is_array( $networks ) ) {
+            foreach ( $networks as $slug => $cfg ) {
+                if ( is_array( $cfg ) && ! empty( $cfg['enabled'] ) && trim( (string) ( $cfg['template'] ?? '' ) ) !== '' ) {
+                    $label        = trim( (string) ( $cfg['label'] ?? $slug ) );
+                    $keys[ $slug ] = $label !== '' ? $label : $slug;
+                }
+            }
+        }
+
+        // Platform-level keys (platform slugs with enabled templates)
+        $platforms = get_option( 'tmwseo_platform_affiliate_settings', [] );
+        if ( is_array( $platforms ) ) {
+            foreach ( $platforms as $slug => $cfg ) {
+                if ( is_array( $cfg ) && ! empty( $cfg['enabled'] ) && trim( (string) ( $cfg['template'] ?? '' ) ) !== '' && ! isset( $keys[ $slug ] ) ) {
+                    $pd           = PlatformRegistry::get( $slug );
+                    $label        = is_array( $pd ) ? (string) ( $pd['name'] ?? $slug ) : $slug;
+                    $keys[ $slug ] = $label;
+                }
+            }
+        }
+
+        asort( $keys );
+        return $keys;
+    }
+
+    /**
+     * Build an affiliate URL for an arbitrary approved target URL.
+     *
+     * Used by the Verified External Links affiliate routing layer, where the
+     * link being routed is an already-approved outbound URL (not necessarily
+     * a username-based platform profile).
+     *
+     * Lookup order for $network_key:
+     *   1. tmwseo_affiliate_networks option — generic network-level templates
+     *      (e.g. 'crack_revenue'). These are configured through the Affiliate
+     *      Networks section of the admin Affiliates page.
+     *   2. tmwseo_platform_affiliate_settings option — platform-slug-keyed
+     *      templates. Only platform slugs registered in PlatformRegistry can
+     *      ever appear here; the sanitizer strips any other keys.
+     *
+     * Returns $target_url on any failure so callers always get a valid URL.
+     *
+     * @param string $target_url   Operator-approved outbound URL (the VL `url` field).
+     * @param string $network_key  Network or platform slug. Must be a key in one of
+     *                             the two affiliate options described above.
+     * @return string              Routed affiliate URL, or $target_url as fallback.
+     */
+    public static function build_affiliate_url_for_target( string $target_url, string $network_key ): string {
+        $target_url  = esc_url_raw( trim( $target_url ) );
+        $network_key = sanitize_key( $network_key );
+
+        if ( $target_url === '' || $network_key === '' ) {
+            return $target_url;
+        }
+
+        // Check tmwseo_affiliate_networks first (network-level keys).
+        $settings = self::get_network_affiliate_settings( $network_key );
+
+        // Fall back to platform-slug settings if not found in networks.
+        if ( empty( $settings ) ) {
+            $settings = self::get_platform_affiliate_settings( $network_key );
+        }
+
+        if ( empty( $settings['enabled'] ) || empty( $settings['template'] ) ) {
+            return $target_url;
+        }
+
+        $built = self::build_from_template(
+            (string) $settings['template'],
+            $network_key,
+            '',           // no username — template should use {profile_url}
+            $target_url,  // profile_url = approved outbound target
+            $settings
+        );
+
+        if ( $built !== '' && wp_http_validate_url( $built ) ) {
+            return $built;
+        }
+
+        return $target_url;
+    }
+
+    /**
+     * Read one entry from tmwseo_affiliate_networks (network-level settings).
+     *
+     * @param string $network  Network slug key.
+     * @return array<string,mixed>
+     */
+    private static function get_network_affiliate_settings( string $network ): array {
+        $all = get_option( 'tmwseo_affiliate_networks', [] );
+        if ( ! is_array( $all ) ) {
+            return [];
+        }
+        $settings = $all[ $network ] ?? [];
+        return is_array( $settings ) ? $settings : [];
+    }
+
+    public static function maybe_handle_redirect(): void {
+        $url = self::resolve_go_destination(
+            (string) get_query_var('tmw_go_platform', ''),
+            (string) get_query_var('tmw_go_username', '')
+        );
+        if ($url === '') {
+            return;
+        }
+
+        $platform_slug = self::canonical_platform_slug((string) get_query_var('tmw_go_platform', ''));
+        $clean_username = self::sanitize_username((string) get_query_var('tmw_go_username', ''));
+        self::log_click($platform_slug, $clean_username, $url);
+
+        Logs::info('platform', '[TMW-AFF] Redirecting affiliate click', [
+            'platform' => $platform_slug,
+            'username' => $clean_username,
+            'url' => $url,
+        ]);
+
+        if (!wp_http_validate_url($url)) {
+            Logs::warning('platform', '[TMW-AFF] Rejected invalid redirect URL', [
+                'platform' => $platform_slug,
+                'username' => $clean_username,
+                'url' => $url,
+            ]);
+            return;
+        }
+
+        wp_redirect($url, 302);
+        exit;
+    }
+
+    /**
+     * Resolve the canonical outbound destination used by /go/{platform}/{username}/.
+     *
+     * @param string $platform Raw platform slug (or alias) from route/query var.
+     * @param string $username Raw username from route/query var.
+     */
+    public static function resolve_go_destination(string $platform, string $username): string {
+        if ($platform === '' || $username === '') {
+            return '';
+        }
+
+        $platform_slug = self::canonical_platform_slug($platform);
+        if (!PlatformRegistry::get($platform_slug)) {
+            return '';
+        }
+
+        $clean_username = self::sanitize_username($username);
+        if ($clean_username === '') {
+            return '';
+        }
+
+        return self::build_affiliate_url($platform_slug, $clean_username);
+    }
+
+    private static function sanitize_username(string $username): string {
+        $username = wp_unslash($username);
+        $username = trim($username);
+        $username = sanitize_text_field($username);
+
+        return preg_replace('/[^A-Za-z0-9._-]/', '', $username) ?? '';
+    }
+
+    private static function log_click(string $platform, string $username, string $url): void {
+        global $wpdb;
+
+        if (!isset($wpdb)) {
+            return;
+        }
+
+        $table = $wpdb->prefix . 'tmw_aff_clicks';
+
+        // phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery
+        $exists = $wpdb->get_var($wpdb->prepare('SHOW TABLES LIKE %s', $table));
+        if ($exists !== $table) {
+            return;
+        }
+
+        // phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery
+        $wpdb->insert($table, [
+            'platform' => $platform,
+            'username' => $username,
+            'target_url' => $url,
+            'clicked_at' => current_time('mysql'),
+            'ip_address' => isset($_SERVER['REMOTE_ADDR']) ? sanitize_text_field(wp_unslash((string) $_SERVER['REMOTE_ADDR'])) : '',
+            'user_agent' => isset($_SERVER['HTTP_USER_AGENT']) ? sanitize_text_field(wp_unslash((string) $_SERVER['HTTP_USER_AGENT'])) : '',
+        ], [
+            '%s', '%s', '%s', '%s', '%s', '%s',
+        ]);
+    }
+
+    private static function get_platform_affiliate_settings(string $platform): array {
+        $all = get_option('tmwseo_platform_affiliate_settings', []);
+        if (!is_array($all)) {
+            $all = [];
+        }
+
+        $platform = self::canonical_platform_slug($platform);
+        $settings = $all[$platform] ?? [];
+        $settings = is_array($settings) ? $settings : [];
+
+        return $settings;
+    }
+
+    /**
+     * Merge code-defined LiveJasmin defaults into saved settings without
+     * overwriting any non-empty operator value.
+     *
+     * @param array<string,mixed> $settings
+     * @return array<string,mixed>
+     */
+    private static function with_livejasmin_seo_defaults(array $settings): array {
+        if (trim((string) ($settings['subaffid'] ?? '')) === '' && trim((string) ($settings['subAffId'] ?? '')) !== '') {
+            $settings['subaffid'] = $settings['subAffId'];
+        }
+
+        foreach (self::LIVEJASMIN_SEO_DEFAULTS as $key => $default) {
+            if (!array_key_exists($key, $settings) || trim((string) $settings[$key]) === '') {
+                $settings[$key] = $default;
+            }
+        }
+
+        return $settings;
+    }
+
+    /**
+     * Normalize incoming platform slugs (including known aliases).
+     */
+    public static function canonical_platform_slug(string $platform): string {
+        $slug = sanitize_key($platform);
+        return self::PLATFORM_ALIASES[$slug] ?? $slug;
+    }
+
+    /**
+     * Confirm LiveJasmin has enough approved affiliate configuration
+     * to emit a monetized external link in generated SEO content.
+     *
+     * get_platform_affiliate_settings() merges the code-defined AWEmpire
+     * defaults first, so generated model pages can always output the official
+     * ctwmsg.com SEO link unless LiveJasmin itself is unavailable.
+     *
+     * @param array<string,mixed> $settings
+     */
+    private static function has_livejasmin_seo_affiliate_config( array $settings ): bool {
+        if ( empty( $settings ) ) {
+            return false;
+        }
+
+        foreach ( [ 'psid', 'pstool', 'psprogram', 'campaign_id', 'subaffid' ] as $key ) {
+            if ( trim( (string) ( $settings[ $key ] ?? '' ) ) !== '' ) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    private static function is_external_url( string $url ): bool {
+        if ( ! wp_http_validate_url( $url ) ) {
+            return false;
+        }
+
+        $host = strtolower( (string) wp_parse_url( $url, PHP_URL_HOST ) );
+        if ( $host === '' ) {
+            return false;
+        }
+
+        $home_host = strtolower( (string) wp_parse_url( home_url( '/' ), PHP_URL_HOST ) );
+        return $home_host === '' || $host !== $home_host;
+    }
+
+    /**
+     * Build canonical LiveJasmin affiliate URL.
+     *
+     * Uses settings-derived values whenever available and falls back only to
+     * default LiveJasmin routing fields that are platform constants.
+     *
+     * @param string $username
+     * @param array<string,mixed> $settings
+     */
+    public static function build_livejasmin_affiliate_url_from_model_name(string $model_name): string {
+        $clean_name = self::sanitize_username(preg_replace('/\s+/u', '', $model_name) ?? $model_name);
+        if ($clean_name === '') {
+            return '';
+        }
+
+        $settings = self::with_livejasmin_seo_defaults(self::get_platform_affiliate_settings('livejasmin'));
+
+        return self::build_livejasmin_affiliate_url($clean_name, $settings);
+    }
+
+    private static function build_livejasmin_affiliate_url(string $username, array $settings): string {
+        $clean_username = self::sanitize_username($username);
+        if ($clean_username === '') {
+            return '';
+        }
+
+        $parts = [
+            'performerName=' . rawurlencode($clean_username),
+            'siteId=' . rawurlencode((string) ($settings['siteid'] ?? 'jasmin')),
+            'categoryName=' . rawurlencode((string) ($settings['categoryname'] ?? 'girl')),
+            'pageName=' . rawurlencode((string) ($settings['pagename'] ?? 'freechat')),
+            'prm%5Bpsid%5D=' . rawurlencode((string) ($settings['psid'] ?? '')),
+            'prm%5Bpstool%5D=' . rawurlencode((string) ($settings['pstool'] ?? '')),
+            'prm%5Bpsprogram%5D=' . rawurlencode((string) ($settings['psprogram'] ?? '')),
+            trim((string) ($settings['campaign_id'] ?? '')) === ''
+                ? 'prm%5Bcampaign_id%5D'
+                : 'prm%5Bcampaign_id%5D=' . rawurlencode((string) $settings['campaign_id']),
+            trim((string) ($settings['subaffid'] ?? '')) === ''
+                ? 'subAffId'
+                : 'subAffId=' . rawurlencode((string) $settings['subaffid']),
+        ];
+
+        $url = esc_url_raw(self::LIVEJASMIN_AFFILIATE_BASE . '?' . implode('&', $parts));
+        return wp_http_validate_url($url) ? $url : '';
+    }
+
+    private static function build_from_template(string $template, string $platform, string $username, string $profile_url, array $settings): string {
+        $template = trim($template);
+        if ($template === '') {
+            return '';
+        }
+
+        $campaign = (string) ($settings['campaign'] ?? Settings::get('affiliate_campaign', ''));
+        $source = (string) ($settings['source'] ?? Settings::get('affiliate_source', ''));
+        $subaffid = (string) ($settings['subaffid'] ?? '');
+        $psid = (string) ($settings['psid'] ?? '');
+        $pstool = (string) ($settings['pstool'] ?? '');
+        $psprogram = (string) ($settings['psprogram'] ?? '');
+        $campaign_id = (string) ($settings['campaign_id'] ?? '');
+        $siteid = (string) ($settings['siteid'] ?? '');
+        $categoryname = (string) ($settings['categoryname'] ?? '');
+        $pagename = (string) ($settings['pagename'] ?? '');
+
+        $replacements = [
+            '{username}' => rawurlencode($username),
+            '{encoded_username}' => rawurlencode($username),
+            '{profile_url}' => $profile_url,
+            '{encoded_profile_url}' => rawurlencode($profile_url),
+            '{offer_id}' => rawurlencode((string) ($settings['offer_id'] ?? '')),
+            '{campaign}' => rawurlencode($campaign),
+            '{source}' => rawurlencode($source),
+            '{subaffid}' => rawurlencode($subaffid),
+            '{psid}' => rawurlencode($psid),
+            '{pstool}' => rawurlencode($pstool),
+            '{psprogram}' => rawurlencode($psprogram),
+            '{campaign_id}' => rawurlencode($campaign_id),
+            '{siteid}' => rawurlencode($siteid),
+            '{categoryname}' => rawurlencode($categoryname),
+            '{pagename}' => rawurlencode($pagename),
+            '{platform}' => rawurlencode($platform),
+            '{siteId}' => rawurlencode($siteid),
+            '{categoryName}' => rawurlencode($categoryname),
+            '{pageName}' => rawurlencode($pagename),
+            '{subAffId}' => rawurlencode($subaffid),
+        ];
+
+        $url = strtr($template, $replacements);
+        $url = esc_url_raw($url);
+        return wp_http_validate_url($url) ? $url : '';
+    }
+
+    /**
+     * Public wrapper for template substitution used by unit-tested routing services.
+     *
+     * @param string $template Template URL.
+     * @param string $platform Platform slug.
+     * @param string $username Extracted username.
+     * @param string $profile_url Real profile URL.
+     * @param array<string,mixed> $settings Placeholder settings.
+     * @return string
+     */
+    public static function build_from_template_for_tests(string $template, string $platform, string $username, string $profile_url, array $settings): string {
+        return self::build_from_template($template, $platform, $username, $profile_url, $settings);
+    }
+}

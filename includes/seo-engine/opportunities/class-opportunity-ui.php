@@ -1,0 +1,319 @@
+<?php
+namespace TMWSEO\Engine\Opportunities;
+
+use TMWSEO\Engine\Admin;
+use TMWSEO\Engine\Logs;
+use TMWSEO\Engine\Jobs;
+use TMWSEO\Engine\Services\Settings;
+use TMWSEO\Engine\Admin\Tables\OpportunitiesTable;
+
+if (!defined('ABSPATH')) { exit; }
+
+class OpportunityUI {
+    private OpportunityEngine $engine;
+    private OpportunityDatabase $db;
+
+    public function __construct(?OpportunityEngine $engine = null, ?OpportunityDatabase $db = null) {
+        $this->engine = $engine ?: new OpportunityEngine();
+        $this->db = $db ?: new OpportunityDatabase();
+    }
+
+    public static function init(): void {
+        $ui = new self();
+        add_action('admin_menu', [$ui, 'register_menu'], 99);
+        add_action('admin_post_tmwseo_run_opportunity_scan', [$ui, 'handle_run_scan']);
+        add_action('admin_post_tmwseo_opportunity_action', [$ui, 'handle_row_action']);
+    }
+
+    public function register_menu(): void {
+        // Menu registration is centrally managed by Admin::menu() which calls render_static() directly.
+    }
+
+    /** Static wrapper — allows Admin::menu() to register this as a direct callback. */
+    public static function render_static(): void {
+        ( new self() )->render_page();
+    }
+
+    public function handle_run_scan(): void {
+        if (!current_user_can('manage_options')) {
+            wp_die('Unauthorized');
+        }
+        check_admin_referer('tmwseo_run_opportunity_scan');
+
+        $result = $this->engine->run();
+        $stored = (int) ($result['stored'] ?? 0);
+
+        wp_safe_redirect(admin_url('admin.php?page=tmwseo-opportunities&scan_stored=' . $stored));
+        exit;
+    }
+
+    public function handle_row_action(): void {
+        if (!current_user_can('manage_options')) {
+            wp_die('Unauthorized');
+        }
+        check_admin_referer('tmwseo_opportunity_action');
+
+        $id = isset($_POST['id']) ? (int) $_POST['id'] : 0;
+        $action = sanitize_key((string) ($_POST['row_action'] ?? ''));
+
+        if ($id <= 0 || $action === '') {
+            wp_safe_redirect(admin_url('admin.php?page=tmwseo-opportunities'));
+            exit;
+        }
+
+        if ($action === 'ignore') {
+            $this->db->update_status($id, 'ignored');
+        } elseif ($action === 'generate') {
+            $this->generate_draft_page($id);
+        }
+
+        wp_safe_redirect(admin_url('admin.php?page=tmwseo-opportunities&updated=' . $id));
+        exit;
+    }
+
+    public function run_bulk_generate_draft(int $opportunity_id): void {
+        $this->generate_draft_page($opportunity_id);
+    }
+
+    private function generate_draft_page(int $opportunity_id): void {
+        $row = $this->db->find_by_id($opportunity_id);
+        if (!$row) {
+            return;
+        }
+
+        if (!Settings::is_human_approval_required()) {
+            // Even if global safety is disabled, this action is always manually initiated.
+            Logs::info('opportunities', '[TMW-OPP] Manual draft creation triggered with relaxed guard', ['id' => $opportunity_id]);
+        }
+
+        $keyword = trim((string) ($row['keyword'] ?? ''));
+        if ($keyword === '') {
+            return;
+        }
+
+        $cluster_id = $this->resolve_cluster_id($keyword);
+        if ($cluster_id > 0) {
+            $existing_page_id = $this->get_existing_cluster_page_id($cluster_id);
+            if ($existing_page_id > 0) {
+                $this->db->update_status($opportunity_id, 'generated');
+                Logs::info('opportunities', '[TMW-OPP] Cluster already has a mapped page; skipped duplicate draft creation', [
+                    'opportunity_id' => $opportunity_id,
+                    'cluster_id' => $cluster_id,
+                    'existing_page_id' => $existing_page_id,
+                ]);
+                return;
+            }
+        }
+
+        $post_id = wp_insert_post([
+            'post_type' => 'page',
+            'post_status' => 'draft',
+            'post_title' => wp_strip_all_tags(ucwords($keyword)),
+            'post_name' => sanitize_title($keyword),
+            'post_content' => $this->build_seed_content($keyword),
+            'post_author' => get_current_user_id() ?: 1,
+        ], true);
+
+        if (is_wp_error($post_id)) {
+            Logs::error('opportunities', '[TMW-OPP] Failed to create draft from opportunity', [
+                'id' => $opportunity_id,
+                'error' => $post_id->get_error_message(),
+            ]);
+            return;
+        }
+
+        update_post_meta($post_id, '_tmwseo_generated', 1);
+
+        // ── v5.1: Ownership enforcement before keyword assignment ──
+        if ( class_exists( '\\TMWSEO\\Engine\\Keywords\\OwnershipEnforcer' ) ) {
+            $own_check = \TMWSEO\Engine\Keywords\OwnershipEnforcer::enforce_assignment( $keyword, (int) $post_id, 'primary' );
+            if ( ! $own_check['allowed'] ) {
+                Logs::warn( 'opportunities', '[TMW-OPP] Ownership conflict — keyword not assigned', [
+                    'post_id' => $post_id,
+                    'keyword' => $keyword,
+                    'reason'  => $own_check['reason'],
+                ] );
+                // Still create the page but WITHOUT the keyword assignment
+                update_post_meta( $post_id, '_tmwseo_ownership_blocked', $own_check['reason'] );
+                return;
+            }
+        }
+
+        update_post_meta($post_id, '_tmwseo_keyword', $keyword);
+        update_post_meta($post_id, '_tmwseo_cluster_id', $cluster_id);
+
+        // Rank Math metadata + enforced noindex for all generated opportunity pages.
+        update_post_meta($post_id, 'rank_math_focus_keyword', $keyword);
+        update_post_meta($post_id, 'rank_math_title', ucwords($keyword) . ' | ' . get_bloginfo('name'));
+        update_post_meta($post_id, 'rank_math_description', sprintf('Explore %s and related live cam topics.', $keyword));
+        update_post_meta($post_id, 'rank_math_robots', ['noindex']);
+
+        // Keep generation in draft workflow only.
+        Jobs::enqueue('optimize_post', 'page', (int) $post_id, [
+            'context' => 'keyword_page',
+            'keyword' => $keyword,
+        ]);
+
+        $this->sync_cluster_page_mapping($cluster_id, (int) $post_id);
+        $this->db->update_status($opportunity_id, 'generated');
+
+        Logs::info('opportunities', '[TMW-OPP] Draft page generated from opportunity', [
+            'opportunity_id' => $opportunity_id,
+            'post_id' => (int) $post_id,
+            'cluster_id' => $cluster_id,
+            'keyword' => $keyword,
+        ]);
+    }
+
+    private function resolve_cluster_id(string $keyword): int {
+        global $wpdb;
+        $cluster_table = $wpdb->prefix . 'tmw_keyword_clusters';
+        $cluster_keyword_map_table = $wpdb->prefix . 'tmw_keyword_cluster_map';
+
+        $normalized_keyword = \TMWSEO\Engine\Keywords\KeywordValidator::normalize($keyword);
+        if ($normalized_keyword !== '') {
+            $mapped_cluster_id = (int) $wpdb->get_var($wpdb->prepare(
+                "SELECT cluster_id FROM {$cluster_keyword_map_table} WHERE keyword = %s LIMIT 1",
+                $normalized_keyword
+            ));
+
+            if ($mapped_cluster_id > 0) {
+                return $mapped_cluster_id;
+            }
+        }
+
+        $cluster_id = (int) $wpdb->get_var($wpdb->prepare(
+            "SELECT id FROM {$cluster_table} WHERE representative = %s ORDER BY id DESC LIMIT 1",
+            $keyword
+        ));
+
+        if ($cluster_id > 0) {
+            return $cluster_id;
+        }
+
+        return (int) $wpdb->get_var($wpdb->prepare(
+            "SELECT id FROM {$cluster_table} WHERE representative LIKE %s ORDER BY opportunity DESC LIMIT 1",
+            '%' . $wpdb->esc_like($keyword) . '%'
+        ));
+    }
+
+    private function get_existing_cluster_page_id(int $cluster_id): int {
+        if ($cluster_id <= 0) {
+            return 0;
+        }
+
+        global $wpdb;
+        $cluster_table = $wpdb->prefix . 'tmw_keyword_clusters';
+
+        $page_id = (int) $wpdb->get_var($wpdb->prepare(
+            "SELECT page_id FROM {$cluster_table} WHERE id = %d LIMIT 1",
+            $cluster_id
+        ));
+
+        return $page_id > 0 ? $page_id : 0;
+    }
+
+    private function sync_cluster_page_mapping(int $cluster_id, int $page_id): void {
+        if ($cluster_id <= 0 || $page_id <= 0) {
+            return;
+        }
+
+        global $wpdb;
+        $cluster_table = $wpdb->prefix . 'tmw_keyword_clusters';
+        $cluster_keyword_map_table = $wpdb->prefix . 'tmw_keyword_cluster_map';
+
+        $wpdb->update(
+            $cluster_table,
+            [
+                'page_id' => $page_id,
+                'status' => 'built',
+                'updated_at' => current_time('mysql'),
+            ],
+            ['id' => $cluster_id],
+            ['%d', '%s', '%s'],
+            ['%d']
+        );
+
+        $wpdb->update(
+            $cluster_keyword_map_table,
+            [
+                'page_id' => $page_id,
+                'updated_at' => current_time('mysql'),
+            ],
+            ['cluster_id' => $cluster_id],
+            ['%d', '%s'],
+            ['%d']
+        );
+    }
+
+    private function build_seed_content(string $keyword): string {
+        $internal_links = $this->build_internal_links();
+
+        $content = "<!-- TMWSEO:AI -->\n";
+        $content .= '<h2>' . esc_html(ucwords($keyword)) . '</h2>';
+        $content .= '<p>' . esc_html__('Draft placeholder for SEO opportunity content generation.', 'tmwseo') . '</p>';
+
+        if (!empty($internal_links)) {
+            $content .= '<h3>' . esc_html__('Related pages', 'tmwseo') . '</h3><ul>' . $internal_links . '</ul>';
+        }
+
+        return $content;
+    }
+
+    private function build_internal_links(): string {
+        $posts = get_posts([
+            'post_type' => ['post', 'page', 'model'],
+            'post_status' => 'publish',
+            'posts_per_page' => 5,
+            'orderby' => 'date',
+            'order' => 'DESC',
+        ]);
+
+        $items = [];
+        foreach ($posts as $post) {
+            if (!($post instanceof \WP_Post)) {
+                continue;
+            }
+            $items[] = sprintf(
+                '<li><a href="%s">%s</a></li>',
+                esc_url(get_permalink($post)),
+                esc_html(get_the_title($post))
+            );
+        }
+
+        return implode('', $items);
+    }
+
+    public function render_page(): void {
+        if (!current_user_can('manage_options')) {
+            wp_die('Unauthorized');
+        }
+
+        $stored = isset($_GET['scan_stored']) ? (int) $_GET['scan_stored'] : null;
+
+        $table = new OpportunitiesTable($this);
+
+        echo '<div class="wrap"><h1>Suggestions</h1>';
+        echo '<p><strong>Needs Attention:</strong> Review suggested pages and create drafts manually.</p>';
+        echo '<p>This screen is suggestion-first. The plugin never auto-publishes or auto-creates pages in background runs.</p>';
+
+        if ($stored !== null) {
+            echo '<div class="notice notice-success"><p>Scan completed. Stored opportunities: <strong>' . esc_html((string) $stored) . '</strong>.</p></div>';
+        }
+
+        echo '<form method="post" action="' . esc_url(admin_url('admin-post.php')) . '" style="margin:12px 0 20px;">';
+        wp_nonce_field('tmwseo_run_opportunity_scan');
+        echo '<input type="hidden" name="action" value="tmwseo_run_opportunity_scan">';
+        submit_button('Run Competitor Opportunity Scan', 'primary', 'submit', false);
+        echo '</form>';
+
+        echo '<form method="get">';
+        echo '<input type="hidden" name="page" value="tmwseo-opportunities">';
+        $table->prepare_items();
+        $table->search_box(__('Search Keywords / Clusters', 'tmwseo'), 'opportunities-search');
+        $table->display();
+        echo '</form>';
+
+        echo '</div>';
+    }
+}

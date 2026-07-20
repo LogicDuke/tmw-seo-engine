@@ -1,0 +1,18 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+    Compatible with PHPUnit 9.x (system-installed) and PHPUnit 10.x (composer).
+    PHPUnit 10-only attributes (displayDetailsOnTestsThatTriggerWarnings, source)
+    were removed; they are safe to re-add when upgrading to PHPUnit 10+.
+-->
+<phpunit
+    bootstrap="tests/bootstrap/wordpress-stubs.php"
+    colors="true"
+>
+    <testsuites>
+        <testsuite name="TMW SEO Engine Unit Tests">
+            <directory>tests</directory>
+            <exclude>tests/bootstrap</exclude>
+            <exclude>tests/results</exclude>
+        </testsuite>
+    </testsuites>
+</phpunit>
