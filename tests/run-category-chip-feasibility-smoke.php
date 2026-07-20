@@ -4,6 +4,9 @@ if (!defined('ABSPATH')) { define('ABSPATH', __DIR__); }
 $dir = dirname(__DIR__) . '/includes/content/category-pipeline/';
 require_once $dir . 'class-category-keyword-planner.php';
 require_once $dir . 'class-category-chip-feasibility.php';
+require_once $dir . 'class-category-semantic-profile.php';
+require_once $dir . 'class-category-semantic-sections.php';
+require_once $dir . 'class-category-interchangeability-guard.php';
 use TMWSEO\Engine\Content\CategoryPipeline\CategoryChipFeasibility;
 use TMWSEO\Engine\Content\CategoryPipeline\CategoryKeywordPlanner;
 $pass=0;$fail=0;function ok($l,$b,$d=''){global $pass,$fail; echo ($b?"  ok  ":"  FAIL ").$l.($d?" — $d":"")."\n"; $b?$pass++:$fail++;}

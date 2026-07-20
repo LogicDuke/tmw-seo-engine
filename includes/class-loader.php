@@ -251,8 +251,11 @@ class Loader {
         tmwseo_safe_require( $p . 'category-pipeline/class-category-intent-classifier.php' );
         tmwseo_safe_require( $p . 'category-pipeline/class-category-keyword-planner.php' );
         tmwseo_safe_require( $p . 'category-pipeline/class-category-chip-feasibility.php' );
+        tmwseo_safe_require( $p . 'category-pipeline/class-category-semantic-profile.php' ); // v5.9.16
+        tmwseo_safe_require( $p . 'category-pipeline/class-category-semantic-sections.php' ); // v5.9.16
         tmwseo_safe_require( $p . 'category-pipeline/class-category-content-planner.php' );
         tmwseo_safe_require( $p . 'category-pipeline/class-category-draft-composer.php' );
+        tmwseo_safe_require( $p . 'category-pipeline/class-category-interchangeability-guard.php' ); // v5.9.16
         tmwseo_safe_require( $p . 'category-pipeline/class-category-quality-guard.php' );
         tmwseo_safe_require( $p . 'category-pipeline/class-category-factual-safety.php' );
         tmwseo_safe_require( $p . 'category-pipeline/class-category-grammar-guard.php' );

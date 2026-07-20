@@ -10,7 +10,7 @@ $GLOBALS['_tmw_options'] = [];
 if (!function_exists('get_option')) { function get_option($key, $default = false) { return $GLOBALS['_tmw_options'][$key] ?? $default; } }
 if (!function_exists('update_option')) { function update_option($key, $value, $autoload = null) { $GLOBALS['_tmw_options'][$key] = $value; return true; } }
 $pd = dirname(__DIR__) . '/includes/content/category-pipeline/';
-foreach (['class-category-keyword-planner','class-category-chip-feasibility','class-category-quality-guard','class-category-factual-safety','class-category-density-policy','class-category-keyword-placement','class-category-grammar-guard','class-category-final-validator'] as $c) { require_once $pd . $c . '.php'; }
+foreach (['class-category-keyword-planner','class-category-chip-feasibility', 'class-category-semantic-profile', 'class-category-semantic-sections', 'class-category-interchangeability-guard','class-category-quality-guard','class-category-factual-safety','class-category-density-policy','class-category-keyword-placement','class-category-grammar-guard','class-category-final-validator'] as $c) { require_once $pd . $c . '.php'; }
 require_once dirname(__DIR__) . '/includes/content/class-rank-math-chip-analyzer.php';
 use TMWSEO\Engine\Content\CategoryPipeline\CategoryQualityGuard;
 use TMWSEO\Engine\Content\CategoryPipeline\CategoryChipFeasibility;

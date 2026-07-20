@@ -36,7 +36,8 @@ if (!function_exists('__'))            { function __($t, $d = null) { return $t;
 $pipeline_dir = dirname(__DIR__) . '/includes/content/category-pipeline/';
 foreach ([
     'class-category-context-builder', 'class-category-intent-classifier', 'class-category-keyword-planner',
-    'class-category-content-planner', 'class-category-draft-composer', 'class-category-quality-guard',
+    'class-category-semantic-profile', 'class-category-semantic-sections',
+    'class-category-content-planner', 'class-category-draft-composer', 'class-category-interchangeability-guard', 'class-category-quality-guard',
     'class-category-factual-safety', 'class-category-grammar-guard', 'class-category-density-policy', 'class-category-keyword-placement',
     'class-category-paragraph-uniqueness-guard', 'class-category-claim-ledger', 'class-category-specificity-scorer',
     'class-category-faq-reuse-guard', 'class-category-generation-result', 'class-category-differentiation-scorer',

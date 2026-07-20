@@ -105,6 +105,16 @@ class CategoryGenerationPipeline {
 		) ) ) ) );
 		$keyword_plan['density_tracking'] = $stored_rankmath_focus;
 
+		// v5.9.16 — build the category semantic profile once and attach it to
+		// the context so BOTH the planner (headings) and the composer (sentence
+		// bodies) draw category-specific meaning from a single derivation. Built
+		// from the category's own title + active keyword set; deterministic and
+		// category-agnostic.
+		$context['__semantic_profile'] = CategorySemanticProfile::build(
+			$context + [ 'intent' => $intent ],
+			$keyword_plan
+		);
+
 		// One read of the rolling store powers page-level comparisons,
 		// paragraph-level uniqueness, the variant cooldown, the sentence
 		// cooldown, and the FAQ cooldown.
@@ -268,6 +278,21 @@ class CategoryGenerationPipeline {
 				'claim_ledger'   => $ledger,
 				'internal_links' => $internal_links,
 			] );
+
+			// v5.9.16 — fail-closed generic-content gate. A page that is
+			// technically valid but category-generic (no theme vocabulary in
+			// the body, interchangeable headings, boilerplate-dominant) is
+			// blocked here, folded into the same validation result so the
+			// existing retry / no-commit / rollback path handles it. Runs on
+			// the fully repaired draft, before any commit.
+			$interchange = CategoryInterchangeabilityGuard::evaluate( $draft, (array) ( $context['__semantic_profile'] ?? [] ) );
+			if ( ! ( $interchange['passed'] ?? false ) ) {
+				$validation['passed'] = false;
+				foreach ( (array) $interchange['reasons'] as $r ) {
+					$validation['reasons'][] = 'generic_content:' . (string) $r;
+				}
+			}
+			$validation['metrics']['interchangeability'] = $interchange['metrics'] ?? [];
 
 			$attempts[] = [
 				'salt'              => $salt,
