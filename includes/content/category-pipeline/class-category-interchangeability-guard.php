@@ -68,16 +68,16 @@ final class CategoryInterchangeabilityGuard {
 	 */
 	public static function evaluate( string $html, array $profile ): array {
 		$reasons = [];
-		$subject = strtolower( (string) ( $profile['subject'] ?? '' ) );
+		$subject = self::lower( (string) ( $profile['subject'] ?? '' ) );
 		$terms   = self::theme_terms( $profile );
 
-		$visible = self::visible_text( $html );
-		$headings = self::headings( $html );
+		$body_text = self::body_text( $html );
+		$headings  = self::headings( $html );
 
 		// (1) Subject presence: the page must actually say what it's about.
 		$mentions = 0;
 		foreach ( $terms as $t ) {
-			$mentions += preg_match_all( '/(?<![\p{L}\p{N}])' . preg_quote( $t, '/' ) . '(?![\p{L}\p{N}])/iu', $visible );
+			$mentions += preg_match_all( '/(?<![\p{L}\p{N}])' . preg_quote( $t, '/' ) . '(?![\p{L}\p{N}])/iu', $body_text );
 		}
 		if ( $mentions < self::MIN_SUBJECT_MENTIONS ) {
 			$reasons[] = 'subject_absent_from_body';
@@ -87,7 +87,7 @@ final class CategoryInterchangeabilityGuard {
 		$meaningful = 0;
 		$generic_hit = '';
 		foreach ( $headings as $h ) {
-			$hl = strtolower( trim( $h ) );
+			$hl = self::lower( trim( $h ) );
 			if ( $hl === 'frequently asked questions' ) { continue; }
 			$carry = false;
 			foreach ( $terms as $t ) {
@@ -116,7 +116,7 @@ final class CategoryInterchangeabilityGuard {
 		$paras = self::paragraphs( $html );
 		$boiler = 0; $counted = 0;
 		foreach ( $paras as $p ) {
-			$pl = strtolower( $p );
+			$pl = self::lower( $p );
 			if ( strlen( $pl ) < 40 ) { continue; }
 			$counted++;
 			$has_term = false;
@@ -187,7 +187,7 @@ final class CategoryInterchangeabilityGuard {
 			if ( strlen( $t ) >= 3 ) { $terms[ $t ] = true; }
 		}
 		foreach ( array_merge( (array) ( $profile['descriptor_terms'] ?? [] ), (array) ( $profile['modifier_terms'] ?? [] ) ) as $t ) {
-			$t = strtolower( (string) $t );
+			$t = self::lower( (string) $t );
 			if ( strlen( $t ) >= 3 ) { $terms[ $t ] = true; }
 		}
 		// Active keyword head tokens count as theme vocabulary too.
@@ -200,9 +200,9 @@ final class CategoryInterchangeabilityGuard {
 	}
 
 	private static function paragraph_shape( string $p, array $terms ): string {
-		$s = strtolower( strip_tags( $p ) );
+		$s = self::lower( strip_tags( $p ) );
 		foreach ( $terms as $t ) { $s = str_replace( $t, ' ', $s ); }
-		$s = (string) preg_replace( '/[^a-z ]+/', ' ', $s );
+		$s = (string) preg_replace( '/[^\p{L} ]+/u', ' ', $s );
 		return trim( (string) preg_replace( '/\s+/', ' ', $s ) );
 	}
 
@@ -210,10 +210,12 @@ final class CategoryInterchangeabilityGuard {
 		return self::paragraph_shape( $h, $terms );
 	}
 
-	private static function visible_text( string $html ): string {
-		$t = (string) preg_replace( [ '/<script\b[^>]*>.*?<\/script>/isu', '/<style\b[^>]*>.*?<\/style>/isu' ], ' ', $html );
-		$t = (string) preg_replace( '/<[^>]+>/u', ' ', $t );
-		return trim( (string) preg_replace( '/\s+/u', ' ', html_entity_decode( $t, ENT_QUOTES | ENT_HTML5, 'UTF-8' ) ) );
+	private static function body_text( string $html ): string {
+		return trim( implode( ' ', self::paragraphs( $html ) ) );
+	}
+
+	private static function lower( string $s ): string {
+		return function_exists( 'mb_strtolower' ) ? mb_strtolower( $s, 'UTF-8' ) : strtolower( $s );
 	}
 
 	private static function headings( string $html ): array {
@@ -223,6 +225,6 @@ final class CategoryInterchangeabilityGuard {
 
 	private static function paragraphs( string $html ): array {
 		if ( ! preg_match_all( '/<p[^>]*>(.*?)<\/p>/isu', $html, $m ) ) { return []; }
-		return array_map( static fn( $p ) => trim( (string) preg_replace( '/\s+/', ' ', strip_tags( $p ) ) ), $m[1] );
+		return array_map( static fn( $p ) => trim( (string) preg_replace( '/\s+/', ' ', html_entity_decode( strip_tags( $p ), ENT_QUOTES | ENT_HTML5, 'UTF-8' ) ) ), $m[1] );
 	}
 }

@@ -109,7 +109,7 @@ final class CategorySemanticProfile {
 			}
 		}
 
-		$subject_class = self::classify( $subject, $descriptors, $modifiers, $format );
+		$subject_class = self::classify( $subject );
 
 		// Deterministic per-category variant seed: two categories of the same
 		// subject_class must draw DIFFERENT structural paragraph variants so
@@ -174,7 +174,7 @@ final class CategorySemanticProfile {
 	 * genuine trait subject wins even when some keywords add a "free" modifier:
 	 * a trait theme with some free listings is still a trait theme.
 	 */
-	private static function classify( string $subject, array $descriptors, array $modifiers, array $format ): string {
+	private static function classify( string $subject ): string {
 		$subject_tokens = self::tokens( $subject );
 		// Any non-platform token in the subject means it names a theme (a
 		// trait, orientation, or descriptor) — the page is about that theme.
@@ -190,11 +190,14 @@ final class CategorySemanticProfile {
 	/** Lower-cased word tokens. */
 	public static function tokens( string $s ): array {
 		$s = function_exists( 'mb_strtolower' ) ? mb_strtolower( $s, 'UTF-8' ) : strtolower( $s );
-		$s = (string) preg_replace( '/[^a-z0-9\s]+/u', ' ', $s );
+		$s = (string) preg_replace( '/[^\p{L}0-9\s]+/u', ' ', $s );
 		return array_values( array_filter( preg_split( '/\s+/', trim( $s ) ) ?: [], 'strlen' ) );
 	}
 
 	public static function title_case( string $s ): string {
-		return trim( (string) preg_replace_callback( '/\b\w/u', static fn( $m ) => strtoupper( $m[0] ), $s ) );
+		if ( function_exists( 'mb_convert_case' ) ) {
+			return trim( mb_convert_case( $s, MB_CASE_TITLE, 'UTF-8' ) );
+		}
+		return trim( (string) preg_replace_callback( '/(?<!\p{L})\p{L}/u', static fn( $m ) => strtoupper( $m[0] ), $s ) );
 	}
 }
