@@ -80,9 +80,9 @@ class CategoryFactualSafety {
 			[ 'live_counts', 'Live status and platform details can change; the destination platform has the current picture.' ],
 		// Tag-existence claims.
 		'/\btags?\b[^.?!]{0,50}\b(?:lead|link|point|land|surface|help|show|reveal)/iu' =>
-			[ 'tags', 'Use nearby options to continue browsing.' ],
+			[ 'tags', 'The related categories on this page are the way to keep browsing.' ],
 		'/\b(?:profile|the) tags?\b/iu' =>
-			[ 'tags', 'Use nearby options to continue browsing.' ],
+			[ 'tags', 'The related categories on this page are the way to keep browsing.' ],
 		// Schedule / streaming-hours claims.
 		'/\b(?:sets?|choose|pick|keep)s? their own (?:streaming )?(?:hours|schedules?)\b/iu' =>
 			[ 'schedules', 'Live status can change; the destination platform shows the current picture.' ],

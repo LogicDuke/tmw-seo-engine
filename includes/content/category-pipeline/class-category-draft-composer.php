@@ -103,6 +103,7 @@ class CategoryDraftComposer {
 		$html            = '';
 		$section_html    = [];
 		$prev_used_kw    = false;
+		$intro_rendered  = false;
 		foreach ( (array) ( $plan['sections'] ?? [] ) as $section ) {
 			if ( $section === 'faq' ) {
 				$section_html['faq'] = ''; // slot — filled by the pipeline
@@ -213,6 +214,21 @@ class CategoryDraftComposer {
 
 			$block = '';
 			$heading = (string) ( $plan['headings'][ $section ] ?? '' );
+			// v5.9.17 — the WordPress category title is the page H1, so the
+			// generated body must open with introduction paragraph(s), never an
+			// H2. The first body section rendered is the introduction: emit its
+			// paragraph(s) with no heading. Every subsequent section keeps its
+			// H2. Active-keyword and heading-coverage contracts are unaffected
+			// because supporting keywords are assigned to later sections'
+			// headings by the planner, and the intro still carries its
+			// keyword-bearing sentences.
+			if ( ! $intro_rendered ) {
+				$intro_rendered = true;
+				$block .= '<p>' . $paragraph . '</p>';
+				$section_html[ $section ] = $block;
+				$html                    .= $block;
+				continue;
+			}
 			if ( $heading !== '' ) {
 				$block .= '<h2>' . self::esc( $heading ) . '</h2>';
 			}
