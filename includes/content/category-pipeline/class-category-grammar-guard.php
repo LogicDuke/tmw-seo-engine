@@ -231,12 +231,44 @@ class CategoryGrammarGuard {
 	 * placements change; tags, attributes, and URLs are never inspected.
 	 */
 	public static function recap_sentence_starts( string $html ): string {
-		return self::walk_text( $html, static function ( string $text ): string {
-			return (string) preg_replace_callback( '/(^\s*|[.!?]["\')\]]?\s+)(\p{Ll})/u', static function ( $m ) {
+		$parts = preg_split( '/(<[^>]+>)/', $html, -1, PREG_SPLIT_DELIM_CAPTURE );
+		if ( ! is_array( $parts ) ) { return $html; }
+
+		$capitalize_next_text = true;
+		foreach ( $parts as $i => $part ) {
+			if ( $part === '' ) { continue; }
+
+			if ( ( $part[0] ?? '' ) === '<' ) {
+				if ( preg_match( '/^<\s*(p|div|li|section|article|blockquote|h[1-6])\b/i', $part ) ) {
+					$capitalize_next_text = true;
+				}
+				continue;
+			}
+
+			$text = (string) preg_replace_callback( '/([.!?]["\')\]]?\s+)(\p{Ll})/u', static function ( $m ) {
 				$u = function_exists( 'mb_strtoupper' ) ? mb_strtoupper( $m[2], 'UTF-8' ) : strtoupper( $m[2] );
 				return $m[1] . $u;
-			}, $text );
-		} );
+			}, $part );
+
+			if ( $capitalize_next_text ) {
+				$text = self::capitalize_text_start( $text );
+			}
+
+			if ( trim( $part ) !== '' ) {
+				$capitalize_next_text = false;
+			}
+			$parts[ $i ] = $text;
+		}
+
+		return implode( '', $parts );
+	}
+
+	/** Capitalize the first lowercase letter in a text node. */
+	private static function capitalize_text_start( string $text ): string {
+		return (string) preg_replace_callback( '/^(\s*)(\p{Ll})/u', static function ( $m ) {
+			$u = function_exists( 'mb_strtoupper' ) ? mb_strtoupper( $m[2], 'UTF-8' ) : strtoupper( $m[2] );
+			return $m[1] . $u;
+		}, $text, 1 );
 	}
 
 	/** Correct indefinite article for a following word. */

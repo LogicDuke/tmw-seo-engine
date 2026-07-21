@@ -169,7 +169,11 @@ $capitalFixtures = [
 	],
 	'nested text-node recap' => [
 		'input' => '<p><strong>this page</strong> still begins with emphasized text.</p>',
-		'want'  => '<p><strong>This page</strong> Still begins with emphasized text.</p>',
+		'want'  => '<p><strong>This page</strong> still begins with emphasized text.</p>',
+	],
+	'inline-link continuation stays lowercase' => [
+		'input' => '<p>Open <a href="https://example.test/">this page</a> and continue scanning.</p>',
+		'want'  => '<p>Open <a href="https://example.test/">this page</a> and continue scanning.</p>',
 	],
 	'leading rule 2c capitalization' => [
 		'input' => '<p>A the listings entry as a pointer outward.</p>',
