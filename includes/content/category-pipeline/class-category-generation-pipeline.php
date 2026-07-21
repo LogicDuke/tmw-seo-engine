@@ -252,8 +252,20 @@ class CategoryGenerationPipeline {
 			$density_tracked  = (array) $keyword_plan['density_tracking'];
 			$placement_result = CategoryKeywordPlacement::repair( $draft, (string) $keyword_plan['primary'], $density_tracked );
 			$draft            = (string) $placement_result['html'];
-			$link_spaced      = (string) preg_replace( '/(<\/a>)(?=[\p{L}\p{N}])/u', '$1 ', $draft );
 			$link_actions     = [];
+			// v5.9.17 — keyword placement runs AFTER the grammar pass and can
+			// substitute a capitalized keyword (or a neutral reference) at a
+			// sentence boundary, leaving a lowercase sentence start the earlier
+			// grammar pass could not have seen. Re-normalize sentence-start
+			// capitalization (only) so a promotion or demotion never leaves a
+			// lowercase word opening a sentence. This touches capitalization
+			// alone; it changes no words, counts, or placements.
+			$recapped = CategoryGrammarGuard::recap_sentence_starts( $draft );
+			if ( $recapped !== $draft ) {
+				$draft          = $recapped;
+				$link_actions[] = 'recapitalized_sentence_start_after_placement';
+			}
+			$link_spaced      = (string) preg_replace( '/(<\/a>)(?=[\p{L}\p{N}])/u', '$1 ', $draft );
 			if ( $link_spaced !== $draft ) {
 				$draft          = $link_spaced;
 				$link_actions[] = 'restored_link_following_space';

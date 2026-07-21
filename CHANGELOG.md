@@ -1,5 +1,18 @@
 # Changelog
 
+## 5.9.19-content-polish-v1.0.0 — 2026-07-21
+
+Rendering and post-processing polish. **No editorial prose, semantic composition, keyword placement, density, validation, uniqueness, or Rank Math behavior changed.** Ports the four pipeline improvements that shipped in the v5.9.17 content-polish work but were missing from the v5.9.16 main line; the v5.9.18 editorial variant pools are untouched, so regenerated pages are identical in editorial content to v5.9.18 with only rendering and post-processing improved.
+
+- **Intro-first rendering.** The generated body now opens with introduction paragraph(s) and never an `<h2>` (the WordPress category title is the page H1). The first body section is emitted without its heading; every later section keeps its H2. The active-keyword and heading-coverage contracts are unaffected — supporting keywords sit in later sections' headings and the intro keeps its keyword-bearing sentences. (`class-category-draft-composer.php`)
+- **Capitalization normalization after keyword placement.** Keyword placement runs after the grammar pass and can substitute a capitalized keyword or neutral reference at a sentence boundary, leaving a lowercase sentence start. A post-placement `CategoryGrammarGuard::recap_sentence_starts()` pass re-capitalizes sentence starts in text nodes only — no words, counts, or placements change. (`class-category-generation-pipeline.php`, `class-category-grammar-guard.php`)
+- **Grammar collision fixes.** Four detect+repair rules for the keyword-free `"the listings"` fallback: stray determiner (`"a thin the listings"` → `"a thin listings"`), `"a/an the listings"` → `"the listings"`, fallback noun-noun collision (`"the listings listing"` → `"the listing"`), and duplicate adjacent nouns. Real prose containing `"the listings"` is left untouched. (`class-category-grammar-guard.php`)
+- **content-polish-smoke test** (52 assertions): intro-first structure, active-keyword-contract preservation, grammar-collision detect/repair with no false positives, and end-to-end freedom from collisions/awkward phrases. (`tests/run-category-content-polish-smoke.php`)
+
+Scope note: the v5.9.17 natural-language fix to `data/category-universal-faq.json` ("come in versions" → "vary between performers") is a PROSE edit and is intentionally NOT included here, per the editorial-freeze instruction. The end-to-end awkward-phrase check is scoped accordingly.
+
+Validation: all six categories regenerate intro-first (open with `<p>`, never `<h2>`), zero lowercase sentence starts, ≤1 em-dash per paragraph. Diffed against v5.9.18 output on identical fixtures: the only changes are the removed first-section H2, capitalization, and grammar-collision repairs — no editorial content altered. Full category suite green (17 suites, 0 failures).
+
 ## 5.9.18-editorial-polish-v1.0.0 — 2026-07-21
 
 Editorial polish pass on the category-semantic pipeline (landed on the v5.9.16 main line via cherry-pick). **Prose quality only** — no pipeline redesign, no architecture change, and no validation, uniqueness, keyword, or Rank Math guarantee weakened. Semantic composition, intent-specificity scoring, grammar guards, keyword placement/density, the active-keyword contract, heading hierarchy, and the em-dash structural rule (max 1 per paragraph) are all preserved unchanged.

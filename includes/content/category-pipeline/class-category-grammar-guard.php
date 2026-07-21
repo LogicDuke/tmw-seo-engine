@@ -94,6 +94,22 @@ class CategoryGrammarGuard {
 			if ( preg_match( '/\b(the|a|an|this|these|those)\s+(the|a|an|this|these|those)\b/iu', $text, $m ) ) {
 				$issues[] = [ 'type' => 'double_determiner', 'detail' => (string) $m[0] ];
 			}
+			// Stray determiner around the plural fallback ("a thin the listings",
+			// "a the listings").
+			if ( preg_match( '/\b(a|an)\s+the\s+listings\b/iu', $text, $m )
+				|| ( preg_match( '/\b(the|a|an|this|that)\s+([\p{L}\'\-]+(?:\s+[\p{L}\'\-]+)?)\s+the\s+listings\b/iu', $text, $m )
+					&& ! preg_match( '/\b(the|a|an|this|that|is|are|was|were|of|for|to|with|as|and|or|but|in|on|at|by)\b/i', $m[2] ?? '' ) ) ) {
+				$issues[] = [ 'type' => 'stray_determiner', 'detail' => (string) $m[0] ];
+			}
+			// Plural fallback noun ("the listings") glued to a singular category noun.
+			if ( preg_match( '/\bthe listings\s+(listing|page|room|clip|entry|thumbnail|profile)\b/iu', $text, $m ) ) {
+				$issues[] = [ 'type' => 'fallback_noun_collision', 'detail' => (string) $m[0] ];
+			}
+			// Duplicated adjacent nouns sharing a stem.
+			if ( preg_match( '/\b(listing|listings|page|pages|room|rooms|clip|clips)\s+(listing|page|room|clip)\b/iu', $text, $m )
+				&& rtrim( strtolower( $m[1] ), 's' ) === rtrim( strtolower( $m[2] ), 's' ) ) {
+				$issues[] = [ 'type' => 'duplicate_noun', 'detail' => (string) $m[0] ];
+			}
 			// Dangling comma joins from dropped template parts.
 			if ( preg_match( '/,\s*[,.]|^\s*,/u', $text, $m ) ) {
 				$issues[] = [ 'type' => 'empty_join', 'detail' => trim( (string) $m[0] ) ];
@@ -124,6 +140,48 @@ class CategoryGrammarGuard {
 			// 2. Doubled determiners — keep the second (more specific) one.
 			$text = (string) preg_replace_callback( '/\b(the|a|an|this|these|those)\s+(the|a|an|this|these|those)\b/iu', static function ( $m ) use ( &$repairs ) {
 				$repairs[] = 'double_determiner: "' . $m[0] . '" -> "' . $m[2] . '"';
+				return $m[2];
+			}, $text );
+
+			// 2b. A plural fallback noun phrase that carries its own determiner
+			// ("the listings") spliced into a slot that already opened a
+			// determiner + adjective ("a thin ___", "a spare ___") leaves
+			// "a thin the listings". Drop the stray "the listings" article so the
+			// opening determiner + adjective run onto "listings". Restricted to
+			// the specific fallback string to avoid touching real prose.
+			$text = (string) preg_replace_callback( '/\b(the|a|an|this|that)\s+([\p{L}\'\-]+(?:\s+[\p{L}\'\-]+)?)\s+the\s+listings\b/iu', static function ( $m ) use ( &$repairs ) {
+				if ( preg_match( '/\b(the|a|an|this|that|is|are|was|were|of|for|to|with|as|and|or|but|in|on|at|by)\b/i', $m[2] ) ) {
+					return $m[0];
+				}
+				$fixed = $m[1] . ' ' . $m[2] . ' listings';
+				$repairs[] = 'stray_determiner: "' . $m[0] . '" -> "' . $fixed . '"';
+				return $fixed;
+			}, $text );
+
+			// 2c. "a/an the listings" (opening determiner directly on the
+			// self-determined fallback) — keep the fallback's own article.
+			$text = (string) preg_replace_callback( '/\b(a|an)\s+the\s+listings\b/iu', static function ( $m ) use ( &$repairs ) {
+				$repairs[] = 'stray_determiner: "' . $m[0] . '" -> "the listings"';
+				return 'the listings';
+			}, $text );
+
+			// 2d. "the listings" (plural fallback) immediately followed by a
+			// singular category noun ("the listings listing/page") is a noun-noun
+			// collision from a {{kw1}} slot written as "___ listing". Collapse the
+			// fallback to the singular so the trailing noun reads naturally.
+			$text = (string) preg_replace_callback( '/\bthe listings\s+(listing|page|room|clip|entry|thumbnail|profile)\b/iu', static function ( $m ) use ( &$repairs ) {
+				$fixed = 'the ' . strtolower( $m[1] );
+				$repairs[] = 'fallback_noun_collision: "' . $m[0] . '" -> "' . $fixed . '"';
+				return $fixed;
+			}, $text );
+
+			// 2e. Duplicated adjacent nouns sharing a stem ("listings listing",
+			// "page page").
+			$text = (string) preg_replace_callback( '/\b(listing|listings|page|pages|room|rooms|clip|clips)\s+(listing|page|room|clip)\b/iu', static function ( $m ) use ( &$repairs ) {
+				$a = rtrim( strtolower( $m[1] ), 's' );
+				$b = rtrim( strtolower( $m[2] ), 's' );
+				if ( $a !== $b ) { return $m[0]; }
+				$repairs[] = 'duplicate_noun: "' . $m[0] . '" -> "' . $m[2] . '"';
 				return $m[2];
 			}, $text );
 
@@ -161,6 +219,22 @@ class CategoryGrammarGuard {
 			return $text;
 		} );
 		return [ 'html' => $html, 'repairs' => $repairs ];
+	}
+
+	/**
+	 * Re-capitalize the first letter of every sentence in text nodes only.
+	 * Extracted so a later pipeline stage (keyword placement) that substitutes
+	 * text at a sentence boundary can restore capitalization without re-running
+	 * the full repair pass. Touches capitalization alone — no words, counts, or
+	 * placements change; tags, attributes, and URLs are never inspected.
+	 */
+	public static function recap_sentence_starts( string $html ): string {
+		return self::walk_text( $html, static function ( string $text ): string {
+			return (string) preg_replace_callback( '/([.!?]["\')\]]?\s+)(\p{Ll})/u', static function ( $m ) {
+				$u = function_exists( 'mb_strtoupper' ) ? mb_strtoupper( $m[2], 'UTF-8' ) : strtoupper( $m[2] );
+				return $m[1] . $u;
+			}, $text );
+		} );
 	}
 
 	/** Correct indefinite article for a following word. */
