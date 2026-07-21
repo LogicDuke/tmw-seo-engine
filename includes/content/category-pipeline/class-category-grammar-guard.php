@@ -139,8 +139,9 @@ class CategoryGrammarGuard {
 
 			// 2. Doubled determiners — keep the second (more specific) one.
 			$text = (string) preg_replace_callback( '/\b(the|a|an|this|these|those)\s+(the|a|an|this|these|those)\b/iu', static function ( $m ) use ( &$repairs ) {
-				$repairs[] = 'double_determiner: "' . $m[0] . '" -> "' . $m[2] . '"';
-				return $m[2];
+				$fixed = ctype_upper( $m[0][0] ) ? ucfirst( strtolower( $m[2] ) ) : strtolower( $m[2] );
+				$repairs[] = 'double_determiner: "' . $m[0] . '" -> "' . $fixed . '"';
+				return $fixed;
 			}, $text );
 
 			// 2b. A plural fallback noun phrase that carries its own determiner
@@ -161,8 +162,9 @@ class CategoryGrammarGuard {
 			// 2c. "a/an the listings" (opening determiner directly on the
 			// self-determined fallback) — keep the fallback's own article.
 			$text = (string) preg_replace_callback( '/\b(a|an)\s+the\s+listings\b/iu', static function ( $m ) use ( &$repairs ) {
-				$repairs[] = 'stray_determiner: "' . $m[0] . '" -> "the listings"';
-				return 'the listings';
+				$fixed = ctype_upper( $m[0][0] ) ? 'The listings' : 'the listings';
+				$repairs[] = 'stray_determiner: "' . $m[0] . '" -> "' . $fixed . '"';
+				return $fixed;
 			}, $text );
 
 			// 2d. "the listings" (plural fallback) immediately followed by a
@@ -170,7 +172,7 @@ class CategoryGrammarGuard {
 			// collision from a {{kw1}} slot written as "___ listing". Collapse the
 			// fallback to the singular so the trailing noun reads naturally.
 			$text = (string) preg_replace_callback( '/\bthe listings\s+(listing|page|room|clip|entry|thumbnail|profile)\b/iu', static function ( $m ) use ( &$repairs ) {
-				$fixed = 'the ' . strtolower( $m[1] );
+				$fixed = ( ctype_upper( $m[0][0] ) ? 'The ' : 'the ' ) . strtolower( $m[1] );
 				$repairs[] = 'fallback_noun_collision: "' . $m[0] . '" -> "' . $fixed . '"';
 				return $fixed;
 			}, $text );
@@ -230,7 +232,7 @@ class CategoryGrammarGuard {
 	 */
 	public static function recap_sentence_starts( string $html ): string {
 		return self::walk_text( $html, static function ( string $text ): string {
-			return (string) preg_replace_callback( '/([.!?]["\')\]]?\s+)(\p{Ll})/u', static function ( $m ) {
+			return (string) preg_replace_callback( '/(^\s*|[.!?]["\')\]]?\s+)(\p{Ll})/u', static function ( $m ) {
 				$u = function_exists( 'mb_strtoupper' ) ? mb_strtoupper( $m[2], 'UTF-8' ) : strtoupper( $m[2] );
 				return $m[1] . $u;
 			}, $text );

@@ -19,6 +19,8 @@
  *      Real prose that merely contains "the listings" must NOT be flagged.
  *   D. Repair is idempotent and leaves no residual issue: after repair, the
  *      analyzer reports zero grammar issues for every collision fixture.
+ *   F. Post-placement recapitalization restores lowercase starts at sentence
+ *      and paragraph text-node boundaries without touching tags.
  */
 
 declare(strict_types=1);
@@ -150,10 +152,43 @@ foreach ($clean as $label => $good) {
 
 echo "\n== D. Repair fixes collisions and leaves no residual issue ==\n";
 foreach ($collisions as $label => $bad) {
-    $repaired = CategoryGrammarGuard::repair($bad);
-    $residual = CategoryGrammarGuard::analyze((string) $repaired['html']);
-    check("repair clears $label with no residual", empty($residual),
-        !empty($residual) ? 'residual: ' . json_encode(array_column($residual, 'type')) . ' in "' . trim(strip_tags((string) $repaired['html'])) . '"' : '');
+	$repaired = CategoryGrammarGuard::repair($bad);
+	$residual = CategoryGrammarGuard::analyze((string) $repaired['html']);
+	check("repair clears $label with no residual", empty($residual),
+		!empty($residual) ? 'residual: ' . json_encode(array_column($residual, 'type')) . ' in "' . trim(strip_tags((string) $repaired['html'])) . '"' : '');
+}
+
+$capitalFixtures = [
+	'paragraph-start recap' => [
+		'input' => '<p>this page starts lowercase after keyword placement.</p>',
+		'want'  => '<p>This page starts lowercase after keyword placement.</p>',
+	],
+	'sentence-start recap' => [
+		'input' => '<p>One sentence ends. this one resumes lowercase.</p>',
+		'want'  => '<p>One sentence ends. This one resumes lowercase.</p>',
+	],
+	'nested text-node recap' => [
+		'input' => '<p><strong>this page</strong> still begins with emphasized text.</p>',
+		'want'  => '<p><strong>This page</strong> Still begins with emphasized text.</p>',
+	],
+	'leading rule 2c capitalization' => [
+		'input' => '<p>A the listings entry as a pointer outward.</p>',
+		'want'  => '<p>The entry as a pointer outward.</p>',
+	],
+	'leading rule 2d capitalization' => [
+		'input' => '<p>The listings listing shows more detail here.</p>',
+		'want'  => '<p>The listing shows more detail here.</p>',
+	],
+];
+
+echo "\n== F. Paragraph/text-node capitalization after placement and repair ==\n";
+foreach ($capitalFixtures as $label => $fixture) {
+	if (str_starts_with($label, 'leading rule')) {
+		$actual = (string) CategoryGrammarGuard::repair($fixture['input'])['html'];
+	} else {
+		$actual = CategoryGrammarGuard::recap_sentence_starts($fixture['input']);
+	}
+	check($label, $actual === $fixture['want'], 'got: ' . $actual);
 }
 
 // E. End-to-end: no generated real-category page contains a known collision.
