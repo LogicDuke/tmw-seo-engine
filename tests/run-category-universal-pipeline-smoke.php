@@ -42,6 +42,9 @@ require_once $pipeline_dir . 'class-category-context-builder.php';
 require_once $pipeline_dir . 'class-category-intent-classifier.php';
 require_once $pipeline_dir . 'class-category-keyword-planner.php';
 require_once $pipeline_dir . 'class-category-chip-feasibility.php';
+require_once $pipeline_dir . 'class-category-semantic-profile.php';
+require_once $pipeline_dir . 'class-category-semantic-sections.php';
+require_once $pipeline_dir . 'class-category-interchangeability-guard.php';
 require_once $pipeline_dir . 'class-category-content-planner.php';
 require_once $pipeline_dir . 'class-category-draft-composer.php';
 require_once $pipeline_dir . 'class-category-quality-guard.php';
@@ -63,6 +66,8 @@ use TMWSEO\Engine\Content\CategoryPipeline\CategoryContextBuilder;
 use TMWSEO\Engine\Content\CategoryPipeline\CategoryIntentClassifier;
 use TMWSEO\Engine\Content\CategoryPipeline\CategoryKeywordPlanner;
 use TMWSEO\Engine\Content\CategoryPipeline\CategoryContentPlanner;
+use TMWSEO\Engine\Content\CategoryPipeline\CategorySemanticProfile;
+use TMWSEO\Engine\Content\CategoryPipeline\CategoryInterchangeabilityGuard;
 use TMWSEO\Engine\Content\CategoryPipeline\CategoryDraftComposer;
 use TMWSEO\Engine\Content\CategoryPipeline\CategoryQualityGuard;
 use TMWSEO\Engine\Content\CategoryPipeline\CategoryFactualSafety;
@@ -337,9 +342,59 @@ foreach ($sparse_variants as $label => $overrides) {
     }
 }
 
+
+echo "\n== I. Unicode semantic profile and body-only subject guard regressions ==\n";
+$unicode_cases = [
+    'Café Cams'    => 'café',
+    'Español Cams' => 'español',
+    'München Cams' => 'münchen',
+];
+foreach ($unicode_cases as $category => $expected_subject) {
+    $ctx = CategoryContextBuilder::build_from_parts(array_merge($fixtures['amateur-cams'], [
+        'category_slug'     => strtolower(str_replace(' ', '-', $category)),
+        'category_name'     => $category,
+        'primary_keyword'   => $category,
+        'approved_keywords' => [$category, $expected_subject . ' webcam'],
+    ]));
+    $kwp = CategoryKeywordPlanner::plan($category, [$category, $expected_subject . ' webcam'], []);
+    $profile = CategorySemanticProfile::build($ctx + ['intent' => 'broad_discovery'], $kwp);
+    $ctx['__semantic_profile'] = $profile;
+    $plan = CategoryContentPlanner::plan($ctx, 'broad_discovery', 0);
+    $comp = CategoryDraftComposer::compose($ctx, $plan, $kwp);
+    $plain = strtolower(strip_tags($comp['html']));
+    check("Unicode subject preserved for {$category}", $profile['subject'] === $expected_subject, (string) $profile['subject']);
+    check("Unicode semantic copy preserved for {$category}", strpos($plain, $expected_subject) !== false, substr($plain, 0, 180));
+}
+
+$guard_profile = [
+    'subject'          => 'café',
+    'descriptor_terms' => [],
+    'modifier_terms'   => [],
+    'active_keywords'  => ['Café Cams'],
+];
+$generic_p = 'The listing directory keeps live rooms, performer pages, platforms, thumbnails, schedules, private sessions, public browsing, clips, and shortlist choices organized with practical details for visitors.';
+$heading_only_html = '<h2>Café Listings</h2><h3>Café FAQ</h3><p>' . $generic_p . '</p><p>' . $generic_p . '</p><p>' . $generic_p . '</p>';
+$heading_only = CategoryInterchangeabilityGuard::evaluate($heading_only_html, $guard_profile);
+check('subject only in headings fails body subject requirement', !$heading_only['passed'] && in_array('subject_absent_from_body', $heading_only['reasons'], true), json_encode($heading_only));
+$body_subject_html = '<h2>Café Listings</h2><h3>Café FAQ</h3><p>Café listings keep this café category clear for visitors comparing performer pages.</p><p>The café theme appears in normal body prose before any platform decision.</p><p>Visitors can use café context while still checking each destination.</p>';
+$body_subject = CategoryInterchangeabilityGuard::evaluate($body_subject_html, $guard_profile);
+check('subject in body paragraphs passes body subject requirement', $body_subject['passed'] && !in_array('subject_absent_from_body', $body_subject['reasons'], true), json_encode($body_subject));
+$domain_only_html = '<h2>Café Listings</h2><h3>Café FAQ</h3><p>' . $generic_p . '</p><p>' . $generic_p . '</p><p>' . $generic_p . '</p>';
+$domain_only = CategoryInterchangeabilityGuard::evaluate($domain_only_html, $guard_profile);
+check('generic domain vocabulary alone does not satisfy body subject requirement', in_array('subject_absent_from_body', $domain_only['reasons'], true), json_encode($domain_only));
+
 echo "\n== I. Safe failure when thresholds cannot be met (test 25) ==\n";
 // Comparisons seeded with the draft's own fingerprint make differentiation impossible.
 $ctx_fail = CategoryContextBuilder::build_from_parts(array_merge($fixtures['amateur-cams'], ['category_slug' => 'forced-fail', 'category_name' => 'Forced Fail Cams', 'primary_keyword' => 'Forced Fail Cams']));
+// v5.9.16: the pipeline attaches a semantic profile to the context before it
+// composes (class-category-generation-pipeline.php), so the shadow drafts used
+// to force a collision must be composed through the SAME path, otherwise the
+// shadows diverge from the real drafts and the forced-fail no longer collides.
+// Mirror that attachment here so the test still proves the fail-closed contract.
+$ctx_fail['__semantic_profile'] = CategorySemanticProfile::build(
+    $ctx_fail + ['intent' => 'interaction_style'],
+    CategoryKeywordPlanner::plan('Forced Fail Cams', $fixtures['amateur-cams']['approved_keywords'], [])
+);
 $pre = CategoryGenerationPipeline::generate_from_context($ctx_fail, ['tracking' => [], 'use_store' => false]);
 $self_fps = [];
 for ($salt = 0; $salt < CategoryGenerationPipeline::MAX_ATTEMPTS; $salt++) {

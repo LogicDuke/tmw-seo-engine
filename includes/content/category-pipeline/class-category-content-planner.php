@@ -279,7 +279,7 @@ class CategoryContentPlanner {
 				$has_primary = $section;
 				continue;
 			}
-			$headings[ $section ] = self::non_primary_heading( $section, $seed );
+			$headings[ $section ] = self::non_primary_heading( $section, $seed, $context );
 		}
 		if ( $has_primary === '' ) {
 			$pool = $primary_pool;
@@ -332,7 +332,20 @@ class CategoryContentPlanner {
 	}
 
 	/** Non-primary topical heading fallback used when duplicate primary H2s are demoted. */
-	private static function non_primary_heading( string $section, int $seed ): string {
+	private static function non_primary_heading( string $section, int $seed, array $context = [] ): string {
+		// v5.9.16 — prefer a category-specific heading so a fallback heading
+		// still names the theme rather than being an interchangeable label.
+		$profile = (array) ( $context['__semantic_profile'] ?? [] );
+		if ( ! empty( $profile['subject_title'] ) ) {
+			$sem = CategorySemanticSections::heading( $section, $profile, $seed );
+			if ( $sem !== '' ) {
+				return str_replace(
+					[ '{{subject_title}}', '{{subject}}' ],
+					[ (string) $profile['subject_title'], (string) ( $profile['subject'] ?? '' ) ],
+					$sem
+				);
+			}
+		}
 		$pools = [
 			'expectations'      => [ 'What This Page Covers', 'Setting the Right Expectations' ],
 			'discovery_advice'  => [ 'Reading a Page Before You Commit', 'Checks Worth Making First' ],
@@ -355,6 +368,22 @@ class CategoryContentPlanner {
 
 	/** Deterministic heading choice from the library, capping category-name headings at 2. */
 	private static function pick_heading( string $section, array $context, int $seed, int $name_headings_so_far ): string {
+		// v5.9.16 — a category-semantic heading (built from the subject) is the
+		// primary source, so headings name the actual theme instead of being
+		// interchangeable structural labels. Falls back to the library headings
+		// only when no profile subject is available.
+		$profile = (array) ( $context['__semantic_profile'] ?? [] );
+		if ( ! empty( $profile['subject_title'] ) ) {
+			$sem = CategorySemanticSections::heading( $section, $profile, $seed );
+			if ( $sem !== '' ) {
+				return str_replace(
+					[ '{{subject_title}}', '{{subject}}' ],
+					[ (string) $profile['subject_title'], (string) ( $profile['subject'] ?? '' ) ],
+					$sem
+				);
+			}
+		}
+
 		$library = CategoryDraftComposer::library();
 		$purpose = $library['purposes'][ $section ] ?? null;
 		if ( ! is_array( $purpose ) ) { return ''; }

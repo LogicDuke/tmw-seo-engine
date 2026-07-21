@@ -36,10 +36,10 @@ class CategoryGenerationPipeline {
 	public const MAX_ATTEMPTS = 8;
 
 	/** Recent pages whose section variants are avoided (cross-category cooldown). */
-	public const VARIANT_COOLDOWN_PAGES = 8;
+	public const VARIANT_COOLDOWN_PAGES = 12; // v5.9.16: match UNIQUENESS_WINDOW_PAGES so every page the uniqueness guard compares against is also avoided by variant selection — an 8-page cooldown let pages 9-12 back collide because they were compared but not avoided.
 
 	/** Recent pages whose sentence alternates are avoided. */
-	public const SENTENCE_COOLDOWN_PAGES = 8;
+	public const SENTENCE_COOLDOWN_PAGES = 12; // v5.9.16: match UNIQUENESS_WINDOW_PAGES for the same reason as VARIANT_COOLDOWN_PAGES.
 
 	/** Recent pages the paragraph-uniqueness limits are enforced against. */
 	public const UNIQUENESS_WINDOW_PAGES = 12; // v5.9.9: match the fingerprint STORE_LIMIT so no retained page escapes the uniqueness comparison
@@ -104,6 +104,16 @@ class CategoryGenerationPipeline {
 			! empty( $stored_chips ) ? $stored_chips : ( array_key_exists( 'tracking', $options ) ? $tracking : (array) $keyword_plan['rankmath_tracking'] )
 		) ) ) ) );
 		$keyword_plan['density_tracking'] = $stored_rankmath_focus;
+
+		// v5.9.16 — build the category semantic profile once and attach it to
+		// the context so BOTH the planner (headings) and the composer (sentence
+		// bodies) draw category-specific meaning from a single derivation. Built
+		// from the category's own title + active keyword set; deterministic and
+		// category-agnostic.
+		$context['__semantic_profile'] = CategorySemanticProfile::build(
+			$context + [ 'intent' => $intent ],
+			$keyword_plan
+		);
 
 		// One read of the rolling store powers page-level comparisons,
 		// paragraph-level uniqueness, the variant cooldown, the sentence
@@ -268,6 +278,21 @@ class CategoryGenerationPipeline {
 				'claim_ledger'   => $ledger,
 				'internal_links' => $internal_links,
 			] );
+
+			// v5.9.16 — fail-closed generic-content gate. A page that is
+			// technically valid but category-generic (no theme vocabulary in
+			// the body, interchangeable headings, boilerplate-dominant) is
+			// blocked here, folded into the same validation result so the
+			// existing retry / no-commit / rollback path handles it. Runs on
+			// the fully repaired draft, before any commit.
+			$interchange = CategoryInterchangeabilityGuard::evaluate( $draft, (array) ( $context['__semantic_profile'] ?? [] ) );
+			if ( ! ( $interchange['passed'] ?? false ) ) {
+				$validation['passed'] = false;
+				foreach ( (array) $interchange['reasons'] as $r ) {
+					$validation['reasons'][] = 'generic_content:' . (string) $r;
+				}
+			}
+			$validation['metrics']['interchangeability'] = $interchange['metrics'] ?? [];
 
 			$attempts[] = [
 				'salt'              => $salt,

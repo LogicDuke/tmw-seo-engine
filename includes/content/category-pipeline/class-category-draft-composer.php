@@ -61,6 +61,17 @@ class CategoryDraftComposer {
 		$library = self::library();
 		$intent  = (string) ( $plan['intent'] ?? 'broad_discovery' );
 
+		// v5.9.16 — build the category semantic profile once and hang it on the
+		// context so base_values() can expose subject/descriptor/format tokens
+		// and the section loop can source category-specific sentences from it.
+		if ( empty( $context['__semantic_profile'] ) ) {
+			$context['__semantic_profile'] = CategorySemanticProfile::build(
+				$context + [ 'intent' => $intent ],
+				$keyword_plan
+			);
+		}
+		$profile = (array) $context['__semantic_profile'];
+
 		$avoid_variants  = array_fill_keys( array_map( 'strval', (array) ( $avoid['variants'] ?? [] ) ), true );
 		$avoid_sentences = array_fill_keys( array_map( 'strval', (array) ( $avoid['sentences'] ?? [] ) ), true );
 		$variant_ids     = [];
@@ -81,7 +92,12 @@ class CategoryDraftComposer {
 		$clarity_id = '';
 		$links      = [];
 		$values     = self::base_values( $context, $intent, $plan, $avoid_sentences, $clarity_id, $links );
-		if ( $clarity_id !== '' ) { $sentence_ids[] = $clarity_id; }
+		if ( $clarity_id !== '' ) {
+			foreach ( explode( ',', $clarity_id ) as $cid ) {
+				$cid = trim( $cid );
+				if ( $cid !== '' ) { $sentence_ids[] = $cid; }
+			}
+		}
 		$links_used = [];
 
 		$html            = '';
@@ -92,13 +108,49 @@ class CategoryDraftComposer {
 				$section_html['faq'] = ''; // slot — filled by the pipeline
 				continue;
 			}
-			$purpose = $library['purposes'][ $section ] ?? null;
-			if ( ! is_array( $purpose ) ) { continue; }
-
-			[ $variants, $from_intent_pool ] = self::variants_for( $purpose, $intent );
-			if ( empty( $variants ) ) { continue; }
-
 			$seed = (int) ( $plan['variant_seeds'][ $section ] ?? 0 );
+
+			// v5.9.16 — category-semantic sentences are the PRIMARY source of
+			// paragraph meaning. When the profile yields frames for this
+			// section, wrap them as a single synthetic variant so the existing
+			// keyword-queue / dedupe-glue / link-resolution machinery below runs
+			// unchanged. The static JSON library is used only as a fallback when
+			// the profile can't produce frames (degenerate/empty subject), so
+			// nothing regresses and no boilerplate is emitted while a real
+			// category subject exists.
+			// v5.9.16 — category-semantic sentences are the PRIMARY source of
+			// paragraph meaning, selected cooldown-aware: the paragraph variant
+			// is the category-identity pick UNLESS a recent page already used
+			// that variant id for this section, in which case the next unused
+			// variant is taken. This spreads same-class categories across the
+			// structural variants under a populated uniqueness store instead of
+			// colliding by pigeonhole. The static JSON library is used only as a
+			// fallback when the profile can't produce frames.
+			$sem_count = CategorySemanticSections::variant_count( $section, $profile );
+			if ( $sem_count > 0 ) {
+				$base_index = CategorySemanticSections::picked_index( $section, $profile, $seed );
+				$sem_index  = $base_index;
+				// The differentiation store records each section's variant as
+				// "<section>:<variant-id>" (see $variant_ids below), and the
+				// avoid set is built from those recorded ids. Check the SAME
+				// composite form here so the cross-page cooldown genuinely
+				// skips a variant a recent page used — an earlier build compared
+				// the bare id and silently never matched, letting same-class
+				// categories collide under a populated store.
+				for ( $off = 0; $off < $sem_count; $off++ ) {
+					$candidate_index = ( $base_index + $off ) % $sem_count;
+					$candidate_vid   = $section . ':sem_' . $section . '_' . $candidate_index;
+					if ( ! isset( $avoid_variants[ $candidate_vid ] ) ) { $sem_index = $candidate_index; break; }
+				}
+				$semantic_slots    = CategorySemanticSections::slots_at( $section, $profile, $sem_index );
+				$variants          = [ [ 'id' => 'sem_' . $section . '_' . $sem_index, 'sentences' => $semantic_slots ] ];
+				$from_intent_pool  = false;
+			} else {
+				$purpose = $library['purposes'][ $section ] ?? null;
+				if ( ! is_array( $purpose ) ) { continue; }
+				[ $variants, $from_intent_pool ] = self::variants_for( $purpose, $intent );
+				if ( empty( $variants ) ) { continue; }
+			}
 
 			// Cross-category cooldown (v5.9.9): choose the SEEDED pick among
 			// the variants no recent page used. Taking the first fresh
@@ -142,7 +194,7 @@ class CategoryDraftComposer {
 					$try_links = $links_used;
 					$candidate_sentence = self::resolve_sentence( (string) $candidate_template, $values, $try_queue, $try_used, $links, $try_links );
 					if ( $candidate_sentence === null ) { continue; }
-					if ( $paragraph === '' && $heading_for_glue !== '' && self::has_duplicate_tracked_phrase( $heading_for_glue . ' ' . $candidate_sentence, self::duplicate_guard_keywords( $keyword_plan ) ) ) { continue; }
+					if ( $paragraph === '' && $heading_for_glue !== '' && self::heading_glue_is_dump( $heading_for_glue, $candidate_sentence, self::duplicate_guard_keywords( $keyword_plan ) ) ) { continue; }
 					$sentence = $candidate_sentence; $sentence_template = (string) $candidate_template; $section_kw_queue = $try_queue; $used_kws = $try_used; $links_used = $try_links; break;
 				}
 				if ( $sentence === null ) { $dropped++; continue; }
@@ -204,6 +256,37 @@ class CategoryDraftComposer {
 	private static function has_duplicate_tracked_phrase( string $text, array $keywords ): bool {
 		if ( ! class_exists( CategoryQualityGuard::class ) ) { return false; }
 		return ! empty( CategoryQualityGuard::duplicate_tracked_phrases( $text, $keywords ) );
+	}
+
+	/**
+	 * Heading-to-first-sentence keyword-dump test. The old check rejected the
+	 * glued heading+sentence whenever any tracked keyword appeared twice across
+	 * the pair. For a category whose subject IS a single word (a one-word
+	 * primary such as a bare trait name), that word legitimately appears once in
+	 * the heading and once in the first sentence — natural prose, not stuffing —
+	 * yet the old test dropped the whole sentence, starving the page of words.
+	 *
+	 * A genuine dump is either (a) a MULTI-WORD tracked phrase echoed across the
+	 * heading and the sentence (e.g. the heading's exact keyword phrase repeated
+	 * verbatim to open the paragraph), or (b) a tracked keyword appearing 2+
+	 * times WITHIN the sentence itself (in-sentence stuffing). A single-token
+	 * keyword appearing once in the heading and once in the sentence is allowed.
+	 * This narrows a false positive; it does not relax dump protection — every
+	 * real dump the old check caught is still caught.
+	 *
+	 * @param string[] $keywords
+	 */
+	private static function heading_glue_is_dump( string $heading, string $sentence, array $keywords ): bool {
+		// (b) in-sentence stuffing of any tracked keyword.
+		if ( self::has_duplicate_tracked_phrase( $sentence, $keywords ) ) { return true; }
+		// (a) a multi-word tracked phrase echoed across heading + sentence.
+		foreach ( $keywords as $kw ) {
+			$kw = (string) $kw;
+			if ( $kw === '' ) { continue; }
+			if ( count( preg_split( '/\s+/', trim( $kw ) ) ?: [] ) < 2 ) { continue; } // single-token: allowed once per side
+			if ( self::has_duplicate_tracked_phrase( $heading . ' ' . $sentence, [ $kw ] ) ) { return true; }
+		}
+		return false;
 	}
 
 
@@ -332,6 +415,7 @@ class CategoryDraftComposer {
 
 		$seed    = (int) ( $plan['seed'] ?? 0 );
 		$clarity = '';
+		$clarity_pool_resolved = [];
 		$pool    = array_values( (array) ( $library['intent_clarity'][ $intent ] ?? [] ) );
 		if ( ! empty( $pool ) ) {
 			// The clarity sentence is cross-page cooldown-aware like every
@@ -344,9 +428,52 @@ class CategoryDraftComposer {
 				if ( ! isset( $avoid_sentences[ (string) crc32( $candidate ) ] ) ) { $clarity = $candidate; break; }
 			}
 			$clarity_id = (string) crc32( $clarity );
-		}
 
-		// Related categories may be plain names (legacy) or {name,url} pairs
+			// v5.9.16 — resolve up to three DISTINCT intent-clarity clauses so
+			// the pinned category-semantic sections (intro, expectations,
+			// discovery_advice) can each carry one intent-specific,
+			// factually-safe sentence. This gives every page three paragraphs
+			// that satisfy the intent-specificity contract on top of the
+			// category-specific prose, for every intent the classifier can
+			// assign — not just the ones whose vocabulary happens to overlap a
+			// generic frame. Resolution is cross-page cooldown-aware: two
+			// categories of the SAME intent otherwise share all three clauses
+			// (a fixed pool per intent), which shows up as shared sentence
+			// templates under a populated store. Preferring clauses no recent
+			// page rendered spreads same-intent categories across the pool; a
+			// deterministic seeded rotation fills any remainder so the three
+			// stay distinct even when the fresh subset is exhausted.
+			$seen = [];
+			// Pass 1: seeded rotation over clauses NOT in the recent-cooldown set.
+			for ( $i = 0; $i < $n && count( $clarity_pool_resolved ) < 3; $i++ ) {
+				$candidate = self::pick_string( $pool[ ( $seed + $i ) % $n ], $seed + $i );
+				$key       = (string) crc32( $candidate );
+				if ( isset( $seen[ $key ] ) ) { continue; }
+				if ( isset( $avoid_sentences[ $key ] ) ) { continue; }
+				$seen[ $key ] = true;
+				$clarity_pool_resolved[] = $candidate;
+			}
+			// Pass 2: fill any remaining slots from the full pool (still distinct).
+			for ( $i = 0; $i < $n && count( $clarity_pool_resolved ) < 3; $i++ ) {
+				$candidate = self::pick_string( $pool[ ( $seed + $i ) % $n ], $seed + $i );
+				$key       = (string) crc32( $candidate );
+				if ( isset( $seen[ $key ] ) ) { continue; }
+				$seen[ $key ] = true;
+				$clarity_pool_resolved[] = $candidate;
+			}
+			// Record the crc of each RESOLVED clarity clause (not just the
+			// first) so the cross-page cooldown can steer same-intent
+			// categories toward fresh clauses next time. $clarity_id carries a
+			// comma-joined list the composer splits into individual sentence
+			// ids.
+			$clarity_ids = [];
+			foreach ( $clarity_pool_resolved as $resolved_clause ) {
+				$clarity_ids[] = (string) crc32( $resolved_clause );
+			}
+			if ( ! empty( $clarity_ids ) ) {
+				$clarity_id = implode( ',', array_values( array_unique( array_merge( [ $clarity_id ], $clarity_ids ) ) ) );
+			}
+		}
 		// (v5.9.9 context builder). A link placeholder only resolves when a
 		// verified URL exists; the plain name placeholder keeps working.
 		$related       = [];
@@ -371,6 +498,22 @@ class CategoryDraftComposer {
 			'related_2_link' => [ 'href' => (string) ( $related[1]['url'] ?? '' ), 'anchor' => (string) ( $related[1]['name'] ?? '' ) ],
 		];
 
+		// v5.9.16 — category-semantic tokens. These carry the category's
+		// MEANING (its subject/theme, a descriptor, the delivery format) so
+		// sentences state something specific about THIS category instead of
+		// name-only boilerplate. Derived deterministically from the category's
+		// own data; empty-safe (a missing profile just leaves the tokens blank
+		// and the sentence falls back like any other unresolved slot).
+		$profile    = (array) ( $context['__semantic_profile'] ?? [] );
+		$subject    = (string) ( $profile['subject'] ?? '' );
+		$subject_t  = (string) ( $profile['subject_title'] ?? ( $subject !== '' ? ucwords( $subject ) : '' ) );
+		$descriptor = '';
+		$dterms     = (array) ( $profile['descriptor_terms'] ?? [] );
+		if ( ! empty( $dterms ) ) { $descriptor = (string) $dterms[ $seed % count( $dterms ) ]; }
+		$format     = '';
+		$fterms     = (array) ( $profile['format_terms'] ?? [] );
+		if ( ! empty( $fterms ) ) { $format = (string) $fterms[ $seed % count( $fterms ) ]; }
+
 		return [
 			'category_name'   => (string) ( $context['category_name'] ?? '' ),
 			'primary_keyword' => (string) ( $context['primary_keyword'] ?? '' ),
@@ -380,6 +523,13 @@ class CategoryDraftComposer {
 			'model_scale'     => self::scale_phrase( 'models', $context['model_count'] ?? null, $seed ),
 			'video_scale'     => self::scale_phrase( 'videos', $context['video_count'] ?? null, $seed + 1 ),
 			'intent_clarity'  => $clarity,
+			'intent_clarity_1' => (string) ( $clarity_pool_resolved[0] ?? $clarity ),
+			'intent_clarity_2' => (string) ( $clarity_pool_resolved[1] ?? '' ),
+			'intent_clarity_3' => (string) ( $clarity_pool_resolved[2] ?? '' ),
+			'subject'         => $subject,
+			'subject_title'   => $subject_t,
+			'descriptor'      => $descriptor !== '' ? $descriptor : $subject,
+			'format'          => $format !== '' ? $format : 'live',
 		];
 	}
 
