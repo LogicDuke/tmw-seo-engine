@@ -52,6 +52,26 @@ function check(string $label, bool $ok, string $detail = ''): void {
     else     { $fail++; echo "  FAIL $label" . ($detail !== '' ? " — $detail" : '') . "\n"; }
 }
 
+function visible_text(string $html): string {
+    return trim(html_entity_decode(strip_tags($html), ENT_QUOTES | ENT_HTML5, 'UTF-8'));
+}
+
+function has_lowercase_sentence_start(string $text): bool {
+    return (bool) preg_match('/(^\s*\p{Ll}|[.!?]["\')\]]?\s+\p{Ll})/u', $text);
+}
+
+function paragraph_has_too_many_em_dashes(string $html): bool {
+    if (!preg_match_all('/<p\b[^>]*>(.*?)<\/p>/is', $html, $paragraphs)) {
+        return false;
+    }
+    foreach ($paragraphs[1] as $paragraph) {
+        if (substr_count(visible_text((string) $paragraph), '—') > 1) {
+            return true;
+        }
+    }
+    return false;
+}
+
 if (!function_exists('sanitize_title')) {
     function sanitize_title($t){ return strtolower(trim(preg_replace('/[^a-z0-9]+/i','-',(string)$t),'-')); }
 }
@@ -183,11 +203,31 @@ $capitalFixtures = [
 		'input' => '<p>The listings listing shows more detail here.</p>',
 		'want'  => '<p>The listing shows more detail here.</p>',
 	],
+	'production-order repair then recap' => [
+		'input' => '<p>A the listings listing starts here. this page continues after placement.</p>',
+		'want'  => '<p>The listing starts here. This page continues after placement.</p>',
+		'mode'  => 'repair_then_recap',
+	],
 ];
+
+$blockTags = ['div', 'li', 'section', 'article', 'blockquote', 'h1', 'h2', 'h3', 'h4', 'h5', 'h6'];
+foreach ($blockTags as $tag) {
+	$capitalFixtures[$tag . ' direct text recap'] = [
+		'input' => '<' . $tag . '>this block starts lowercase.</' . $tag . '>',
+		'want'  => '<' . $tag . '>This block starts lowercase.</' . $tag . '>',
+	];
+	$capitalFixtures[$tag . ' nested inline recap'] = [
+		'input' => '<' . $tag . '><strong>this block</strong> continues lowercase.</' . $tag . '>',
+		'want'  => '<' . $tag . '><strong>This block</strong> continues lowercase.</' . $tag . '>',
+	];
+}
 
 echo "\n== F. Paragraph/text-node capitalization after placement and repair ==\n";
 foreach ($capitalFixtures as $label => $fixture) {
-	if (str_starts_with($label, 'leading rule')) {
+	if (($fixture['mode'] ?? '') === 'repair_then_recap') {
+		$repaired = CategoryGrammarGuard::repair($fixture['input']);
+		$actual = CategoryGrammarGuard::recap_sentence_starts((string) $repaired['html']);
+	} elseif (str_starts_with($label, 'leading rule')) {
 		$actual = (string) CategoryGrammarGuard::repair($fixture['input'])['html'];
 	} else {
 		$actual = CategoryGrammarGuard::recap_sentence_starts($fixture['input']);
@@ -212,11 +252,19 @@ $banned = [
 ];
 foreach ($real as [$name, $kws]) {
     $res  = polish_generate($name, $kws, true);
-    $vis  = strip_tags((string) ($res['html'] ?? ''));
+    $html = (string) ($res['html'] ?? '');
+    $trimmed = ltrim($html);
+    $startsWithP  = (bool) preg_match('/^\s*<p[ >]/i', $trimmed);
+    $startsWithH2 = (bool) preg_match('/^\s*<h2[ >]/i', $trimmed);
+    $vis  = visible_text($html);
     $hit  = '';
     foreach ($banned as $rx) {
         if (preg_match($rx, $vis, $m)) { $hit = $m[0]; break; }
     }
+    check("[$name] final body begins with <p>, never <h2>", $startsWithP && !$startsWithH2,
+        'first tag: ' . (preg_match('/^\s*<([a-z0-9]+)/i', $trimmed, $m) ? $m[1] : '?'));
+    check("[$name] final copy has no lowercase paragraph or sentence starts", !has_lowercase_sentence_start($vis));
+    check("[$name] final paragraphs stay within one em dash", !paragraph_has_too_many_em_dashes($html));
     check("[$name] final copy free of collisions/awkward phrases", $hit === '', "found: \"$hit\"");
 }
 
