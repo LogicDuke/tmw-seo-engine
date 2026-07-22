@@ -471,6 +471,27 @@ final class KeywordPoolValidationContractRegressionTest extends TestCase {
         $result = (new KeywordPoolDryRunService())->dry_run([ $cols ], 'category', array_merge([ 'target_title' => 'Live Cam Chat', 'target_slug' => 'live-cam-chat', 'target_id' => 123 ], $context));
         return $result['rows'][0];
     }
+
+    public function test_video_pool_rejects_exact_standalone_model_name_in_authoritative_policy(): void {
+        foreach ([ [ 'Lexy Ness', 'Lexy Ness' ], [ '  LEXY   NESS  ', 'lexy ness' ] ] as $case) {
+            $result = (new KeywordPoolDryRunService())->dry_run([[ 'keyword' => $case[0], 'model_name' => $case[1] ]], 'video');
+            $row = $result['rows'][0];
+            $this->assertSame('invalid', $row['validation_state']);
+            $this->assertSame('reject', $row['decision']);
+            $this->assertContains('standalone_model_name', $row['reason_codes']);
+            $this->assertContains('video_intent_required', $row['reason_codes']);
+        }
+    }
+
+    public function test_video_pool_allows_model_name_with_video_or_session_intent(): void {
+        foreach ([ 'Lexy Ness webcam video', 'Lexy Ness private session' ] as $keyword) {
+            $result = (new KeywordPoolDryRunService())->dry_run([[ 'keyword' => $keyword, 'model_name' => 'Lexy Ness' ]], 'video');
+            $row = $result['rows'][0];
+            $this->assertNotSame('reject', $row['decision']);
+            $this->assertContains('video_intent_detected', $row['reason_codes']);
+        }
+    }
+
     public function test_live_cam_chat_target_phrases_are_target_context_classified_before_archive_policy(): void {
         foreach ([ 'free cam chat', 'free cam to cam chat', 'adult cam chat' ] as $kw) {
             $row = $this->row($kw, [ 'volume' => 1000, 'cpc' => 3.25, 'competition' => 0.06 ]);
@@ -513,6 +534,17 @@ final class KeywordPoolValidationContractRegressionTest extends TestCase {
         $this->assertContains('cpc_below_2_00', $row['golden_missing_reasons']);
         $this->assertNotSame('blocked', $row['validation_state']);
     }
+
+    public function test_free_cam_chat_is_broad_for_unrelated_category_targets(): void {
+        foreach ([ 'Asian Cam Models', 'Unrelated Category' ] as $target) {
+            $row = $this->row('free cam chat', [ 'volume' => 1000, 'cpc' => 5.00 ], [ 'target_title' => $target, 'target_slug' => strtolower(str_replace(' ', '-', $target)) ]);
+            $this->assertSame('broad_non_tmw_chat', $row['archive_class']);
+            $this->assertContains('broad_non_tmw_chat_intent', $row['reason_codes']);
+            $this->assertNotContains('too_broad_low_commercial_intent', $row['reason_codes']);
+            $this->assertNotSame('category_intent', $row['pool_fit']);
+        }
+    }
+
     public function test_high_commercial_broad_reason_is_not_low_commercial_contradiction(): void {
         $row = $this->row('free video chat', [ 'volume' => 1000, 'cpc' => 5.00 ], [ 'target_title' => 'Asian Cam Models' ]);
         $this->assertSame('high', $row['tmw_commercial_band']);

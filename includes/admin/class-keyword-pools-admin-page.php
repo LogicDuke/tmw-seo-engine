@@ -251,8 +251,14 @@ class KeywordPoolsAdminPage {
         $candidate_id = (int) ($row['candidate_id'] ?? 0);
         $now = current_time('mysql');
         if ('approve' === $requested_action) {
+            $approval_contract = self::import_row_approval_contract($row);
             $approved_candidate_id = 0;
-            if ($candidate_id > 0 && $repository->update_candidate_status($candidate_id, 'approved')) {
+            $approval_was_blocked = false;
+            $approval_failure_reason = (string) ($approval_contract['approval_block_reason'] ?? 'approval_unavailable');
+            if (empty($approval_contract['can_approve'])) {
+                $approval_was_blocked = true;
+                $approval_failure_reason = '' !== $approval_failure_reason ? $approval_failure_reason : 'approval_unavailable';
+            } elseif ($candidate_id > 0 && $repository->update_candidate_status($candidate_id, 'approved')) {
                 $approved_candidate_id = $candidate_id;
             } else {
                 $approval_result = (new KeywordPoolSelectedImportService())->approve_import_row_as_candidate_result($row, $batch);
@@ -271,7 +277,7 @@ class KeywordPoolsAdminPage {
                 ]);
             } else {
                 $repository->update_import_row($row_id, [
-                    'result_action' => 'manual_approval_failed',
+                    'result_action' => !empty($approval_was_blocked) ? 'manual_approval_blocked' : 'manual_approval_failed',
                     'result_reason' => $approval_failure_reason ?? 'candidate_persistence_failed',
                     'reviewed_by' => get_current_user_id(),
                     'reviewed_at' => $now,

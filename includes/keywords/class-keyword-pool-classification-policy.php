@@ -10,7 +10,7 @@ declare(strict_types=1);
 namespace TMWSEO\Engine\Keywords;
 
 class KeywordPoolClassificationPolicy {
-    public const BROAD_NON_TMW_CHAT_INTENTS = [ 'free video chat', 'online video chat', 'adult video chat' ];
+    public const BROAD_NON_TMW_CHAT_INTENTS = [ 'free cam chat', 'free video chat', 'online video chat', 'adult video chat' ];
     public const BROWSE_DIRECTORY_INTENTS = [ 'free cam chat rooms', 'free cam chat sites', 'webcam chat rooms', 'cam chat sites', 'webcam models', 'cam models', 'live cam models', 'live webcam models', 'asian webcam models', 'latina webcam models', 'blonde webcam models', 'busty webcam models', 'milf webcam models' ];
     public const UNSAFE_KEYWORDS = [ 'schoolgirl roleplay', 'spy cam shows' ];
     public const GEO_LOCAL_PHRASES = [ ' near me', 'local webcam', 'local cam', 'local ' ];
@@ -36,6 +36,11 @@ class KeywordPoolClassificationPolicy {
         }
         if ($this->matches_any($keyword, self::GEO_LOCAL_PHRASES)) {
             return $this->result('irrelevant', 'geo_local', $this->commercial_intent($row), $this->difficulty_band($row), $this->difficulty_source($row), 'blocked', 'block', [ 'geo_local_intent' ]);
+        }
+
+        $model_name = self::normalize((string) ($row['model_name'] ?? $context['model_name'] ?? ''));
+        if ('video' === $pool && '' !== $model_name && $keyword === $model_name) {
+            return $this->result('irrelevant', 'none', $this->commercial_intent($row), $this->difficulty_band($row), $this->difficulty_source($row), 'blocked', 'reject', [ 'standalone_model_name', 'video_intent_required' ]);
         }
 
         $target_match = $this->target_match($keyword, $target);

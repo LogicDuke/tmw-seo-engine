@@ -219,8 +219,8 @@ class KeywordPoolDryRunService {
                 $preview['validation_state'] = 'review_required';
                 $preview['decision'] = 'review_required';
             } else {
-                $preview['validation_state'] = 'blocked';
-                $preview['decision'] = 'block';
+                $preview['validation_state'] = 'reject' === (string) ($authoritative['decision'] ?? '') ? 'invalid' : 'blocked';
+                $preview['decision'] = 'reject' === (string) ($authoritative['decision'] ?? '') ? 'reject' : 'block';
             }
             $reason_codes = array_merge($reason_codes, $authoritative['reason_codes']);
         }
