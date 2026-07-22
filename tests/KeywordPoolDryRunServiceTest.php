@@ -320,7 +320,7 @@ Total Volume,704750
         $this->assertSame('block', $rows[0]['decision']);
         $this->assertSame('Archive', $rows[0]['priority_preview']);
         $this->assertSame('block_candidate', $rows[0]['recommended_action']);
-        $this->assertContains('archive_keyword', $rows[0]['reason_codes']);
+        $this->assertNotContains('archive_keyword', $rows[0]['reason_codes']);
         $this->assertContains('unsafe_keyword', $rows[0]['reason_codes']);
         $this->assertContains('rename_recommended', $rows[0]['reason_codes']);
         $this->assertStringContainsString('Use "uniform roleplay cam girls" instead.', $rows[0]['reason_summary']);
@@ -329,9 +329,10 @@ Total Volume,704750
         $this->assertSame('Archive', $rows[1]['priority_preview']);
         $this->assertContains('unsafe_keyword', $rows[1]['reason_codes']);
 
-        $this->assertSame('blocked', $rows[2]['validation_state']);
-        $this->assertSame('Archive', $rows[2]['priority_preview']);
-        $this->assertContains('too_broad_low_commercial_intent', $rows[2]['reason_codes']);
+        $this->assertSame('review_required', $rows[2]['validation_state']);
+        $this->assertSame('TMW-Archive', $rows[2]['tmw_priority']);
+        $this->assertContains('broad_non_tmw_chat_intent', $rows[2]['reason_codes']);
+        $this->assertNotContains('too_broad_low_commercial_intent', $rows[2]['reason_codes']);
 
         $this->assertSame('blocked', $rows[3]['validation_state']);
         $this->assertSame('Archive', $rows[3]['priority_preview']);
@@ -460,5 +461,65 @@ Total Volume,19950,,
         $this->assertSame('deferred_phase_2_performer_expansion', $result['rows'][1]['model_keyword_strategy']);
         $this->assertSame('manual_review', $result['rows'][1]['model_keyword_usage_scope']);
         $this->assertSame('no', $result['rows'][1]['model_keyword_primary_candidate']);
+    }
+}
+
+final class KeywordPoolValidationContractRegressionTest extends TestCase {
+    private function parse(string $csv): array { return (new KeywordPoolCsvParser())->parse_text($csv); }
+    private function row(string $keyword, array $metrics = [], array $context = []): array {
+        $cols = array_merge([ 'keyword' => $keyword ], $metrics);
+        $result = (new KeywordPoolDryRunService())->dry_run([ $cols ], 'category', array_merge([ 'target_title' => 'Live Cam Chat', 'target_slug' => 'live-cam-chat', 'target_id' => 123 ], $context));
+        return $result['rows'][0];
+    }
+    public function test_live_cam_chat_target_phrases_are_target_context_classified_before_archive_policy(): void {
+        foreach ([ 'free cam chat', 'free cam to cam chat', 'adult cam chat' ] as $kw) {
+            $row = $this->row($kw, [ 'volume' => 1000, 'cpc' => 3.25, 'competition' => 0.06 ]);
+            $this->assertContains($row['pool_fit'], [ 'exact_target_topic', 'category_intent' ]);
+            $this->assertNotContains('archive_keyword', $row['reason_codes']);
+            $this->assertNotContains('too_broad_low_commercial_intent', $row['reason_codes']);
+            $this->assertContains($row['eligibility'], [ 'candidate', 'review' ]);
+        }
+    }
+    public function test_exact_target_phrase_wins_over_generic_archive_dictionary(): void {
+        $row = $this->row('live cam chat');
+        $this->assertSame('exact_target_topic', $row['pool_fit']);
+        $this->assertSame('candidate', $row['eligibility']);
+    }
+    public function test_browse_supporting_chat_room_and_site_terms_are_contextual_review_not_word_blocked(): void {
+        foreach ([ 'free cam chat rooms', 'free cam chat sites' ] as $kw) {
+            $row = $this->row($kw);
+            $this->assertContains($row['pool_fit'], [ 'browse_supporting', 'category_intent', 'exact_target_topic' ]);
+            $this->assertNotSame('blocked', $row['validation_state']);
+        }
+    }
+    public function test_unrelated_free_video_chat_remains_broad_non_tmw(): void {
+        $row = $this->row('free video chat', [ 'volume' => 1000, 'cpc' => 0.1, 'competition' => 0.5 ], [ 'target_title' => 'Asian Cam Models', 'target_slug' => 'asian-cam-models' ]);
+        $this->assertSame('broad_non_tmw_chat', $row['archive_class']);
+        $this->assertContains('broad_non_tmw_chat_intent', $row['reason_codes']);
+    }
+    public function test_optional_metrics_missing_are_not_invalid_and_competition_proxy_is_used(): void {
+        $row = $this->row('asian cam models', [ 'difficulty' => null, 'competition' => 0.06, 'ad_difficulty' => 'null' ]);
+        $this->assertNotContains('invalid_difficulty', $row['reason_codes']);
+        $this->assertNotContains('invalid_ad_difficulty', $row['reason_codes']);
+        $this->assertSame('competition_proxy', $row['difficulty_source']);
+    }
+    public function test_malformed_ad_difficulty_remains_invalid(): void {
+        $row = $this->row('asian cam models', [ 'ad_difficulty' => 'abc' ]);
+        $this->assertContains('invalid_ad_difficulty', $row['reason_codes']);
+    }
+    public function test_cpc_below_two_is_only_golden_missing_not_blocking(): void {
+        $row = $this->row('asian cam models', [ 'volume' => 700, 'cpc' => 1.50, 'competition' => 0.06 ]);
+        $this->assertFalse($row['is_golden_keyword']);
+        $this->assertContains('cpc_below_2_00', $row['golden_missing_reasons']);
+        $this->assertNotSame('blocked', $row['validation_state']);
+    }
+    public function test_high_commercial_broad_reason_is_not_low_commercial_contradiction(): void {
+        $row = $this->row('free video chat', [ 'volume' => 1000, 'cpc' => 5.00 ], [ 'target_title' => 'Asian Cam Models' ]);
+        $this->assertSame('high', $row['tmw_commercial_band']);
+        $this->assertNotContains('too_broad_low_commercial_intent', $row['reason_codes']);
+    }
+    public function test_unsafe_and_geo_protections_remain(): void {
+        $this->assertSame('blocked', $this->row('schoolgirl roleplay')['validation_state']);
+        $this->assertSame('blocked', $this->row('webcam models near me')['validation_state']);
     }
 }

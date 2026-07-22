@@ -566,6 +566,20 @@ dani daniels,1200,2.50,0.10,75
         $this->assertStringContainsString('Reject', $html);
     }
 
+    public function test_blocked_import_row_hides_approve_action(): void {
+        $method = new ReflectionMethod(KeywordPoolsAdminPage::class, 'import_row_action_forms');
+        $method->setAccessible(true);
+        $html = (string) $method->invoke(null, [
+            'id' => 708,
+            'validation_state' => 'blocked',
+            'decision' => 'block',
+            'row_payload' => json_encode([ 'reason_codes' => [ 'unsafe_keyword' ] ]),
+        ]);
+        $this->assertStringNotContainsString('Approve</button>', $html);
+        $this->assertStringContainsString('Approve unavailable: unsafe_keyword', $html);
+        $this->assertStringContainsString('Reject', $html);
+    }
+
     public function test_admin_page_source_does_not_call_persistent_keyword_or_content_writes(): void {
         $source = file_get_contents(__DIR__ . '/../includes/admin/class-keyword-pools-admin-page.php');
         $this->assertIsString($source);

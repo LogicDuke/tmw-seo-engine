@@ -255,7 +255,9 @@ class KeywordPoolsAdminPage {
             if ($candidate_id > 0 && $repository->update_candidate_status($candidate_id, 'approved')) {
                 $approved_candidate_id = $candidate_id;
             } else {
-                $approved_candidate_id = (new KeywordPoolSelectedImportService())->approve_import_row_as_candidate($row, $batch);
+                $approval_result = (new KeywordPoolSelectedImportService())->approve_import_row_as_candidate_result($row, $batch);
+                $approved_candidate_id = !empty($approval_result['ok']) ? (int) ($approval_result['candidate_id'] ?? 0) : 0;
+                $approval_failure_reason = (string) ($approval_result['safe_reason'] ?? 'candidate_persistence_failed');
             }
 
             if ($approved_candidate_id > 0) {
@@ -269,8 +271,8 @@ class KeywordPoolsAdminPage {
                 ]);
             } else {
                 $repository->update_import_row($row_id, [
-                    'result_action' => 'candidate_write_failed',
-                    'result_reason' => 'candidate_write_failed',
+                    'result_action' => 'manual_approval_failed',
+                    'result_reason' => $approval_failure_reason ?? 'candidate_persistence_failed',
                     'reviewed_by' => get_current_user_id(),
                     'reviewed_at' => $now,
                 ]);
@@ -290,8 +292,8 @@ class KeywordPoolsAdminPage {
                 ]);
             } else {
                 $repository->update_import_row($row_id, [
-                    'result_action' => 'candidate_write_failed',
-                    'result_reason' => 'candidate_write_failed',
+                    'result_action' => 'manual_rejection_failed',
+                    'result_reason' => 'candidate_status_update_failed',
                     'reviewed_by' => get_current_user_id(),
                     'reviewed_at' => $now,
                 ]);
@@ -1062,7 +1064,14 @@ class KeywordPoolsAdminPage {
         $row_id = (int) ($row['id'] ?? 0);
         if ($row_id <= 0) { return ''; }
         $forms = [];
-        foreach ([ 'approve' => __('Approve', 'tmwseo'), 'reject' => __('Reject', 'tmwseo') ] as $action => $label) {
+        $approval = self::import_row_approval_contract($row);
+        $actions = [ 'reject' => __('Reject', 'tmwseo') ];
+        if (!empty($approval['can_approve'])) {
+            $actions = [ 'approve' => __('Approve', 'tmwseo') ] + $actions;
+        } elseif ('' !== (string) ($approval['approval_block_reason'] ?? '')) {
+            $forms[] = '<span class="description">' . esc_html(sprintf(__('Approve unavailable: %s', 'tmwseo'), (string) $approval['approval_block_reason'])) . '</span>';
+        }
+        foreach ($actions as $action => $label) {
             $forms[] = '<form method="post" action="' . esc_url(admin_url('admin-post.php')) . '" style="display:inline">'
                 . '<input type="hidden" name="action" value="tmwseo_keyword_import_row_action" />'
                 . '<input type="hidden" name="import_row_id" value="' . esc_attr((string) $row_id) . '" />'
@@ -1075,6 +1084,29 @@ class KeywordPoolsAdminPage {
                 . '</form>';
         }
         return implode(' | ', $forms);
+    }
+
+
+    /** @param array<string,mixed> $row @return array<string,mixed> */
+    private static function import_row_approval_contract(array $row): array {
+        $candidate_id = (int) ($row['candidate_id'] ?? 0);
+        $validation = (string) ($row['validation_state'] ?? '');
+        $decision = (string) ($row['decision'] ?? '');
+        $payload = json_decode((string) ($row['row_payload'] ?? ''), true);
+        $reasons = is_array($payload['reason_codes'] ?? null) ? array_map('strval', $payload['reason_codes']) : [];
+        $blocked_reasons = [ 'unsafe_keyword', 'summary_or_footer_row', 'geo_local_intent', 'missing_keyword', 'invalid_ad_difficulty', 'invalid_difficulty' ];
+        foreach ($blocked_reasons as $reason) {
+            if (in_array($reason, $reasons, true)) {
+                return [ 'can_approve' => false, 'can_reject' => true, 'approval_block_reason' => $reason ];
+            }
+        }
+        if (in_array($validation, [ 'blocked', 'invalid', 'rejected' ], true) || in_array($decision, [ 'block', 'reject' ], true)) {
+            return [ 'can_approve' => false, 'can_reject' => true, 'approval_block_reason' => 'blocked_non_overridable_policy' ];
+        }
+        if ($candidate_id <= 0 && '' === trim((string) ($row['normalized_keyword'] ?? $row['keyword'] ?? ''))) {
+            return [ 'can_approve' => false, 'can_reject' => true, 'approval_block_reason' => 'missing_keyword' ];
+        }
+        return [ 'can_approve' => true, 'can_reject' => true, 'approval_block_reason' => '' ];
     }
 
     /** @param array<string,mixed> $row @param array<string,mixed> $batch */

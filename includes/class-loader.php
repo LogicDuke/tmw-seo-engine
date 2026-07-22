@@ -128,12 +128,14 @@ class Loader {
         $p = TMWSEO_ENGINE_PATH . 'includes/keywords/';
         tmwseo_safe_require( $p . 'class-keyword-validator.php' );
         tmwseo_safe_require( $p . 'class-keyword-pool-csv-parser.php' );
+        tmwseo_safe_require( $p . 'class-keyword-pool-classification-policy.php' );
         tmwseo_safe_require( $p . 'class-keyword-pool-metrics-scorer.php' );
         tmwseo_safe_require( $p . 'class-model-keyword-strategy-classifier.php' );
         tmwseo_safe_require( $p . 'class-model-keyword-pool-classifier.php' );
         tmwseo_safe_require( $p . 'class-keyword-pool-dry-run-service.php' );
         tmwseo_safe_require( $p . 'class-keyword-pool-candidate-repository.php' );
         tmwseo_safe_require( $p . 'class-keyword-pool-import-batch-repository.php' );
+        tmwseo_safe_require( $p . 'class-keyword-pool-import-row-repair-service.php' );
         tmwseo_safe_require( $p . 'class-classified-model-keyword-provider.php' );
         tmwseo_safe_require( $p . 'class-keyword-pool-classification-apply-service.php' );
         tmwseo_safe_require( $p . 'class-model-fallback-keyword-pack-builder.php' );
