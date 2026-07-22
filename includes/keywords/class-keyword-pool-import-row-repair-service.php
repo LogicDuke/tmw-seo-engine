@@ -3,8 +3,31 @@
 declare(strict_types=1);
 namespace TMWSEO\Engine\Keywords;
 if (!class_exists(KeywordPoolClassificationPolicy::class)) { require_once __DIR__ . '/class-keyword-pool-classification-policy.php'; }
+/**
+ * Builds report-only repairs for stored keyword-pool import rows.
+ *
+ * The service preserves raw row evidence, recalculates effective classification with
+ * `KeywordPoolClassificationPolicy`, reconciles stale reason codes, and reports what would
+ * change. It does not update the database and never creates keyword candidates or writes
+ * Rank Math, content, taxonomy, slug, publishing, canonical, or indexing state.
+ */
 class KeywordPoolImportRowRepairService {
-    /** @param array<int,array<string,mixed>> $rows @return array<string,mixed> */
+    /**
+     * Produce an idempotent repair report for stored import-row payloads.
+     *
+     * Each input row should include either `row_payload` JSON or row-like fields such as
+     * `keyword`, `normalized_keyword`, metrics, `reason_codes`, and optional
+     * `result_reason`. The returned report contains `dry_run`, `changed_rows`,
+     * `reason_changes`, `state_changes`, and per-row entries with `raw_payload`,
+     * `effective_payload`, `changed`, and `creates_candidate=false`.
+     *
+     * This method is report-only for both dry-run and apply-preview usage in this PR: it
+     * performs no persistence and cannot create candidates.
+     *
+     * @param array<int,array<string,mixed>> $rows
+     * @param array<string,mixed> $context
+     * @return array<string,mixed>
+     */
     public function repair_rows(array $rows, string $pool = 'category', array $context = [], bool $dry_run = true): array {
         $report = [ 'dry_run'=>$dry_run, 'changed_rows'=>0, 'reason_changes'=>[], 'state_changes'=>[], 'rows'=>[] ];
         foreach ($rows as $row) {

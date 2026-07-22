@@ -36,6 +36,18 @@ class KeywordPoolCandidateRepository {
     }
 
     /**
+     * Persist one keyword candidate and return a structured, UI-safe result.
+     *
+     * Expected `$candidate` keys include `keyword`, `intent_type`, `entity_type`,
+     * `entity_id`, `status`, optional target/source context, metrics, and provenance. The
+     * method writes only to the keyword-candidate table; it does not modify posts, content,
+     * taxonomies, Rank Math metadata, publishing state, canonical URLs, or indexing state.
+     *
+     * Returns fields including `ok`, `id`/`candidate_id`, `keyword`, `pool`, `status`,
+     * `action`, `safe_reason`, `technical_log_id`, `conflict`, `entity_type`, `entity_id`,
+     * and `warnings`. Technical DB details are logged with `[TMW-KW-CANDIDATE-*]` IDs and
+     * are not exposed directly in UI-safe reasons.
+     *
      * @param array<string,mixed> $candidate
      * @return array<string,mixed>
      */

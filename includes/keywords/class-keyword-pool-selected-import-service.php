@@ -245,8 +245,13 @@ class KeywordPoolSelectedImportService {
 
 
     /**
-     * Explicit operator override path for a single durable import row.
-     * This does not change full-batch eligibility or auto-approval behavior.
+     * Legacy integer wrapper for manually approving a durable import row as a candidate.
+     *
+     * Expected inputs are an import-row DB record and its import batch context. This method
+     * can create or update a keyword candidate through `KeywordPoolCandidateRepository`, but
+     * it does not write Rank Math, post content, taxonomy, slug, publishing, canonical, or
+     * indexing state. Prefer `approve_import_row_as_candidate_result()` when callers need a
+     * safe failure reason.
      *
      * @param array<string,mixed> $import_row
      * @param array<string,mixed> $batch
@@ -256,7 +261,23 @@ class KeywordPoolSelectedImportService {
         return !empty($result['ok']) ? (int) ($result['candidate_id'] ?? 0) : 0;
     }
 
-    /** @return array<string,mixed> */
+    /**
+     * Manually approve one durable import row and return structured persistence feedback.
+     *
+     * Expected `$import_row` is a stored import-row record with `row_payload`, keyword,
+     * normalized keyword, metrics, target fields, and optional `candidate_id`; `$batch`
+     * supplies pool and target/source context. The method may write a keyword candidate via
+     * the repository when approval preconditions have already been satisfied by the caller.
+     * It never writes SEO metadata, content, taxonomy, slug, publishing, canonical, or
+     * indexing state.
+     *
+     * Returns `ok`, `candidate_id`, `safe_reason`, `technical_log_id`, `conflict`, and the
+     * raw `repository_result` for audit-safe handling by admin/manual-review flows.
+     *
+     * @param array<string,mixed> $import_row
+     * @param array<string,mixed> $batch
+     * @return array<string,mixed>
+     */
     public function approve_import_row_as_candidate_result(array $import_row, array $batch): array {
         $pool = $this->sanitize_pool((string) ($batch['pool'] ?? 'model'));
         $payload = json_decode((string) ($import_row['row_payload'] ?? ''), true);

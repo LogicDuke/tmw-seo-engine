@@ -465,7 +465,6 @@ Total Volume,19950,,
 }
 
 final class KeywordPoolValidationContractRegressionTest extends TestCase {
-    private function parse(string $csv): array { return (new KeywordPoolCsvParser())->parse_text($csv); }
     private function row(string $keyword, array $metrics = [], array $context = []): array {
         $cols = array_merge([ 'keyword' => $keyword ], $metrics);
         $result = (new KeywordPoolDryRunService())->dry_run([ $cols ], 'category', array_merge([ 'target_title' => 'Live Cam Chat', 'target_slug' => 'live-cam-chat', 'target_id' => 123 ], $context));

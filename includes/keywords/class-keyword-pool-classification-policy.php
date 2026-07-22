@@ -9,13 +9,37 @@ declare(strict_types=1);
 
 namespace TMWSEO\Engine\Keywords;
 
+/**
+ * Authoritative, side-effect-free classifier for keyword-pool import rows.
+ *
+ * The policy receives a normalized dry-run/import row plus target context and returns the
+ * canonical pool-fit, archive/safety, commercial, difficulty, eligibility, decision, and
+ * reason-code fields consumed by dry-run previews, scoring, import replay, and repair
+ * reports. It never writes candidates, posts, terms, metadata, or indexing state.
+ */
 class KeywordPoolClassificationPolicy {
     public const BROAD_NON_TMW_CHAT_INTENTS = [ 'free cam chat', 'free video chat', 'online video chat', 'adult video chat' ];
     public const BROWSE_DIRECTORY_INTENTS = [ 'free cam chat rooms', 'free cam chat sites', 'webcam chat rooms', 'cam chat sites', 'webcam models', 'cam models', 'live cam models', 'live webcam models', 'asian webcam models', 'latina webcam models', 'blonde webcam models', 'busty webcam models', 'milf webcam models' ];
     public const UNSAFE_KEYWORDS = [ 'schoolgirl roleplay', 'spy cam shows' ];
     public const GEO_LOCAL_PHRASES = [ ' near me', 'local webcam', 'local cam', 'local ' ];
 
-    /** @return array<string,mixed> */
+    /**
+     * Classify one keyword row against the requested pool and target context.
+     *
+     * Expected `$row` keys include `keyword` or `normalized_keyword`, optional metrics
+     * (`difficulty`, `competition`, `cpc`, `traffic_value`), and optional `model_name`.
+     * Expected `$context` keys include target descriptors such as `target_title`,
+     * `target_name`, `target_slug`, `target_topic`, or `model_name`.
+     *
+     * Returns `pool_fit`, `archive_class`, `commercial_intent`, `difficulty_band`,
+     * `difficulty_source`, `eligibility`, `decision`, and `reason_codes`. The method is
+     * deterministic and side-effect free; it is classification-only and cannot persist
+     * candidates or mutate stored import rows.
+     *
+     * @param array<string,mixed> $row
+     * @param array<string,mixed> $context
+     * @return array<string,mixed>
+     */
     public function classify(array $row, string $pool, array $context = []): array {
         $pool = in_array($pool, [ 'model', 'video', 'category' ], true) ? $pool : 'category';
         $keyword = self::normalize((string) ($row['normalized_keyword'] ?? $row['keyword'] ?? ''));
