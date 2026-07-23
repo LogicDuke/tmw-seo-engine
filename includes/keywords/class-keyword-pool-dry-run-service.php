@@ -9,6 +9,10 @@ declare(strict_types=1);
 
 namespace TMWSEO\Engine\Keywords;
 
+if (!class_exists(KeywordPoolClassificationPolicy::class)) {
+    require_once __DIR__ . '/class-keyword-pool-classification-policy.php';
+}
+
 /**
  * Produces keyword pool preview rows without persisting imported data.
  */
@@ -26,28 +30,6 @@ class KeywordPoolDryRunService {
         'approved',
         'rejected',
         'ignored',
-    ];
-
-    /** @var array<int, string> */
-    private const ARCHIVE_KEYWORDS = [
-        'schoolgirl roleplay',
-        'spy cam shows',
-        'free video chat',
-        'online video chat',
-        'free cam chat',
-        'webcam models near me',
-        'cam models near me',
-        'local webcam models',
-        'local cam models',
-        'local webcam girls',
-        'local cam girls',
-        'webcam girls near me',
-        'cam girls near me',
-        'new cam models',
-        'featured webcam models',
-        'real webcam models',
-        'premium webcam models',
-        'verified webcam models',
     ];
 
     /**
@@ -83,7 +65,7 @@ class KeywordPoolDryRunService {
                 continue;
             }
 
-            $preview_row = $this->build_preview_row($row, $pool, (int) $index + 2, $inferred_model_context, $is_global_model_pool);
+            $preview_row = $this->build_preview_row($row, $pool, (int) $index + 2, $inferred_model_context, $is_global_model_pool, $context);
             $normalized  = $preview_row['normalized_keyword'];
 
             if ('' !== $normalized) {
@@ -157,7 +139,7 @@ class KeywordPoolDryRunService {
      * @param array<string, mixed> $row Parsed canonical row.
      * @return array<string, mixed>
      */
-    private function build_preview_row(array $row, string $pool, int $fallback_row_number, string $inferred_model_context = '', bool $is_global_model_pool = false): array {
+    private function build_preview_row(array $row, string $pool, int $fallback_row_number, string $inferred_model_context = '', bool $is_global_model_pool = false, array $context = []): array {
         $keyword            = $this->clean_text($row['keyword'] ?? '');
         $explicit_model_name = $this->clean_text($row['model_name'] ?? '');
         $model_name = '' !== $explicit_model_name ? $explicit_model_name : ('model' === $pool ? $inferred_model_context : '');
@@ -220,15 +202,27 @@ class KeywordPoolDryRunService {
             $preview['decision']         = 'block';
             $reason_codes[]              = 'summary_or_footer_row';
         } else {
-            $archive_decision = $this->classify_archive_keyword($preview);
-            if ([] !== $archive_decision) {
-                $preview      = array_merge($preview, $archive_decision);
-                $reason_codes = array_merge($reason_codes, $archive_decision['reason_codes']);
+            $authoritative = (new KeywordPoolClassificationPolicy())->classify($preview, $pool, $context);
+            $preview['pool_fit'] = $authoritative['pool_fit'];
+            $preview['archive_class'] = $authoritative['archive_class'];
+            $preview['commercial_intent'] = $authoritative['commercial_intent'];
+            $preview['difficulty_band'] = $authoritative['difficulty_band'];
+            $preview['difficulty_source'] = $authoritative['difficulty_source'];
+            $preview['eligibility'] = $authoritative['eligibility'];
+            if ('candidate' === $authoritative['eligibility']) {
+                $preview['validation_state'] = 'valid';
+                $preview['decision'] = 'accept';
+            } elseif ('review' === $authoritative['eligibility']) {
+                $preview['validation_state'] = 'review_required';
+                $preview['decision'] = 'review_required';
+            } elseif ('archive' === $authoritative['eligibility']) {
+                $preview['validation_state'] = 'review_required';
+                $preview['decision'] = 'review_required';
             } else {
-                $pool_decision = $this->classify_for_pool($preview, $pool);
-                $preview       = array_merge($preview, $pool_decision);
-                $reason_codes  = array_merge($reason_codes, $pool_decision['reason_codes']);
+                $preview['validation_state'] = 'reject' === (string) ($authoritative['decision'] ?? '') ? 'invalid' : 'blocked';
+                $preview['decision'] = 'reject' === (string) ($authoritative['decision'] ?? '') ? 'reject' : 'block';
             }
+            $reason_codes = array_merge($reason_codes, $authoritative['reason_codes']);
         }
 
         if ($is_global_model_pool) {
@@ -446,95 +440,6 @@ class KeywordPoolDryRunService {
 
     /**
      * @param array<string, mixed> $row Preview row.
-     * @return array<string, mixed>
-     */
-    private function classify_for_pool(array $row, string $pool): array {
-        $keyword    = (string) $row['normalized_keyword'];
-        $model_name = $this->normalize_keyword((string) $row['model_name']);
-
-        if ('video' === $pool) {
-            if ('' !== $model_name && $keyword === $model_name) {
-                return $this->classification('invalid', 'reject', [ 'standalone_model_name', 'video_intent_required' ]);
-            }
-            if ($this->has_any($keyword, [ 'video', 'videos', 'webcam video', 'clip', 'clips', 'session', 'scene', 'watch', 'stream' ])) {
-                return $this->classification('valid', 'accept', [ 'video_intent_detected' ]);
-            }
-            return $this->classification('review_required', 'review_required', [ 'video_intent_required' ]);
-        }
-
-        if ('model' === $pool) {
-            if ($this->has_any($keyword, [ 'category', 'categories', 'browse', 'archive', 'topic' ])) {
-                return $this->classification('review_required', 'review_required', [ 'category_intent_detected' ]);
-            }
-            if ($this->has_any($keyword, [ 'video', 'videos', 'clip', 'clips', 'session', 'scene', 'watch' ])) {
-                return $this->classification('review_required', 'review_required', [ 'video_intent_detected' ]);
-            }
-            if ('' !== $model_name && str_contains($keyword, $model_name)) {
-                return $this->classification('valid', 'accept', [ 'model_entity_detected' ]);
-            }
-            if ($this->has_any($keyword, [ 'model', 'models', 'profile', 'bio', 'biography', 'performer', 'talent', 'cam girl', 'webcam model' ])) {
-                return $this->classification('valid', 'accept', [ 'model_intent_detected' ]);
-            }
-            return $this->classification('review_required', 'review_required', [ 'model_intent_unclear' ]);
-        }
-
-        if ($this->has_any($keyword, [ 'video', 'clip', 'session', 'scene' ])) {
-            return $this->classification('review_required', 'review_required', [ 'video_intent_detected' ]);
-        }
-        if ('' !== $model_name && $keyword === $model_name) {
-            return $this->classification('review_required', 'review_required', [ 'standalone_model_name' ]);
-        }
-        if ($this->has_any($keyword, [ 'category', 'categories', 'browse', 'archive', 'topic', 'model', 'models', 'cam model', 'cam models', 'webcam model', 'webcam models', 'cam girls', 'webcam girls', 'live cam', 'cam chat', 'cam shows', 'livejasmin', 'jasmin', 'couples live webcam', 'private cam shows', 'blonde', 'brunette', 'latina', 'lesbian', 'ebony', 'asian', 'indian', 'busty', 'teen', 'mature' ])) {
-            return $this->classification('valid', 'accept', [ 'category_intent_detected' ]);
-        }
-
-        return $this->classification('review_required', 'review_required', [ 'category_intent_unclear' ]);
-    }
-
-
-    /**
-     * @param array<string, mixed> $row Preview row.
-     * @return array<string, mixed>
-     */
-    private function classify_archive_keyword(array $row): array {
-        $keyword = (string) ($row['normalized_keyword'] ?? '');
-        if ('' === $keyword) {
-            return [];
-        }
-
-        $reasons = [];
-        if (in_array($keyword, self::ARCHIVE_KEYWORDS, true)) {
-            $reasons[] = 'archive_keyword';
-        }
-        if ('schoolgirl roleplay' === $keyword || 'spy cam shows' === $keyword) {
-            $reasons[] = 'archive_keyword';
-            $reasons[] = 'unsafe_keyword';
-        }
-        if ('schoolgirl roleplay' === $keyword) {
-            $reasons[] = 'rename_recommended';
-        }
-        if ($this->has_any($keyword, [ ' near me', 'local webcam', 'local cam', 'local ' ])) {
-            $reasons[] = 'archive_keyword';
-            $reasons[] = 'geo_local_intent';
-        }
-        if ($this->has_any($keyword, [ 'free video chat', 'online video chat', 'free cam chat' ])) {
-            $reasons[] = 'archive_keyword';
-            $reasons[] = 'too_broad_low_commercial_intent';
-        }
-        if (0 === (int) ($row['volume'] ?? -1) && ! $this->has_strong_commercial_webcam_intent($keyword)) {
-            $reasons[] = 'archive_keyword';
-            $reasons[] = 'zero_volume_noise';
-        }
-
-        if ([] === $reasons) {
-            return [];
-        }
-
-        return $this->classification('blocked', 'block', array_values(array_unique($reasons)));
-    }
-
-    /**
-     * @param array<string, mixed> $row Preview row.
      */
     private function is_golden_keyword(array $row): bool {
         if (in_array((string) ($row['decision'] ?? ''), [ 'reject', 'block' ], true) || 'Archive' === (string) ($row['priority_preview'] ?? '')) {
@@ -639,7 +544,7 @@ class KeywordPoolDryRunService {
     private function priority_preview(array $row): string {
         $decision = (string) ($row['decision'] ?? '');
         $reasons  = is_array($row['reason_codes'] ?? null) ? $row['reason_codes'] : [];
-        if (in_array($decision, [ 'reject', 'block' ], true) || ! empty($row['is_duplicate_in_upload']) || in_array('archive_keyword', $reasons, true) || in_array('summary_or_footer_row', $reasons, true)) {
+        if (in_array($decision, [ 'reject', 'block' ], true) || ! empty($row['is_duplicate_in_upload']) || in_array('summary_or_footer_row', $reasons, true)) {
             return 'Archive';
         }
 
@@ -810,18 +715,6 @@ class KeywordPoolDryRunService {
         $keyword = preg_replace('/[^a-z0-9]+/', ' ', $keyword) ?? $keyword;
         $keyword = preg_replace('/\s+/', ' ', $keyword) ?? $keyword;
         return trim($keyword);
-    }
-
-    /**
-     * @param array<int, string> $reasons Reason codes.
-     * @return array<string, mixed>
-     */
-    private function classification(string $state, string $decision, array $reasons): array {
-        return [
-            'validation_state' => $state,
-            'decision'         => $decision,
-            'reason_codes'     => $reasons,
-        ];
     }
 
     /**

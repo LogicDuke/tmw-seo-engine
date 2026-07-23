@@ -9,6 +9,10 @@ declare(strict_types=1);
 
 namespace TMWSEO\Engine\Keywords;
 
+if (!class_exists(KeywordPoolClassificationPolicy::class)) {
+    require_once __DIR__ . '/class-keyword-pool-classification-policy.php';
+}
+
 /**
  * Converts imported KWE/DataForSEO metrics into project-specific TMW decisions.
  */
@@ -18,23 +22,13 @@ class KeywordPoolMetricsScorer {
     private const POOLS = [ 'model', 'video', 'category' ];
 
     /** @var array<int, string> */
-    private const HARD_BLOCK_REASONS = [ 'unsafe_keyword', 'summary_or_footer_row', 'archive_keyword', 'geo_local_intent' ];
+    private const HARD_BLOCK_REASONS = [ 'unsafe_keyword', 'summary_or_footer_row', 'geo_local_intent' ];
 
     /** @var array<int, string> */
-    private const BROAD_NON_TMW_CHAT_INTENTS = [ 'free video chat', 'online video chat', 'adult video chat' ];
+    private const BROAD_NON_TMW_CHAT_INTENTS = KeywordPoolClassificationPolicy::BROAD_NON_TMW_CHAT_INTENTS;
 
     /** @var array<int, string> */
-    private const LJ_CATEGORY_BROWSE_INTENTS = [
-        'webcam models',
-        'cam models',
-        'live cam models',
-        'live webcam models',
-        'asian webcam models',
-        'latina webcam models',
-        'blonde webcam models',
-        'busty webcam models',
-        'milf webcam models',
-    ];
+    private const LJ_CATEGORY_BROWSE_INTENTS = KeywordPoolClassificationPolicy::BROWSE_DIRECTORY_INTENTS;
 
     /** @var array<int, string> */
     private const VIDEO_MODIFIERS = [ 'video', 'clip', 'live show', 'cam show', 'private show', 'webcam video' ];
@@ -71,7 +65,7 @@ class KeywordPoolMetricsScorer {
         $deferred_big_performer = $this->is_standalone_big_performer($keyword);
         $standalone_person_name = $this->is_standalone_person_name($keyword);
         $strong_pool_fit = $this->has_strong_pool_fit($keyword, $pool, $row);
-        $broad_chat_intent = in_array($keyword, self::BROAD_NON_TMW_CHAT_INTENTS, true);
+        $broad_chat_intent = in_array($keyword, self::BROAD_NON_TMW_CHAT_INTENTS, true) && 'exact_target_topic' !== (string) ($row['pool_fit'] ?? '') && 'category_intent' !== (string) ($row['pool_fit'] ?? '');
 
         if ($blocked) {
             $tmw_reasons[] = 'blocked_or_rejected';
@@ -83,7 +77,7 @@ class KeywordPoolMetricsScorer {
 
             if ($broad_chat_intent) {
                 $score -= 25;
-                $tmw_reasons[] = 'too_broad_non_tmw_chat_intent';
+                $tmw_reasons[] = 'broad_non_tmw_chat_intent';
                 $formula[] = '-25 broad non-TMW chat intent';
             }
             if ('video' === $pool && $standalone_person_name) {

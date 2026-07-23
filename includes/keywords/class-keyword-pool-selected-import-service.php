@@ -17,7 +17,7 @@ class KeywordPoolSelectedImportService {
 
     private const ELIGIBLE_PRIORITIES = [ 'TMW-P1', 'TMW-P2', 'TMW-P3' ];
     private const ELIGIBLE_ACTIONS = [ 'approve_for_phase_1', 'queue_for_review' ];
-    private const BLOCKING_REASONS = [ 'archive_keyword', 'unsafe_keyword', 'summary_or_footer_row', 'geo_local_intent', 'duplicate_in_upload' ];
+    private const BLOCKING_REASONS = [ 'unsafe_keyword', 'summary_or_footer_row', 'geo_local_intent', 'duplicate_in_upload' ];
     private const SAVE_MODES = [ 'auto', 'queued_for_review', 'approved' ];
     private const METRIC_FIELDS = [ 'volume', 'difficulty', 'cpc', 'competition', 'opportunity', 'seo_score', 'traffic_value', 'trend', 'trend_direction', 'ad_difficulty', 'difficulty_proxy', 'opportunity_score', 'lowest_cpc', 'average_cpc', 'highest_cpc', 'cpc_spread', 'tmw_score', 'tmw_priority', 'tmw_difficulty_band', 'tmw_commercial_band', 'tmw_indexing_readiness', 'tmw_recommended_action' ];
 
@@ -245,13 +245,40 @@ class KeywordPoolSelectedImportService {
 
 
     /**
-     * Explicit operator override path for a single durable import row.
-     * This does not change full-batch eligibility or auto-approval behavior.
+     * Legacy integer wrapper for manually approving a durable import row as a candidate.
+     *
+     * Expected inputs are an import-row DB record and its import batch context. This method
+     * can create or update a keyword candidate through `KeywordPoolCandidateRepository`, but
+     * it does not write Rank Math, post content, taxonomy, slug, publishing, canonical, or
+     * indexing state. Prefer `approve_import_row_as_candidate_result()` when callers need a
+     * safe failure reason.
      *
      * @param array<string,mixed> $import_row
      * @param array<string,mixed> $batch
      */
     public function approve_import_row_as_candidate(array $import_row, array $batch): int {
+        $result = $this->approve_import_row_as_candidate_result($import_row, $batch);
+        return !empty($result['ok']) ? (int) ($result['candidate_id'] ?? 0) : 0;
+    }
+
+    /**
+     * Manually approve one durable import row and return structured persistence feedback.
+     *
+     * Expected `$import_row` is a stored import-row record with `row_payload`, keyword,
+     * normalized keyword, metrics, target fields, and optional `candidate_id`; `$batch`
+     * supplies pool and target/source context. The method may write a keyword candidate via
+     * the repository when approval preconditions have already been satisfied by the caller.
+     * It never writes SEO metadata, content, taxonomy, slug, publishing, canonical, or
+     * indexing state.
+     *
+     * Returns `ok`, `candidate_id`, `safe_reason`, `technical_log_id`, `conflict`, and the
+     * raw `repository_result` for audit-safe handling by admin/manual-review flows.
+     *
+     * @param array<string,mixed> $import_row
+     * @param array<string,mixed> $batch
+     * @return array<string,mixed>
+     */
+    public function approve_import_row_as_candidate_result(array $import_row, array $batch): array {
         $pool = $this->sanitize_pool((string) ($batch['pool'] ?? 'model'));
         $payload = json_decode((string) ($import_row['row_payload'] ?? ''), true);
         $row = is_array($payload) ? $payload : [];
@@ -291,7 +318,15 @@ class KeywordPoolSelectedImportService {
         $candidate = $this->candidate_from_row($row, $pool, 'approved', 'approved', $context);
         $candidate['status_change_explicit'] = true;
         $saved = $this->repository->save($candidate);
-        return in_array((string) ($saved['action'] ?? ''), [ 'inserted', 'updated' ], true) ? (int) ($saved['id'] ?? 0) : 0;
+        $ok = in_array((string) ($saved['action'] ?? ''), [ 'inserted', 'updated' ], true);
+        return [
+            'ok' => $ok,
+            'candidate_id' => $ok ? (int) ($saved['id'] ?? 0) : 0,
+            'safe_reason' => (string) ($saved['safe_reason'] ?? $saved['reason'] ?? ($ok ? 'candidate_saved' : 'candidate_persistence_failed')),
+            'technical_log_id' => (string) ($saved['technical_log_id'] ?? ''),
+            'conflict' => $saved['conflict'] ?? null,
+            'repository_result' => $saved,
+        ];
     }
 
     /** @param array<string,mixed> $row */

@@ -566,6 +566,49 @@ dani daniels,1200,2.50,0.10,75
         $this->assertStringContainsString('Reject', $html);
     }
 
+
+    public function test_server_side_approve_path_enforces_same_approval_contract_before_persistence(): void {
+        $source = file_get_contents(__DIR__ . '/../includes/admin/class-keyword-pools-admin-page.php');
+        $this->assertIsString($source);
+        $contractPos = strpos($source, 'self::import_row_approval_contract($row)');
+        $persistPos = strpos($source, 'approve_import_row_as_candidate_result($row, $batch)');
+        $this->assertNotFalse($contractPos);
+        $this->assertNotFalse($persistPos);
+        $this->assertLessThan($persistPos, $contractPos);
+        $this->assertStringContainsString("'result_action' => !empty($approval_was_blocked) ? 'manual_approval_blocked' : 'manual_approval_failed'", $source);
+    }
+
+    public function test_post_approve_attempt_contract_blocks_non_overridable_rows_and_allows_review(): void {
+        $method = new ReflectionMethod(KeywordPoolsAdminPage::class, 'import_row_approval_contract');
+        $method->setAccessible(true);
+        $cases = [
+            'blocked row POST approve attempt' => [ 'row' => [ 'id' => 1, 'validation_state' => 'blocked', 'decision' => 'block', 'row_payload' => json_encode([ 'reason_codes' => [] ]) ], 'can' => false, 'reason' => 'blocked_non_overridable_policy' ],
+            'unsafe row POST approve attempt' => [ 'row' => [ 'id' => 2, 'validation_state' => 'blocked', 'decision' => 'block', 'row_payload' => json_encode([ 'reason_codes' => [ 'unsafe_keyword' ] ]) ], 'can' => false, 'reason' => 'unsafe_keyword' ],
+            'invalid-metric row POST approve attempt' => [ 'row' => [ 'id' => 3, 'validation_state' => 'review_required', 'decision' => 'review_required', 'normalized_keyword' => 'asian cam models', 'row_payload' => json_encode([ 'reason_codes' => [ 'invalid_ad_difficulty' ] ]) ], 'can' => false, 'reason' => 'invalid_ad_difficulty' ],
+            'valid review row POST approve attempt' => [ 'row' => [ 'id' => 4, 'validation_state' => 'review_required', 'decision' => 'review_required', 'normalized_keyword' => 'free cam chat rooms', 'row_payload' => json_encode([ 'reason_codes' => [ 'target_context_browse_supporting_intent' ] ]) ], 'can' => true, 'reason' => '' ],
+            'nonce replay from Reject row changed to approve' => [ 'row' => [ 'id' => 5, 'validation_state' => 'blocked', 'decision' => 'block', 'normalized_keyword' => 'schoolgirl roleplay', 'row_payload' => json_encode([ 'reason_codes' => [ 'unsafe_keyword' ] ]) ], 'can' => false, 'reason' => 'unsafe_keyword' ],
+        ];
+        foreach ($cases as $label => $case) {
+            $result = $method->invoke(null, $case['row']);
+            $this->assertSame($case['can'], (bool) $result['can_approve'], $label);
+            $this->assertSame($case['reason'], (string) $result['approval_block_reason'], $label);
+        }
+    }
+
+    public function test_blocked_import_row_hides_approve_action(): void {
+        $method = new ReflectionMethod(KeywordPoolsAdminPage::class, 'import_row_action_forms');
+        $method->setAccessible(true);
+        $html = (string) $method->invoke(null, [
+            'id' => 708,
+            'validation_state' => 'blocked',
+            'decision' => 'block',
+            'row_payload' => json_encode([ 'reason_codes' => [ 'unsafe_keyword' ] ]),
+        ]);
+        $this->assertStringNotContainsString('Approve</button>', $html);
+        $this->assertStringContainsString('Approve unavailable: unsafe_keyword', $html);
+        $this->assertStringContainsString('Reject', $html);
+    }
+
     public function test_admin_page_source_does_not_call_persistent_keyword_or_content_writes(): void {
         $source = file_get_contents(__DIR__ . '/../includes/admin/class-keyword-pools-admin-page.php');
         $this->assertIsString($source);

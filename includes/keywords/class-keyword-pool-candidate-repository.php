@@ -36,6 +36,18 @@ class KeywordPoolCandidateRepository {
     }
 
     /**
+     * Persist one keyword candidate and return a structured, UI-safe result.
+     *
+     * Expected `$candidate` keys include `keyword`, `intent_type`, `entity_type`,
+     * `entity_id`, `status`, optional target/source context, metrics, and provenance. The
+     * method writes only to the keyword-candidate table; it does not modify posts, content,
+     * taxonomies, Rank Math metadata, publishing state, canonical URLs, or indexing state.
+     *
+     * Returns fields including `ok`, `id`/`candidate_id`, `keyword`, `pool`, `status`,
+     * `action`, `safe_reason`, `technical_log_id`, `conflict`, `entity_type`, `entity_id`,
+     * and `warnings`. Technical DB details are logged with `[TMW-KW-CANDIDATE-*]` IDs and
+     * are not exposed directly in UI-safe reasons.
+     *
      * @param array<string,mixed> $candidate
      * @return array<string,mixed>
      */
@@ -167,6 +179,7 @@ class KeywordPoolCandidateRepository {
             }
             $updated = $wpdb->update($this->table_name(), $data, [ 'id' => $id ]);
             if (false === $updated) {
+                $this->log_persistence_error('database_update_failed', 'update', $keyword, $entity_type, $entity_id);
                 return $this->result($keyword, $intent, $result_status, 'error', 'database_update_failed', $entity_type, $entity_id, $warnings);
             }
             if (!empty($data['target_type']) && 'global' === $data['target_type']) {
@@ -177,6 +190,7 @@ class KeywordPoolCandidateRepository {
 
         $inserted = $wpdb->insert($this->table_name(), $data);
         if (false === $inserted) {
+            $this->log_persistence_error('database_insert_failed', 'insert', $keyword, $entity_type, $entity_id);
             return $this->result($keyword, $intent, $result_status, 'error', 'database_insert_failed', $entity_type, $entity_id, $warnings);
         }
         $new_id = (int) $wpdb->insert_id;
@@ -602,7 +616,20 @@ class KeywordPoolCandidateRepository {
             'entity_type' => $entity_type,
             'entity_id' => $entity_id,
             'warnings' => $warnings,
+            'ok' => in_array($action, [ 'inserted', 'updated' ], true),
+            'candidate_id' => $id,
+            'safe_reason' => $reason,
+            'technical_log_id' => in_array($action, [ 'error', 'conflict' ], true) ? ('TMW-KW-CANDIDATE-' . substr(sha1($keyword . $reason . $entity_type . $entity_id), 0, 12)) : '',
+            'conflict' => 'conflict' === $action ? $extra : null,
         ], $extra);
+    }
+
+
+    private function log_persistence_error(string $reason, string $operation, string $keyword, string $entity_type, int $entity_id): void {
+        global $wpdb;
+        $log_id = 'TMW-KW-CANDIDATE-' . substr(sha1($keyword . $reason . $operation . $entity_type . $entity_id), 0, 12);
+        $last_error = isset($wpdb->last_error) ? (string) $wpdb->last_error : '';
+        error_log(sprintf('[%s] reason=%s operation=%s table=%s keyword=%s entity=%s:%d wpdb_last_error=%s', $log_id, $reason, $operation, $this->table_name(), $keyword, $entity_type, $entity_id, $last_error));
     }
 
     /**
