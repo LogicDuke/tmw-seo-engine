@@ -1101,7 +1101,7 @@ class KeywordPoolsAdminPage {
         $validation = (string) ($effective['validation_state'] ?? $row['validation_state'] ?? '');
         $decision = (string) ($effective['decision'] ?? $row['decision'] ?? '');
         $reasons = is_array($effective['reason_codes'] ?? null) ? array_map('strval', $effective['reason_codes']) : [];
-        $blocked_reasons = [ 'unsafe_keyword', 'summary_or_footer_row', 'geo_local_intent', 'missing_keyword', 'invalid_ad_difficulty', 'invalid_difficulty' ];
+        $blocked_reasons = [ 'unsafe_keyword', 'summary_or_footer_row', 'geo_local_intent', 'missing_keyword', 'invalid_ad_difficulty', 'invalid_difficulty', 'invalid_competition', 'invalid_cpc' ];
         foreach ($blocked_reasons as $reason) {
             if (in_array($reason, $reasons, true)) {
                 return [ 'can_approve' => false, 'can_reject' => true, 'approval_block_reason' => $reason ];
@@ -1124,8 +1124,8 @@ class KeywordPoolsAdminPage {
         }
         $effective = array_merge($row, $payload);
         $reasons = is_array($effective['reason_codes'] ?? null) ? array_values(array_unique(array_map('strval', $effective['reason_codes']))) : [];
-        foreach ([ 'difficulty', 'ad_difficulty' ] as $metric) {
-            if (self::is_missing_optional_metric_value($effective[$metric] ?? null)) {
+        foreach ([ 'difficulty', 'ad_difficulty', 'competition', 'cpc' ] as $metric) {
+            if (self::is_stale_invalid_metric_reason($row, $payload, $metric)) {
                 $reasons = array_values(array_diff($reasons, [ 'invalid_' . $metric ]));
             }
         }
@@ -1149,11 +1149,35 @@ class KeywordPoolsAdminPage {
         return $effective;
     }
 
-    private static function is_missing_optional_metric_value($value): bool {
-        if (null === $value) { return true; }
-        if (is_float($value) && is_nan($value)) { return true; }
-        $cleaned = strtolower(trim(preg_replace('/[\p{Z}\s]+/u', ' ', (string) $value) ?? (string) $value));
-        return '' === $cleaned || in_array($cleaned, [ 'nan', 'n/a', 'na', 'null' ], true);
+    /** @param array<string,mixed> $row @param array<string,mixed> $payload */
+    private static function is_stale_invalid_metric_reason(array $row, array $payload, string $metric): bool {
+        $reason = 'invalid_' . $metric;
+        $reasons = is_array($payload['reason_codes'] ?? null) ? array_map('strval', $payload['reason_codes']) : [];
+        if (!in_array($reason, $reasons, true)) {
+            return false;
+        }
+
+        foreach ([ 'raw_' . $metric, 'original_' . $metric, 'source_' . $metric ] as $raw_key) {
+            if (array_key_exists($raw_key, $payload)) {
+                return self::is_blank_optional_metric($payload[$raw_key]);
+            }
+            if (array_key_exists($raw_key, $row)) {
+                return self::is_blank_optional_metric($row[$raw_key]);
+            }
+        }
+
+        if (array_key_exists($metric, $payload)) {
+            if (null === $payload[$metric] && array_key_exists($metric, $row) && !self::is_blank_optional_metric($row[$metric])) {
+                return false;
+            }
+            return null !== $payload[$metric] && self::is_blank_optional_metric($payload[$metric]);
+        }
+
+        if (array_key_exists($metric, $row)) {
+            return self::is_blank_optional_metric($row[$metric]);
+        }
+
+        return true;
     }
 
     /** @param array<string,mixed> $row @param array<string,mixed> $batch */

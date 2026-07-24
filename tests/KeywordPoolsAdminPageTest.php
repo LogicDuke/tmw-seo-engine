@@ -596,54 +596,98 @@ dani daniels,1200,2.50,0.10,75
     }
 
 
-    public function test_approval_contract_uses_effective_metric_reasons_for_legacy_rows(): void {
+    public function test_approval_contract_allows_missing_optional_ad_difficulty_without_invalid_reason(): void {
         $method = new ReflectionMethod(KeywordPoolsAdminPage::class, 'import_row_approval_contract');
         $method->setAccessible(true);
-        $missingValues = [ null, '', 'null', " \t\n" . chr(194) . chr(160) . " " ];
-        foreach ($missingValues as $value) {
+        $missingRows = [
+            'null value' => [ 'ad_difficulty' => null ],
+            'blank value' => [ 'ad_difficulty' => '' ],
+            'null string' => [ 'ad_difficulty' => 'null' ],
+            'whitespace value' => [ 'ad_difficulty' => " \t\n" . chr(194) . chr(160) . " " ],
+            'absent key' => [],
+        ];
+        foreach ($missingRows as $label => $metricPayload) {
             $row = [
                 'id' => 770,
                 'validation_state' => 'review_required',
                 'decision' => 'review_required',
                 'normalized_keyword' => 'asian cam models',
                 'pool' => 'category',
-                'row_payload' => json_encode([ 'keyword' => 'asian cam models', 'normalized_keyword' => 'asian cam models', 'ad_difficulty' => $value, 'reason_codes' => [ 'browse_supporting_intent', 'invalid_ad_difficulty' ] ]),
+                'row_payload' => json_encode(array_merge([ 'keyword' => 'asian cam models', 'normalized_keyword' => 'asian cam models', 'reason_codes' => [ 'browse_supporting_intent' ] ], $metricPayload)),
             ];
             $result = $method->invoke(null, $row);
-            $this->assertTrue((bool) $result['can_approve'], 'missing optional ad_difficulty should not block approval');
-            $this->assertSame('', (string) $result['approval_block_reason']);
+            $this->assertTrue((bool) $result['can_approve'], $label);
+            $this->assertSame('', (string) $result['approval_block_reason'], $label);
         }
+    }
 
-        $absent = [
+    public function test_approval_contract_removes_stale_invalid_metric_only_when_raw_value_is_blank_or_absent(): void {
+        $method = new ReflectionMethod(KeywordPoolsAdminPage::class, 'import_row_approval_contract');
+        $method->setAccessible(true);
+        $legacyBlank = [
             'id' => 771,
+            'validation_state' => 'review_required',
+            'decision' => 'review_required',
+            'normalized_keyword' => 'asian cam models',
+            'pool' => 'category',
+            'row_payload' => json_encode([ 'keyword' => 'asian cam models', 'normalized_keyword' => 'asian cam models', 'ad_difficulty' => '', 'reason_codes' => [ 'browse_supporting_intent', 'invalid_ad_difficulty' ] ]),
+        ];
+        $blankResult = $method->invoke(null, $legacyBlank);
+        $this->assertTrue((bool) $blankResult['can_approve']);
+        $this->assertSame('', (string) $blankResult['approval_block_reason']);
+
+        $legacyAbsent = [
+            'id' => 772,
             'validation_state' => 'review_required',
             'decision' => 'review_required',
             'normalized_keyword' => 'asian cam models',
             'pool' => 'category',
             'row_payload' => json_encode([ 'keyword' => 'asian cam models', 'normalized_keyword' => 'asian cam models', 'reason_codes' => [ 'browse_supporting_intent', 'invalid_ad_difficulty' ] ]),
         ];
-        $absentResult = $method->invoke(null, $absent);
+        $absentResult = $method->invoke(null, $legacyAbsent);
         $this->assertTrue((bool) $absentResult['can_approve']);
         $this->assertSame('', (string) $absentResult['approval_block_reason']);
     }
 
-    public function test_approval_contract_preserves_malformed_metric_and_hard_blockers(): void {
+    public function test_approval_contract_preserves_normalized_null_when_raw_metric_was_malformed(): void {
         $method = new ReflectionMethod(KeywordPoolsAdminPage::class, 'import_row_approval_contract');
         $method->setAccessible(true);
         $malformed = [
-            'id' => 772,
+            'id' => 773,
             'validation_state' => 'review_required',
             'decision' => 'review_required',
             'normalized_keyword' => 'asian cam models',
             'pool' => 'category',
-            'row_payload' => json_encode([ 'keyword' => 'asian cam models', 'normalized_keyword' => 'asian cam models', 'ad_difficulty' => 'abc', 'reason_codes' => [ 'browse_supporting_intent', 'invalid_ad_difficulty' ] ]),
+            'row_payload' => json_encode([ 'keyword' => 'asian cam models', 'normalized_keyword' => 'asian cam models', 'ad_difficulty' => null, 'raw_ad_difficulty' => 'abc', 'reason_codes' => [ 'browse_supporting_intent', 'invalid_ad_difficulty' ] ]),
         ];
         $malformedResult = $method->invoke(null, $malformed);
         $this->assertFalse((bool) $malformedResult['can_approve']);
         $this->assertSame('invalid_ad_difficulty', (string) $malformedResult['approval_block_reason']);
+    }
 
+    public function test_approval_contract_preserves_malformed_metric_equivalent_blockers(): void {
+        $method = new ReflectionMethod(KeywordPoolsAdminPage::class, 'import_row_approval_contract');
+        $method->setAccessible(true);
+        foreach ([ 'difficulty', 'competition', 'cpc' ] as $metric) {
+            $row = [
+                'id' => 774,
+                'validation_state' => 'review_required',
+                'decision' => 'review_required',
+                'normalized_keyword' => 'asian cam models',
+                'pool' => 'category',
+                'row_payload' => json_encode([ 'keyword' => 'asian cam models', 'normalized_keyword' => 'asian cam models', $metric => null, 'raw_' . $metric => 'abc', 'reason_codes' => [ 'browse_supporting_intent', 'invalid_' . $metric ] ]),
+            ];
+            $result = $method->invoke(null, $row);
+            $this->assertFalse((bool) $result['can_approve'], $metric);
+            $this->assertSame('invalid_' . $metric, (string) $result['approval_block_reason'], $metric);
+        }
+    }
+
+    public function test_approval_contract_preserves_safety_hard_blockers(): void {
+        $method = new ReflectionMethod(KeywordPoolsAdminPage::class, 'import_row_approval_contract');
+        $method->setAccessible(true);
         $unsafe = [
-            'id' => 773,
+            'id' => 775,
             'validation_state' => 'review_required',
             'decision' => 'review_required',
             'normalized_keyword' => 'schoolgirl roleplay',
