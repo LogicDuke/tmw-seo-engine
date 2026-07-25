@@ -155,6 +155,10 @@ class KeywordPoolsAdminPage {
         self::render_notices($state['notices']);
         self::render_get_notice();
         self::render_tabs($active_pool);
+        if (self::maybe_render_batch_delete_confirmation()) {
+            echo '</div>';
+            return;
+        }
         if (class_exists(KeywordPoolReviewAdminCard::class)) {
             KeywordPoolReviewAdminCard::render(self::CAPABILITY);
         }
@@ -250,7 +254,14 @@ class KeywordPoolsAdminPage {
             self::redirect_batch_delete_notice('batch_delete_not_found', $batch_id);
         }
         if (!$confirmed) {
-            self::render_batch_delete_confirmation($batch);
+            $confirmation_url = add_query_arg([
+                'page' => self::PAGE_SLUG,
+                'pool' => (string) ($batch['pool'] ?? 'model'),
+                'tmwseo_confirm_delete_batch' => $batch_id,
+                'tmwseo_delete_confirmation_nonce' => wp_create_nonce('tmwseo_keyword_pools_render_delete_batch_' . $batch_id),
+            ], admin_url('admin.php'));
+            wp_safe_redirect($confirmation_url);
+            exit;
         }
 
         // Recheck the repository contract immediately before the destructive call.
@@ -265,14 +276,29 @@ class KeywordPoolsAdminPage {
         self::redirect_batch_delete_notice('batch_delete_success', $batch_id, (int) $result['deleted_rows'], (int) $result['candidates_preserved'], '', $batch);
     }
 
+    private static function maybe_render_batch_delete_confirmation(): bool {
+        $batch_id = isset($_GET['tmwseo_confirm_delete_batch']) ? absint($_GET['tmwseo_confirm_delete_batch']) : 0;
+        if ($batch_id <= 0) { return false; }
+        $nonce = isset($_GET['tmwseo_delete_confirmation_nonce']) ? sanitize_text_field((string) wp_unslash($_GET['tmwseo_delete_confirmation_nonce'])) : '';
+        if (!wp_verify_nonce($nonce, 'tmwseo_keyword_pools_render_delete_batch_' . $batch_id)) {
+            echo '<div class="notice notice-error"><p>' . esc_html__('The batch deletion confirmation link is invalid or expired.', 'tmwseo') . '</p></div>';
+            return true;
+        }
+        $batch = (new KeywordPoolImportBatchRepository())->get_batch($batch_id);
+        if (!is_array($batch)) {
+            echo '<div class="notice notice-error"><p>' . esc_html(sprintf(__('Import batch #%d was not found; no records were deleted.', 'tmwseo'), $batch_id)) . '</p></div>';
+            return true;
+        }
+        self::render_batch_delete_confirmation($batch);
+        return true;
+    }
+
     /** @param array<string,mixed> $batch */
     private static function render_batch_delete_confirmation(array $batch): void {
         $batch_id = (int) ($batch['id'] ?? 0);
         $source = (string) ($batch['source_file'] ?? '') ?: (string) ($batch['source_batch'] ?? '');
         $queued_review = (int) ($batch['queued'] ?? 0) + (int) ($batch['review_required'] ?? 0);
-        $title = __('Delete Import Batch', 'tmwseo');
-        if (defined('ABSPATH') && is_file(ABSPATH . 'wp-admin/admin-header.php')) { require_once ABSPATH . 'wp-admin/admin-header.php'; }
-        echo '<div class="wrap tmwseo-keyword-batch-delete-confirmation">';
+        echo '<div class="tmwseo-keyword-batch-delete-confirmation">';
         echo '<h1>' . esc_html__('Delete Import Batch', 'tmwseo') . '</h1>';
         echo '<div class="notice notice-warning inline"><p><strong>' . esc_html__('This action permanently deletes only the selected import batch and its import-review records.', 'tmwseo') . '</strong></p>';
         echo '<p>' . esc_html__('Candidate records and all site content, Rank Math and other SEO metadata, taxonomy terms, slugs, publishing state, canonical metadata, and robots/indexing settings are preserved.', 'tmwseo') . '</p></div>';
@@ -298,8 +324,6 @@ class KeywordPoolsAdminPage {
         echo '<input type="hidden" name="tmwseo_confirm_batch_delete" value="1">';
         wp_nonce_field('tmwseo_keyword_pools_confirm_delete_batch_' . $batch_id, self::NONCE_FIELD);
         echo '<button type="submit" class="button button-primary" style="background:#b32d2e;border-color:#b32d2e">' . esc_html__('Permanently Delete Batch', 'tmwseo') . '</button></form></p></div>';
-        if (defined('ABSPATH') && is_file(ABSPATH . 'wp-admin/admin-footer.php')) { require_once ABSPATH . 'wp-admin/admin-footer.php'; }
-        exit;
     }
 
     /** @param array<string,mixed> $batch */
@@ -947,26 +971,26 @@ class KeywordPoolsAdminPage {
         echo '<input type="hidden" name="tmwseo_keyword_pool" value="' . esc_attr($pool) . '" />';
         echo '<table class="form-table" role="presentation"><tbody>';
         self::render_target_source_fields($pool, $context, false);
-        self::render_import_history_row($pool, $context);
         echo '<tr><th scope="row"><label for="tmwseo_keyword_pools_csv_file">' . esc_html(__('CSV Upload', 'tmwseo')) . '</label></th><td><input id="tmwseo_keyword_pools_csv_file" type="file" name="tmwseo_keyword_pools_csv_file" accept=".csv,text/csv" /><p class="description">' . esc_html(__('If upload and pasted CSV are both supplied, the uploaded file wins.', 'tmwseo')) . '</p></td></tr>';
         echo '<tr><th scope="row"><label for="tmwseo_keyword_pools_csv_text">' . esc_html(__('Paste CSV', 'tmwseo')) . '</label></th><td><textarea id="tmwseo_keyword_pools_csv_text" name="tmwseo_keyword_pools_csv_text" rows="12" class="large-text code" placeholder="keyword,volume,difficulty,cpc,competition,intent,source,model_name,category,post_id,url,slug,title,status">' . self::esc_textarea($csv_text) . '</textarea></td></tr>';
         echo '</tbody></table>';
         echo '<p><button type="submit" class="button button-primary" name="tmwseo_keyword_pools_run_preview" value="1">' . esc_html(__('Run Dry Run Preview', 'tmwseo')) . '</button></p>';
         echo '</form>';
+        self::render_import_history_section($pool, $context);
     }
 
 
     /** @param array<string,mixed> $context */
-    private static function render_import_history_row(string $pool, array $context): void {
+    private static function render_import_history_section(string $pool, array $context): void {
         if (!in_array($pool, [ 'category', 'model' ], true)) {
             return;
         }
         $target_id = (int) ($context['target_id'] ?? 0);
         $is_global_model_pool = self::is_global_model_pool_context($context);
-        echo '<tr><th scope="row">' . esc_html__('Import History', 'tmwseo') . '</th><td>';
+        echo '<div class="tmwseo-keyword-import-history"><h2>' . esc_html__('Import History', 'tmwseo') . '</h2>';
         if ($target_id <= 0 && !$is_global_model_pool) {
             echo '<p class="description">' . esc_html__('Select a target to see durable import history for that category or model.', 'tmwseo') . '</p>';
-            echo '</td></tr>';
+            echo '</div>';
             return;
         }
         $repository = new KeywordPoolImportBatchRepository();
@@ -982,11 +1006,11 @@ class KeywordPoolsAdminPage {
         );
         if ([] === $batches) {
             echo '<p class="description">' . esc_html__('No saved import batches found for this target yet.', 'tmwseo') . '</p>';
-            echo '</td></tr>';
+            echo '</div>';
             return;
         }
         self::render_import_history_table($batches);
-        echo '</td></tr>';
+        echo '</div>';
     }
 
     /** @param array<int,array<string,mixed>> $batches */

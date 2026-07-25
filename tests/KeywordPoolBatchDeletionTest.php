@@ -5,8 +5,10 @@ declare(strict_types=1);
 
 use PHPUnit\Framework\TestCase;
 use TMWSEO\Engine\Keywords\KeywordPoolImportBatchRepository;
+use TMWSEO\Engine\Schema;
 
 require_once __DIR__ . '/../includes/keywords/class-keyword-pool-import-batch-repository.php';
+require_once __DIR__ . '/../includes/db/class-schema.php';
 
 final class KeywordPoolBatchDeletionWpdb {
     public string $prefix = 'wp_delete_test_';
@@ -15,11 +17,16 @@ final class KeywordPoolBatchDeletionWpdb {
     /** @var array<int,array<string,mixed>> */ public array $rows = [];
     /** @var array<int,array<string,mixed>> */ public array $candidates = [];
     /** @var array<int,string> */ public array $queries = [];
+    /** @var array<int,string> */ public array $operations = [];
     public bool $fail_child_delete = false;
     public bool $fail_batch_delete = false;
+    public string $engine = 'InnoDB';
+    public bool $fail_engine_conversion = false;
+    /** @var array<string,mixed>|null */ private ?array $snapshot = null;
 
     public function esc_like(string $value): string { return addcslashes($value, '_%\\'); }
     public function prepare(string $sql, ...$args): string {
+        $this->operations[] = 'prepare ' . $sql;
         $i = 0;
         return (string) preg_replace_callback('/%[sdf]/', static function () use (&$i, $args): string {
             $value = $args[$i++] ?? '';
@@ -27,13 +34,18 @@ final class KeywordPoolBatchDeletionWpdb {
         }, $sql);
     }
     public function get_var(string $sql) {
+        $this->operations[] = 'get_var ' . $sql;
         if (str_starts_with($sql, 'SHOW TABLES LIKE')) {
             preg_match("/'([^']+)'/", $sql, $match);
-            return stripslashes($match[1] ?? '');
+            return str_replace([ '\\_', '\\%' ], [ '_', '%' ], stripslashes($match[1] ?? ''));
         }
         return 0;
     }
     public function get_row(string $sql, string $output = 'OBJECT'): ?array {
+        $this->operations[] = 'get_row ' . $sql;
+        if (str_starts_with($sql, 'SHOW TABLE STATUS LIKE')) {
+            return [ 'Engine' => $this->engine ];
+        }
         if (str_contains($sql, 'COUNT(*) AS expected_rows')) {
             preg_match('/batch_id = (\d+)/', $sql, $match);
             $ids = [];
@@ -52,7 +64,15 @@ final class KeywordPoolBatchDeletionWpdb {
         }
         return null;
     }
+    public function get_results(string $sql, string $output = 'OBJECT'): array {
+        $this->operations[] = 'get_results ' . $sql;
+        if (str_contains($sql, 'tmw_keyword_import_rows') && preg_match('/batch_id = (\d+)/', $sql, $match)) {
+            return array_values(array_filter($this->rows, static fn(array $row): bool => (int) ($row['batch_id'] ?? 0) === (int) $match[1]));
+        }
+        return [];
+    }
     public function delete(string $table, array $where, array $format = []) {
+        $this->operations[] = 'delete ' . $table . ' ' . json_encode($where);
         if (str_ends_with($table, 'tmw_keyword_import_rows')) {
             if ($this->fail_child_delete) { $this->last_error = 'child failure'; return false; }
             $count = 0;
@@ -68,9 +88,25 @@ final class KeywordPoolBatchDeletionWpdb {
         return 1;
     }
     public function query(string $sql) {
+        $this->operations[] = 'query ' . $sql;
         $this->queries[] = $sql;
+        if (str_starts_with($sql, 'ALTER TABLE')) {
+            if ($this->fail_engine_conversion) { $this->last_error = 'engine conversion failed'; return false; }
+            $this->engine = 'InnoDB';
+        } elseif ('START TRANSACTION' === $sql) {
+            $this->snapshot = [ 'batches' => $this->batches, 'rows' => $this->rows, 'candidates' => $this->candidates ];
+        } elseif ('ROLLBACK' === $sql && is_array($this->snapshot)) {
+            $this->batches = $this->snapshot['batches'];
+            $this->rows = $this->snapshot['rows'];
+            $this->candidates = $this->snapshot['candidates'];
+            $this->snapshot = null;
+        } elseif ('COMMIT' === $sql) {
+            $this->snapshot = null;
+        }
         return 1;
     }
+    public function update(string $table, array $data, array $where) { $this->operations[] = 'update ' . $table; return 1; }
+    public function insert(string $table, array $data) { $this->operations[] = 'insert ' . $table; return 1; }
 }
 
 final class KeywordPoolBatchDeletionTest extends TestCase {
@@ -89,7 +125,7 @@ final class KeywordPoolBatchDeletionTest extends TestCase {
 
     public function test_delete_empty_unreviewed_batch(): void {
         $result = $this->repository->delete_batch(10);
-        $this->assertTrue($result['ok']);
+        $this->assertTrue($result['ok'], (string) $result['safe_reason']);
         $this->assertSame(0, $result['deleted_rows']);
     }
 
@@ -110,12 +146,12 @@ final class KeywordPoolBatchDeletionTest extends TestCase {
     }
 
     public function test_approved_candidate_records_are_preserved(): void {
-        $this->wpdb->candidates[50] = [ 'id' => 50, 'status' => 'approved', 'import_batch_id' => 'batch-10' ];
+        $candidate = [ 'id' => 50, 'status' => 'approved', 'import_batch_id' => 'batch-10', 'sources' => '["csv"]', 'notes' => '{"reviewed":true}', 'source_batch' => 'source-10', 'source_file' => 'same.csv' ];
+        $this->wpdb->candidates[50] = $candidate;
         $this->wpdb->rows[] = [ 'id' => 1, 'batch_id' => 10, 'status' => 'approved', 'candidate_id' => 50 ];
         $result = $this->repository->delete_batch(10);
         $this->assertSame(1, $result['candidates_preserved']);
-        $this->assertSame('approved', $this->wpdb->candidates[50]['status']);
-        $this->assertSame('batch-10', $this->wpdb->candidates[50]['import_batch_id']);
+        $this->assertSame($candidate, $this->wpdb->candidates[50]);
     }
 
     public function test_candidate_linked_to_another_batch_is_preserved(): void {
@@ -132,7 +168,20 @@ final class KeywordPoolBatchDeletionTest extends TestCase {
         $this->assertSame('batch_not_found', $this->repository->delete_batch(10)['safe_reason']);
     }
 
+    public function test_row_count_is_re_read_after_transaction_begins(): void {
+        $this->wpdb->rows[] = [ 'id' => 1, 'batch_id' => 10, 'candidate_id' => null ];
+        $contract = $this->repository->batch_deletion_contract(10);
+        $this->assertTrue($contract['ok']);
+        // Simulate a row arriving after preflight but before the destructive transaction.
+        $this->wpdb->rows[] = [ 'id' => 2, 'batch_id' => 10, 'candidate_id' => null ];
+        $result = $this->repository->delete_batch(10);
+        $this->assertTrue($result['ok']);
+        $this->assertSame(2, $result['deleted_rows']);
+        $this->assertSame([], $this->wpdb->rows);
+    }
+
     public function test_child_failure_and_batch_mismatch_roll_back(): void {
+        $this->wpdb->rows[] = [ 'id' => 1, 'batch_id' => 10, 'candidate_id' => null ];
         $this->wpdb->fail_child_delete = true;
         $this->assertSame('child_row_deletion_failed', $this->repository->delete_batch(10)['safe_reason']);
         $this->assertContains('ROLLBACK', $this->wpdb->queries);
@@ -140,11 +189,37 @@ final class KeywordPoolBatchDeletionTest extends TestCase {
         $this->wpdb->last_error = '';
         $this->wpdb->fail_batch_delete = true;
         $this->assertSame('batch_row_deletion_mismatch', $this->repository->delete_batch(10)['safe_reason']);
+        $this->assertArrayHasKey(10, $this->wpdb->batches);
+        $this->assertCount(1, $this->wpdb->rows);
+    }
+
+    public function test_non_innodb_tables_fail_closed_before_any_delete(): void {
+        $this->wpdb->engine = 'MyISAM';
+        $result = $this->repository->delete_batch(10);
+        $this->assertSame('non_transactional_table', $result['safe_reason']);
+        $this->assertSame([], array_values(array_filter($this->wpdb->operations, static fn(string $operation): bool => str_starts_with($operation, 'delete '))));
+    }
+
+    public function test_existing_table_migration_converts_both_tables_to_innodb(): void {
+        $this->wpdb->engine = 'MyISAM';
+        $method = new ReflectionMethod(Schema::class, 'convert_keyword_import_history_tables_to_innodb');
+        $result = $method->invoke(null, [ $this->wpdb->prefix . 'tmw_keyword_import_batches', $this->wpdb->prefix . 'tmw_keyword_import_rows' ]);
+        $this->assertTrue($result);
+        $this->assertSame('InnoDB', $this->wpdb->engine);
+        $this->assertNotEmpty(array_filter($this->wpdb->operations, static fn(string $operation): bool => str_contains($operation, 'ALTER TABLE')));
+    }
+
+    public function test_existing_table_migration_reports_conversion_failure(): void {
+        $this->wpdb->engine = 'MyISAM';
+        $this->wpdb->fail_engine_conversion = true;
+        $method = new ReflectionMethod(Schema::class, 'convert_keyword_import_history_tables_to_innodb');
+        $this->assertFalse($method->invoke(null, [ $this->wpdb->prefix . 'tmw_keyword_import_batches', $this->wpdb->prefix . 'tmw_keyword_import_rows' ]));
+        $this->assertSame('engine conversion failed', $this->wpdb->last_error);
     }
 
     public function test_no_content_taxonomy_seo_indexing_or_candidate_writes_occur(): void {
         $this->repository->delete_batch(10);
-        $sql = implode(' ', $this->wpdb->queries);
+        $sql = implode(' ', $this->wpdb->operations);
         foreach ([ 'posts', 'postmeta', 'terms', 'termmeta', 'rank_math', 'canonical', 'robots', 'tmw_keyword_candidates' ] as $forbidden) {
             $this->assertStringNotContainsString($forbidden, $sql);
         }

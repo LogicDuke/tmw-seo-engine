@@ -300,7 +300,7 @@ class Schema {
             return false;
         }
 
-        $target_version = 2;
+        $target_version = 3;
         $version_option = 'tmw_keyword_import_history_schema_version';
 
         global $wpdb;
@@ -311,17 +311,22 @@ class Schema {
 
         $missing_tables = self::missing_tables($tables);
         if (empty($missing_tables) && (int) get_option($version_option, 0) >= $target_version) {
-            return true;
+            return self::keyword_import_history_tables_are_innodb($tables);
         }
 
         self::reconcile_keyword_import_history_tables();
         self::clear_table_exists_cache($tables);
 
         $missing_tables = self::missing_tables($tables);
-        if (empty($missing_tables)) {
+        if (empty($missing_tables) && self::convert_keyword_import_history_tables_to_innodb($tables)) {
             update_option($version_option, $target_version, false);
-            error_log('[TMW-KW-IMPORT] Import history tables verified/created.');
+            error_log('[TMW-KW-IMPORT] Import history tables verified/created with InnoDB.');
             return true;
+        }
+
+        if (empty($missing_tables)) {
+            error_log('[TMW-KW-IMPORT] Import history InnoDB conversion failed; destructive batch deletion will remain disabled.');
+            return false;
         }
 
         foreach ($missing_tables as $missing_table) {
@@ -360,6 +365,43 @@ class Schema {
         foreach ($tables as $table_name) {
             unset(self::$table_exists_cache[$table_name]);
         }
+    }
+
+    /** @param array<int,string> $tables */
+    private static function convert_keyword_import_history_tables_to_innodb(array $tables): bool {
+        global $wpdb;
+        foreach ($tables as $table) {
+            $status = $wpdb->get_row($wpdb->prepare('SHOW TABLE STATUS LIKE %s', $wpdb->esc_like($table)), ARRAY_A);
+            if (is_array($status) && 'innodb' === strtolower((string) ($status['Engine'] ?? ''))) {
+                continue;
+            }
+            $wpdb->last_error = '';
+            if (false === $wpdb->query('ALTER TABLE `' . str_replace('`', '``', $table) . '` ENGINE=InnoDB') || '' !== (string) $wpdb->last_error) {
+                $message = '[TMW-KW-IMPORT] InnoDB conversion failed for ' . $table . ': db_error=' . self::safe_db_error((string) $wpdb->last_error);
+                update_option('tmw_keyword_import_history_engine_error', $message, false);
+                error_log($message);
+                return false;
+            }
+        }
+        $verified = self::keyword_import_history_tables_are_innodb($tables);
+        if ($verified) {
+            delete_option('tmw_keyword_import_history_engine_error');
+        } else {
+            update_option('tmw_keyword_import_history_engine_error', '[TMW-KW-IMPORT] InnoDB conversion verification failed.', false);
+        }
+        return $verified;
+    }
+
+    /** @param array<int,string> $tables */
+    private static function keyword_import_history_tables_are_innodb(array $tables): bool {
+        global $wpdb;
+        foreach ($tables as $table) {
+            $status = $wpdb->get_row($wpdb->prepare('SHOW TABLE STATUS LIKE %s', $wpdb->esc_like($table)), ARRAY_A);
+            if (!is_array($status) || 'innodb' !== strtolower((string) ($status['Engine'] ?? ''))) {
+                return false;
+            }
+        }
+        return true;
     }
 
     /**
@@ -403,7 +445,7 @@ class Schema {
             KEY pool_target (pool, target_type, target_id),
             KEY imported_at (imported_at),
             KEY source_batch (source_batch)
-        ) $charset_collate;";
+        ) ENGINE=InnoDB $charset_collate;";
 
         $sql_keyword_import_rows = self::get_keyword_import_rows_sql($keyword_import_rows, $charset_collate);
 
@@ -441,7 +483,7 @@ class Schema {
             KEY import_batch_id (import_batch_id),
             KEY batch_status (batch_id,status),
             KEY candidate_id (candidate_id)
-        ) $charset_collate;";
+        ) ENGINE=InnoDB $charset_collate;";
     }
 
     private static function run_keyword_import_rows_dbdelta(string $rows_sql, string $rows_table): void {
