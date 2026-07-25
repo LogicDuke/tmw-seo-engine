@@ -113,8 +113,81 @@ class KeywordPoolImportHistoryStaticTest extends TestCase {
         }
     }
 
+    public function test_batch_specific_nonce_is_required_for_both_confirmation_steps(): void {
+        $this->assertStringContainsString("'tmwseo_keyword_pools_delete_batch_' . \$batch_id", $this->admin);
+        $this->assertStringContainsString("'tmwseo_keyword_pools_confirm_delete_batch_' . \$batch_id", $this->admin);
+        $this->assertStringContainsString('check_admin_referer($nonce_action, self::NONCE_FIELD);', $this->admin);
+    }
+
+    public function test_batch_delete_requires_manage_options_capability(): void {
+        $this->assertStringContainsString("public const CAPABILITY = 'manage_options';", $this->admin);
+        $this->assertStringContainsString("add_action('admin_post_' . self::BATCH_DELETE_ACTION, [__CLASS__, 'handle_batch_delete']);", $this->admin);
+        $this->assertStringContainsString("name=\"action\" value=\"' . esc_attr(self::BATCH_DELETE_ACTION)", $this->admin);
+        $this->assertMatchesRegularExpression('/handle_batch_delete\(\).*?current_user_can\(self::CAPABILITY\)/s', $this->admin);
+    }
+
+    public function test_get_request_cannot_delete(): void {
+        $this->assertStringContainsString("if ('POST' !== \$method)", $this->admin);
+        $this->assertStringContainsString("redirect_batch_delete_notice('batch_delete_post_required')", $this->admin);
+    }
+
+    public function test_delete_button_and_server_rendered_confirmation_are_present(): void {
+        $this->assertStringContainsString("esc_html__('Delete Batch', 'tmwseo')", $this->admin);
+        $this->assertStringContainsString('render_batch_delete_confirmation($batch)', $this->admin);
+        foreach ([ 'Batch ID', 'Source filename', 'Target category/model', 'Imported timestamp', 'Row count', 'Approved count', 'Queued/review count', 'Blocked count' ] as $detail) {
+            $this->assertStringContainsString($detail, $this->admin);
+        }
+    }
+
+    public function test_import_history_is_rendered_after_the_dry_run_form_closes(): void {
+        $method_start = strpos($this->admin, 'private static function render_pool_tab');
+        $method_end = strpos($this->admin, 'private static function render_import_history_section', $method_start);
+        $this->assertIsInt($method_start);
+        $this->assertIsInt($method_end);
+        $method = substr($this->admin, $method_start, $method_end - $method_start);
+        $close_form = strpos($method, "echo '</form>';" );
+        $history = strpos($method, 'self::render_import_history_section($pool, $context);');
+        $this->assertIsInt($close_form);
+        $this->assertIsInt($history);
+        $this->assertGreaterThan($close_form, $history, 'Import History must be outside the CSV upload form.');
+        $this->assertStringNotContainsString('render_import_history_section($pool, $context)', substr($method, 0, $close_form));
+    }
+
+    public function test_confirmation_uses_normal_admin_page_without_manual_chrome_includes(): void {
+        $this->assertStringContainsString('maybe_render_batch_delete_confirmation()', $this->admin);
+        $this->assertStringContainsString("'tmwseo_confirm_delete_batch' => \$batch_id", $this->admin);
+        $this->assertStringNotContainsString("wp-admin/admin-header.php", $this->admin);
+        $this->assertStringNotContainsString("wp-admin/admin-footer.php", $this->admin);
+    }
+
+    public function test_import_history_schema_requires_and_migrates_to_innodb(): void {
+        $this->assertSame(2, substr_count($this->schema, 'ENGINE=InnoDB $charset_collate'));
+        $this->assertStringContainsString('convert_keyword_import_history_tables_to_innodb', $this->schema);
+        $this->assertStringContainsString("ALTER TABLE `", $this->schema);
+        $this->assertStringContainsString("ENGINE=InnoDB", $this->schema);
+        $this->assertStringContainsString('keyword_import_history_tables_are_innodb', $this->schema);
+        $this->assertStringContainsString('Import history InnoDB conversion failed', $this->schema);
+        $this->assertStringContainsString('tmw_keyword_import_history_engine_error', $this->schema);
+        $this->assertStringContainsString('InnoDB conversion failed for', $this->schema);
+        $this->assertStringContainsString("'non_transactional_table'", $this->repository);
+    }
+
+    public function test_precise_admin_deletion_notices_are_displayed(): void {
+        $this->assertStringContainsString('deleted with %2$d review rows. %3$d candidate records were preserved.', $this->admin);
+        $this->assertStringContainsString('was not found; no records were deleted.', $this->admin);
+        $this->assertStringContainsString('No unrelated records were modified.', $this->admin);
+    }
+
+    public function test_repository_exposes_safe_deletion_contract_and_preserves_candidates(): void {
+        $this->assertStringContainsString('public function batch_deletion_contract(int $batch_id): array', $this->repository);
+        $this->assertStringContainsString('private function delete_batch_rows(int $batch_id, int $expected_rows): int|false', $this->repository);
+        $this->assertStringContainsString('public function delete_batch(int $batch_id): array', $this->repository);
+        $this->assertStringNotContainsString("delete(\$wpdb->prefix . 'tmw_keyword_candidates'", $this->repository);
+        $this->assertStringContainsString("[TMW-KW-BATCH-DELETE]", $this->repository);
+    }
+
     public function test_rows_table_sql_is_dbdelta_safe_and_avoids_risky_keyword_index(): void {
-        preg_match_all('/return "CREATE TABLE \$rows_table \((.*?)\) \$charset_collate;";/s', $this->schema, $matches);
+        preg_match_all('/return "CREATE TABLE \$rows_table \((.*?)\) ENGINE=InnoDB \$charset_collate;";/s', $this->schema, $matches);
         $this->assertCount(1, $matches[1]);
 
         $rowsSql = $matches[1][0];
@@ -149,7 +222,7 @@ class KeywordPoolImportHistoryStaticTest extends TestCase {
         $this->assertStringContainsString("\$wpdb->prefix . 'tmw_keyword_import_batches'", $this->schema);
         $this->assertStringContainsString("\$wpdb->prefix . 'tmw_keyword_import_rows'", $this->schema);
         $this->assertStringContainsString('tmw_keyword_import_history_schema_version', $this->schema);
-        $this->assertStringContainsString('$target_version = 2;', $this->schema);
+        $this->assertStringContainsString('$target_version = 3;', $this->schema);
         $this->assertStringContainsString('SHOW TABLES LIKE %s', $this->schema);
         $this->assertStringContainsString('$wpdb->esc_like($table_name)', $this->schema);
         $this->assertStringContainsString('private static function missing_tables(array $tables): array', $this->schema);
@@ -169,7 +242,7 @@ class KeywordPoolImportHistoryStaticTest extends TestCase {
         $ensureMethod = substr($this->schema, $ensureStart, $ensureEnd - $ensureStart);
         $this->assertStringNotContainsString('self::create_or_update_tables();', $ensureMethod);
         $this->assertStringNotContainsString('Fast exit: version option already satisfied', $ensureMethod);
-        $this->assertStringContainsString("[TMW-KW-IMPORT] Import history tables verified/created.", $this->schema);
+        $this->assertStringContainsString("[TMW-KW-IMPORT] Import history tables verified/created with InnoDB.", $this->schema);
         $this->assertStringContainsString("[TMW-KW-IMPORT] Rows table creation failed: db_error=", $this->schema);
 
         $this->assertStringContainsString('Schema::ensure_keyword_import_history_schema();', $this->plugin);
