@@ -260,6 +260,103 @@ class KeywordPoolImportBatchRepository {
         return is_array($row) ? $row : null;
     }
 
+    /**
+     * Describe whether a numeric import-history batch can be safely deleted.
+     * Candidate records are deliberately counted but never modified.
+     *
+     * @return array{ok:bool,deleted_rows:int,batch_deleted:bool,candidates_preserved:int,safe_reason:string}
+     */
+    public function batch_deletion_contract(int $batch_id): array {
+        global $wpdb;
+        $result = $this->deletion_result(false, 'invalid_batch_id');
+        if ($batch_id <= 0) {
+            return $result;
+        }
+        if (!$this->tables_exist()) {
+            return $this->deletion_result(false, 'import_history_tables_missing');
+        }
+        if (!is_array($this->get_batch($batch_id))) {
+            return $this->deletion_result(false, 'batch_not_found');
+        }
+
+        $wpdb->last_error = '';
+        $counts = $wpdb->get_row($wpdb->prepare(
+            'SELECT COUNT(*) AS expected_rows, COUNT(DISTINCT CASE WHEN candidate_id IS NOT NULL AND candidate_id > 0 THEN candidate_id END) AS candidates_preserved FROM ' . $this->rows_table() . ' WHERE batch_id = %d',
+            $batch_id
+        ), ARRAY_A);
+        if (!is_array($counts) || '' !== (string) $wpdb->last_error) {
+            return $this->deletion_result(false, 'batch_contract_query_failed');
+        }
+        $result = $this->deletion_result(true, 'candidates_preserved', 0, false, max(0, (int) ($counts['candidates_preserved'] ?? 0)));
+        $result['expected_rows'] = max(0, (int) ($counts['expected_rows'] ?? 0));
+        return $result;
+    }
+
+    /**
+     * Delete only review/import rows belonging to a numeric history batch.
+     *
+     * @return array{ok:bool,deleted_rows:int,batch_deleted:bool,candidates_preserved:int,safe_reason:string}
+     */
+    public function delete_batch_rows(int $batch_id): array {
+        global $wpdb;
+        $contract = $this->batch_deletion_contract($batch_id);
+        if (empty($contract['ok'])) {
+            return $contract;
+        }
+        $deleted = $wpdb->delete($this->rows_table(), [ 'batch_id' => $batch_id ], [ '%d' ]);
+        if (false === $deleted || (int) ($contract['expected_rows'] ?? 0) !== (int) $deleted || '' !== (string) $wpdb->last_error) {
+            return $this->deletion_result(false, 'child_row_deletion_failed', 0, false, (int) $contract['candidates_preserved']);
+        }
+        return $this->deletion_result(true, 'batch_rows_deleted_candidates_preserved', (int) $deleted, false, (int) $contract['candidates_preserved']);
+    }
+
+    /**
+     * Atomically delete one import-history batch and its rows. No candidate or
+     * WordPress content/SEO/taxonomy tables are read for ownership or written.
+     *
+     * @return array{ok:bool,deleted_rows:int,batch_deleted:bool,candidates_preserved:int,safe_reason:string}
+     */
+    public function delete_batch(int $batch_id): array {
+        global $wpdb;
+        $contract = $this->batch_deletion_contract($batch_id);
+        if (empty($contract['ok'])) {
+            return $contract;
+        }
+
+        $wpdb->last_error = '';
+        if (false === $wpdb->query('START TRANSACTION') || '' !== (string) $wpdb->last_error) {
+            return $this->deletion_result(false, 'transaction_start_failed', 0, false, (int) $contract['candidates_preserved']);
+        }
+        $rows = $wpdb->delete($this->rows_table(), [ 'batch_id' => $batch_id ], [ '%d' ]);
+        if (false === $rows || (int) ($contract['expected_rows'] ?? 0) !== (int) $rows || '' !== (string) $wpdb->last_error) {
+            $wpdb->query('ROLLBACK');
+            return $this->deletion_result(false, 'child_row_deletion_failed', 0, false, (int) $contract['candidates_preserved']);
+        }
+        $batch = $wpdb->delete($this->batches_table(), [ 'id' => $batch_id ], [ '%d' ]);
+        if (1 !== $batch || '' !== (string) $wpdb->last_error) {
+            $wpdb->query('ROLLBACK');
+            return $this->deletion_result(false, 'batch_row_deletion_mismatch', 0, false, (int) $contract['candidates_preserved']);
+        }
+        if (false === $wpdb->query('COMMIT') || '' !== (string) $wpdb->last_error) {
+            $wpdb->query('ROLLBACK');
+            return $this->deletion_result(false, 'transaction_commit_failed', 0, false, (int) $contract['candidates_preserved']);
+        }
+
+        error_log('[TMW-KW-BATCH-DELETE] Deleted import-history batch_id=' . $batch_id . '; rows=' . (int) $rows . '; candidates_preserved=' . (int) $contract['candidates_preserved']);
+        return $this->deletion_result(true, 'batch_deleted_candidates_preserved', (int) $rows, true, (int) $contract['candidates_preserved']);
+    }
+
+    /** @return array{ok:bool,deleted_rows:int,batch_deleted:bool,candidates_preserved:int,safe_reason:string} */
+    private function deletion_result(bool $ok, string $reason, int $rows = 0, bool $batch_deleted = false, int $candidates = 0): array {
+        return [
+            'ok' => $ok,
+            'deleted_rows' => max(0, $rows),
+            'batch_deleted' => $batch_deleted,
+            'candidates_preserved' => max(0, $candidates),
+            'safe_reason' => $reason,
+        ];
+    }
+
     /** @return array<string,mixed>|null */
     public function get_row(int $row_id): ?array {
         global $wpdb;

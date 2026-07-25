@@ -113,6 +113,44 @@ class KeywordPoolImportHistoryStaticTest extends TestCase {
         }
     }
 
+    public function test_batch_specific_nonce_is_required_for_both_confirmation_steps(): void {
+        $this->assertStringContainsString("'tmwseo_keyword_pools_delete_batch_' . $batch_id", $this->admin);
+        $this->assertStringContainsString("'tmwseo_keyword_pools_confirm_delete_batch_' . $batch_id", $this->admin);
+        $this->assertStringContainsString('check_admin_referer($nonce_action, self::NONCE_FIELD);', $this->admin);
+    }
+
+    public function test_batch_delete_requires_manage_options_capability(): void {
+        $this->assertStringContainsString("public const CAPABILITY = 'manage_options';", $this->admin);
+        $this->assertMatchesRegularExpression('/handle_batch_delete\(\).*?current_user_can\(self::CAPABILITY\)/s', $this->admin);
+    }
+
+    public function test_get_request_cannot_delete(): void {
+        $this->assertStringContainsString("if ('POST' !== $method)", $this->admin);
+        $this->assertStringContainsString("redirect_batch_delete_notice('batch_delete_post_required')", $this->admin);
+    }
+
+    public function test_delete_button_and_server_rendered_confirmation_are_present(): void {
+        $this->assertStringContainsString("esc_html__('Delete Batch', 'tmwseo')", $this->admin);
+        $this->assertStringContainsString('render_batch_delete_confirmation($batch)', $this->admin);
+        foreach ([ 'Batch ID', 'Source filename', 'Target category/model', 'Imported timestamp', 'Row count', 'Approved count', 'Queued/review count', 'Blocked count' ] as $detail) {
+            $this->assertStringContainsString($detail, $this->admin);
+        }
+    }
+
+    public function test_precise_admin_deletion_notices_are_displayed(): void {
+        $this->assertStringContainsString('deleted with %2$d review rows. %3$d candidate records were preserved.', $this->admin);
+        $this->assertStringContainsString('was not found; no records were deleted.', $this->admin);
+        $this->assertStringContainsString('No unrelated records were modified.', $this->admin);
+    }
+
+    public function test_repository_exposes_safe_deletion_contract_and_preserves_candidates(): void {
+        foreach ([ 'batch_deletion_contract', 'delete_batch_rows', 'delete_batch' ] as $method) {
+            $this->assertStringContainsString('public function ' . $method . '(int $batch_id): array', $this->repository);
+        }
+        $this->assertStringNotContainsString("delete(\$wpdb->prefix . 'tmw_keyword_candidates'", $this->repository);
+        $this->assertStringContainsString("[TMW-KW-BATCH-DELETE]", $this->repository);
+    }
+
     public function test_rows_table_sql_is_dbdelta_safe_and_avoids_risky_keyword_index(): void {
         preg_match_all('/return "CREATE TABLE \$rows_table \((.*?)\) \$charset_collate;";/s', $this->schema, $matches);
         $this->assertCount(1, $matches[1]);
