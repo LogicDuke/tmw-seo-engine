@@ -30,14 +30,6 @@ if ( ! function_exists( 'TMWSEO\Engine\Platform\sanitize_text_field' ) ) {
 
 require_once __DIR__ . '/../includes/platform/class-platform-profiles.php';
 
-// ── Expose the private get_platform_labels() via a test subclass ──────────────
-
-class TestablePlatformProfiles extends PlatformProfiles {
-    public static function public_get_platform_labels(): array {
-        return self::get_platform_labels();
-    }
-}
-
 // ── Test case ─────────────────────────────────────────────────────────────────
 
 class PlatformProfilesAlphaOrderTest extends TestCase {
@@ -45,7 +37,8 @@ class PlatformProfilesAlphaOrderTest extends TestCase {
     private array $labels;
 
     protected function setUp(): void {
-        $this->labels = TestablePlatformProfiles::public_get_platform_labels();
+        $method = new \ReflectionMethod( PlatformProfiles::class, 'get_platform_labels' );
+        $this->labels = $method->invoke( null );
     }
 
     public function test_returns_non_empty_array(): void {

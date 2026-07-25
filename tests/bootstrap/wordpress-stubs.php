@@ -254,6 +254,7 @@ require_once TMWSEO_ENGINE_PATH . 'includes/ai/class-ai-router.php';
 require_once TMWSEO_ENGINE_PATH . 'includes/class-discovery-governor.php';
 require_once TMWSEO_ENGINE_PATH . 'includes/integrations/class-gsc-api.php';
 require_once TMWSEO_ENGINE_PATH . 'includes/keywords/class-keyword-library.php';
+require_once TMWSEO_ENGINE_PATH . 'includes/keywords/class-model-keyword-pool-template-expander.php';
 require_once TMWSEO_ENGINE_PATH . 'includes/keywords/class-category-approved-keyword-resolver.php';
 
 // ── Additional WP function stubs needed by Admin::sanitize_settings ─────────
