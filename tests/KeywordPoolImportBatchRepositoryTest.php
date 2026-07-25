@@ -115,7 +115,14 @@ final class KeywordPoolImportBatchRepositoryTestWpdb {
             $rows = array_values(array_filter($rows, static fn(array $row): bool => (string) ($row['status'] ?? '') === $status));
         }
         if (preg_match("/keyword LIKE '([^']+)' OR normalized_keyword LIKE '([^']+)'/", $sql, $match)) {
-            $needle = strtolower(str_replace(['%', '\\%', '\\_'], ['', '%', '_'], stripslashes($match[1])));
+            $needle = stripslashes($match[1]);
+            if (str_starts_with($needle, '%')) {
+                $needle = substr($needle, 1);
+            }
+            if (str_ends_with($needle, '%')) {
+                $needle = substr($needle, 0, -1);
+            }
+            $needle = strtolower(str_replace([ '\\%', '\\_' ], [ '%', '_' ], $needle));
             $rows = array_values(array_filter($rows, static fn(array $row): bool => str_contains(strtolower((string) ($row['keyword'] ?? '')), $needle) || str_contains(strtolower((string) ($row['normalized_keyword'] ?? '')), $needle)));
         }
         return $rows;
@@ -536,6 +543,24 @@ final class KeywordPoolImportBatchRepositoryTest extends TestCase {
         $this->assertStringContainsString('batch_id = 12', $wpdb->last_query);
     }
 
+    public function test_sql_like_emulator_preserves_literal_percent_and_underscore_searches(): void {
+        $prefix = 'wp_search_literals_';
+        $wpdb = new KeywordPoolImportBatchRepositoryTestWpdb($prefix, $this->columns($prefix));
+        $wpdb->query_rows = [
+            [ 'id' => 1, 'batch_id' => 12, 'keyword' => '100% classy', 'normalized_keyword' => '100 percent classy' ],
+            [ 'id' => 2, 'batch_id' => 12, 'keyword' => 'plain keyword', 'normalized_keyword' => 'literal_under score' ],
+            [ 'id' => 3, 'batch_id' => 12, 'keyword' => '100 percent classy', 'normalized_keyword' => 'unrelated' ],
+        ];
+        $GLOBALS['wpdb'] = $wpdb;
+        $repository = new KeywordPoolImportBatchRepository();
+
+        $percent_rows = $repository->query_rows(12, '', 10, 0, '', 'desc', '100% classy');
+        $underscore_rows = $repository->query_rows(12, '', 10, 0, '', 'desc', 'literal_under');
+
+        $this->assertSame([ 1 ], array_column($percent_rows, 'id'));
+        $this->assertSame([ 2 ], array_column($underscore_rows, 'id'));
+    }
+
     public function test_approved_filter_combines_persisted_status_search_and_filtered_pagination(): void {
         $prefix = 'wp_status_filter_';
         $wpdb = new KeywordPoolImportBatchRepositoryTestWpdb($prefix, $this->columns($prefix));
@@ -566,12 +591,13 @@ final class KeywordPoolImportBatchRepositoryTest extends TestCase {
         $wpdb->query_rows = [
             [ 'id' => 1, 'batch_id' => 45, 'keyword' => 'persisted approved', 'status' => 'approved', 'candidate_id' => 90, 'row_payload' => '{"status":"queued_for_review"}' ],
             [ 'id' => 2, 'batch_id' => 45, 'keyword' => 'persisted blocked', 'status' => 'blocked', 'candidate_id' => 91 ],
+            [ 'id' => 3, 'batch_id' => 45, 'keyword' => 'persisted error', 'status' => 'error', 'candidate_id' => 92 ],
         ];
         $GLOBALS['wpdb'] = $wpdb;
 
         $counts = (new KeywordPoolImportBatchRepository())->count_rows_by_status(45);
 
-        $this->assertSame([ 'approved' => 1, 'blocked' => 1 ], $counts);
+        $this->assertSame([ 'approved' => 1, 'blocked' => 1, 'error' => 1 ], $counts);
         $this->assertStringContainsString('GROUP BY status', $wpdb->last_query);
         $this->assertStringNotContainsString('tmw_keyword_candidates', $wpdb->last_query);
     }

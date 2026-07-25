@@ -296,7 +296,7 @@ class KeywordPoolImportHistoryStaticTest extends TestCase {
         $this->assertStringContainsString('Previous', $this->admin);
         $this->assertStringContainsString('Next', $this->admin);
         $this->assertStringContainsString('Total rows: %d. Page %d of %d.', $this->admin);
-        foreach ([ 'all', 'approved', 'queued_for_review', 'review_required', 'blocked', 'rejected', 'skipped' ] as $status) {
+        foreach ([ 'all', 'approved', 'queued_for_review', 'review_required', 'blocked', 'rejected', 'skipped', 'error' ] as $status) {
             $this->assertStringContainsString("'{$status}'", $this->admin);
         }
         $this->assertStringContainsString('tmwseo_import_row_status', $this->admin);

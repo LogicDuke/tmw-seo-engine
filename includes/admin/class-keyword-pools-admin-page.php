@@ -1150,6 +1150,7 @@ class KeywordPoolsAdminPage {
             'blocked' => __('Blocked', 'tmwseo'),
             'rejected' => __('Rejected', 'tmwseo'),
             'skipped' => __('Skipped', 'tmwseo'),
+            'error' => __('Error', 'tmwseo'),
         ];
         $all_count = array_sum($counts);
         echo '<nav class="subsubsub" aria-label="' . esc_attr__('Filter import rows by persisted status', 'tmwseo') . '">';
@@ -1211,7 +1212,7 @@ class KeywordPoolsAdminPage {
         $status = isset($args['tmwseo_import_row_status']) && !is_array($args['tmwseo_import_row_status'])
             ? sanitize_key((string) wp_unslash($args['tmwseo_import_row_status']))
             : 'all';
-        return in_array($status, [ 'all', 'approved', 'queued_for_review', 'review_required', 'blocked', 'rejected', 'skipped' ], true) ? $status : 'all';
+        return in_array($status, [ 'all', 'approved', 'queued_for_review', 'review_required', 'blocked', 'rejected', 'skipped', 'error' ], true) ? $status : 'all';
     }
 
     /** @param array<string,mixed> $batch */
@@ -1241,7 +1242,7 @@ class KeywordPoolsAdminPage {
         if ('' !== $search) {
             $args['tmwseo_pool_search'] = $search;
         }
-        if ('all' !== $status && in_array($status, [ 'approved', 'queued_for_review', 'review_required', 'blocked', 'rejected', 'skipped' ], true)) {
+        if ('all' !== $status && in_array($status, [ 'approved', 'queued_for_review', 'review_required', 'blocked', 'rejected', 'skipped', 'error' ], true)) {
             $args['tmwseo_import_row_status'] = $status;
         }
         return $args;
