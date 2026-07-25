@@ -110,26 +110,8 @@ namespace TMWSEO\Engine\Tests {
     use TMWSEO\Engine\Media\Image_Meta_Generator;
     use ReflectionMethod;
 
-    // ── WP_Post fixture ───────────────────────────────────────────────────────
-    // class_exists('WP_Post') in a namespace block resolves against the GLOBAL
-    // \WP_Post (already defined by bootstrap), so we use __NAMESPACE__ to check
-    // for the namespaced subclass specifically.
-    if ( ! class_exists( __NAMESPACE__ . '\WP_Post' ) ) {
-        class WP_Post extends \WP_Post {
-            public string $post_title   = '';
-            public string $post_type    = 'post';
-            public string $post_content = '';
-            public string $post_excerpt = '';
-            public string $post_name    = '';
-            public string $post_status  = 'publish';
-
-            public function __construct( array $props = [] ) {
-                foreach ( $props as $k => $v ) {
-                    $this->$k = $v;
-                }
-            }
-        }
-    }
+    // WP_Post is provided by the shared PHPUnit bootstrap.
+    use \WP_Post;
 
     function call_private( string $method, array $args = [] ) {
         $ref = new ReflectionMethod( Image_Meta_Generator::class, $method );

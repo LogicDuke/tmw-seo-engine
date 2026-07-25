@@ -31,17 +31,22 @@ if ( ! defined( 'OBJECT_K' ) ) { define( 'OBJECT_K', 'OBJECT_K'); }
 /** @var array<string,mixed> */
 $GLOBALS['_tmw_test_options'] = [];
 
+if ( ! function_exists( 'get_option' ) ) {
 function get_option( string $key, $default = false ) {
     return array_key_exists( $key, $GLOBALS['_tmw_test_options'] )
         ? $GLOBALS['_tmw_test_options'][ $key ]
         : $default;
 }
+}
 
+if ( ! function_exists( 'update_option' ) ) {
 function update_option( string $key, $value, $autoload = null ): bool {
     $GLOBALS['_tmw_test_options'][ $key ] = $value;
     return true;
 }
+}
 
+if ( ! function_exists( 'add_option' ) ) {
 function add_option( string $key, $value = '', $deprecated = '', $autoload = 'yes' ): bool {
     if ( array_key_exists( $key, $GLOBALS['_tmw_test_options'] ) ) {
         return false;
@@ -49,82 +54,133 @@ function add_option( string $key, $value = '', $deprecated = '', $autoload = 'ye
     $GLOBALS['_tmw_test_options'][ $key ] = $value;
     return true;
 }
+}
 
+if ( ! function_exists( 'delete_option' ) ) {
 function delete_option( string $key ): bool {
     unset( $GLOBALS['_tmw_test_options'][ $key ] );
     return true;
+}
 }
 
 // ── Transient store ────────────────────────────────────────────────────────────
 /** @var array<string,mixed> */
 $GLOBALS['_tmw_test_transients'] = [];
 
+if ( ! function_exists( 'get_transient' ) ) {
 function get_transient( string $key ) {
     return array_key_exists( $key, $GLOBALS['_tmw_test_transients'] )
         ? $GLOBALS['_tmw_test_transients'][ $key ]
         : false;
 }
+}
 
+if ( ! function_exists( 'set_transient' ) ) {
 function set_transient( string $key, $value, int $expiration = 0 ): bool {
     $GLOBALS['_tmw_test_transients'][ $key ] = $value;
     return true;
 }
+}
 
+if ( ! function_exists( 'delete_transient' ) ) {
 function delete_transient( string $key ): bool {
     unset( $GLOBALS['_tmw_test_transients'][ $key ] );
     return true;
 }
+}
 
 // ── WordPress function stubs ───────────────────────────────────────────────────
+if ( ! function_exists( 'wp_salt' ) ) {
 function wp_salt( string $scheme = 'auth' ): string {
     return 'test_salt_tmwseo_phpunit_' . $scheme . '_32chars!!!';
 }
+}
 
+if ( ! function_exists( 'current_time' ) ) {
 function current_time( string $type = 'mysql', bool $gmt = false ): string {
     return gmdate( 'Y-m-d H:i:s' );
 }
+}
 
+if ( ! function_exists( 'sanitize_text_field' ) ) {
 function sanitize_text_field( string $str ): string {
     return trim( strip_tags( $str ) );
 }
+}
 
+if ( ! function_exists( 'sanitize_key' ) ) {
 function sanitize_key( string $key ): string {
     return strtolower( preg_replace( '/[^a-z0-9_\-]/', '', $key ) );
 }
+}
 
+if ( ! function_exists( 'wp_json_encode' ) ) {
 function wp_json_encode( $data, int $options = 0, int $depth = 512 ): string|false {
     return json_encode( $data, $options, $depth );
 }
+}
 
+if ( ! function_exists( 'wp_strip_all_tags' ) ) {
 function wp_strip_all_tags( string $string, bool $remove_breaks = false ): string {
     return strip_tags( $string );
 }
+}
 
+if ( ! function_exists( 'esc_html' ) ) {
 function esc_html( string $text ): string { return htmlspecialchars( $text, ENT_QUOTES, 'UTF-8' ); }
+}
+if ( ! function_exists( 'esc_attr' ) ) {
 function esc_attr( string $text ): string { return htmlspecialchars( $text, ENT_QUOTES, 'UTF-8' ); }
+}
+if ( ! function_exists( 'esc_url' ) ) {
 function esc_url( string $url ): string   { return $url; }
+}
 
+if ( ! function_exists( '__' ) ) {
 function __( string $text, string $domain = '' ): string { return $text; }
+}
+if ( ! function_exists( '_n' ) ) {
 function _n( string $single, string $plural, int $number, string $domain = '' ): string {
     return $number === 1 ? $single : $plural;
 }
+}
 
+if ( ! function_exists( 'add_action' ) ) {
 function add_action( string $hook, callable $callback, int $priority = 10, int $accepted_args = 1 ): bool { return true; }
+}
+if ( ! function_exists( 'add_filter' ) ) {
 function add_filter( string $hook, callable $callback, int $priority = 10, int $accepted_args = 1 ): bool { return true; }
+}
+if ( ! function_exists( 'apply_filters' ) ) {
 function apply_filters( string $hook, $value, ...$args ) { return $value; }
+}
 
+if ( ! function_exists( 'wp_next_scheduled' ) ) {
 function wp_next_scheduled( string $hook, array $args = [] ): int|false { return false; }
+}
+if ( ! function_exists( 'wp_schedule_event' ) ) {
 function wp_schedule_event( int $timestamp, string $recurrence, string $hook, array $args = [] ): bool { return true; }
+}
+if ( ! function_exists( 'wp_clear_scheduled_hook' ) ) {
 function wp_clear_scheduled_hook( string $hook, array $args = [] ): int { return 0; }
+}
 
+if ( ! function_exists( 'wp_upload_dir' ) ) {
 function wp_upload_dir(): array {
     return [ 'basedir' => '/tmp/wp-uploads', 'baseurl' => 'http://example.com/wp-content/uploads' ];
 }
+}
+if ( ! function_exists( 'wp_mkdir_p' ) ) {
 function wp_mkdir_p( string $dir ): bool { return true; }
+}
+if ( ! function_exists( 'trailingslashit' ) ) {
 function trailingslashit( string $string ): string { return rtrim( $string, '/\\' ) . '/'; }
+}
 
+if ( ! function_exists( 'size_format' ) ) {
 function size_format( int $bytes, int $decimals = 0 ): string {
     return round( $bytes / 1048576, $decimals ) . ' MB';
+}
 }
 
 
@@ -170,7 +226,9 @@ if ( ! class_exists( 'WP_Error' ) ) {
     }
 }
 
-function is_wp_error( $thing ): bool { return $thing instanceof WP_Error; }
+if ( ! function_exists( 'is_wp_error' ) ) {
+    function is_wp_error( $thing ): bool { return $thing instanceof WP_Error; }
+}
 
 // ── Plugin path constants ──────────────────────────────────────────────────────
 // Parse the live Version: header from the main plugin file so this stub
@@ -195,6 +253,9 @@ require_once TMWSEO_ENGINE_PATH . 'includes/services/class-dataforseo.php';
 require_once TMWSEO_ENGINE_PATH . 'includes/ai/class-ai-router.php';
 require_once TMWSEO_ENGINE_PATH . 'includes/class-discovery-governor.php';
 require_once TMWSEO_ENGINE_PATH . 'includes/integrations/class-gsc-api.php';
+require_once TMWSEO_ENGINE_PATH . 'includes/keywords/class-keyword-library.php';
+require_once TMWSEO_ENGINE_PATH . 'includes/keywords/class-model-keyword-pool-template-expander.php';
+require_once TMWSEO_ENGINE_PATH . 'includes/keywords/class-category-approved-keyword-resolver.php';
 
 // ── Additional WP function stubs needed by Admin::sanitize_settings ─────────
 if (!function_exists('esc_url_raw'))          { function esc_url_raw(string $url): string { return filter_var($url, FILTER_SANITIZE_URL) ?: ''; } }
