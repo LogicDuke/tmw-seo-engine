@@ -11,6 +11,7 @@ namespace TMWSEO\Engine\Admin;
 
 use TMWSEO\Engine\Keywords\KeywordPoolCsvParser;
 use TMWSEO\Engine\Keywords\KeywordPoolDryRunService;
+use TMWSEO\Engine\Keywords\KeywordPoolClassificationPolicy;
 use TMWSEO\Engine\Keywords\KeywordPoolImportBatchRepository;
 use TMWSEO\Engine\Keywords\KeywordPoolSelectedImportService;
 
@@ -1096,11 +1097,11 @@ class KeywordPoolsAdminPage {
     /** @param array<string,mixed> $row @return array<string,mixed> */
     private static function import_row_approval_contract(array $row): array {
         $candidate_id = (int) ($row['candidate_id'] ?? 0);
-        $validation = (string) ($row['validation_state'] ?? '');
-        $decision = (string) ($row['decision'] ?? '');
-        $payload = json_decode((string) ($row['row_payload'] ?? ''), true);
-        $reasons = is_array($payload['reason_codes'] ?? null) ? array_map('strval', $payload['reason_codes']) : [];
-        $blocked_reasons = [ 'unsafe_keyword', 'summary_or_footer_row', 'geo_local_intent', 'missing_keyword', 'invalid_ad_difficulty', 'invalid_difficulty' ];
+        $effective = self::effective_import_row_classification($row);
+        $validation = (string) ($effective['validation_state'] ?? $row['validation_state'] ?? '');
+        $decision = (string) ($effective['decision'] ?? $row['decision'] ?? '');
+        $reasons = is_array($effective['reason_codes'] ?? null) ? array_map('strval', $effective['reason_codes']) : [];
+        $blocked_reasons = [ 'unsafe_keyword', 'summary_or_footer_row', 'geo_local_intent', 'missing_keyword', 'invalid_ad_difficulty', 'invalid_difficulty', 'invalid_competition', 'invalid_cpc' ];
         foreach ($blocked_reasons as $reason) {
             if (in_array($reason, $reasons, true)) {
                 return [ 'can_approve' => false, 'can_reject' => true, 'approval_block_reason' => $reason ];
@@ -1109,10 +1110,89 @@ class KeywordPoolsAdminPage {
         if (in_array($validation, [ 'blocked', 'invalid', 'rejected' ], true) || in_array($decision, [ 'block', 'reject' ], true)) {
             return [ 'can_approve' => false, 'can_reject' => true, 'approval_block_reason' => 'blocked_non_overridable_policy' ];
         }
-        if ($candidate_id <= 0 && '' === trim((string) ($row['normalized_keyword'] ?? $row['keyword'] ?? ''))) {
+        if ($candidate_id <= 0 && '' === trim((string) ($effective['normalized_keyword'] ?? $effective['keyword'] ?? $row['normalized_keyword'] ?? $row['keyword'] ?? ''))) {
             return [ 'can_approve' => false, 'can_reject' => true, 'approval_block_reason' => 'missing_keyword' ];
         }
         return [ 'can_approve' => true, 'can_reject' => true, 'approval_block_reason' => '' ];
+    }
+
+    /** @param array<string,mixed> $row @return array<string,mixed> */
+    private static function effective_import_row_classification(array $row): array {
+        $payload = json_decode((string) ($row['row_payload'] ?? ''), true);
+        if (!is_array($payload)) {
+            $payload = [];
+        }
+        $effective = array_merge($row, $payload);
+        $reasons = is_array($effective['reason_codes'] ?? null) ? array_values(array_unique(array_map('strval', $effective['reason_codes']))) : [];
+        foreach ([ 'difficulty', 'ad_difficulty', 'competition', 'cpc' ] as $metric) {
+            if (self::is_stale_invalid_metric_reason($row, $payload, $metric)) {
+                $reasons = array_values(array_diff($reasons, [ 'invalid_' . $metric ]));
+            }
+        }
+        if (class_exists(KeywordPoolClassificationPolicy::class)) {
+            $pool = in_array((string) ($effective['pool'] ?? $row['pool'] ?? ''), self::ALLOWED_POOLS, true) ? (string) ($effective['pool'] ?? $row['pool']) : 'category';
+            $classification = (new KeywordPoolClassificationPolicy())->classify($effective, $pool, $effective);
+            $classification_reasons = is_array($classification['reason_codes'] ?? null) ? array_map('strval', $classification['reason_codes']) : [];
+            $reasons = array_values(array_unique(array_merge($classification_reasons, $reasons)));
+            $effective['eligibility'] = $classification['eligibility'] ?? ($effective['eligibility'] ?? 'review');
+            if (!in_array((string) ($effective['validation_state'] ?? ''), [ 'blocked', 'invalid', 'rejected' ], true)) {
+                if ('candidate' === (string) ($effective['eligibility'] ?? '')) {
+                    $effective['validation_state'] = 'valid';
+                    $effective['decision'] = 'accept';
+                } elseif (in_array((string) ($effective['eligibility'] ?? ''), [ 'review', 'archive' ], true)) {
+                    $effective['validation_state'] = 'review_required';
+                    $effective['decision'] = 'review_required';
+                }
+            }
+        }
+        $effective['reason_codes'] = array_values(array_unique(array_filter($reasons, static fn(string $reason): bool => '' !== $reason)));
+        return $effective;
+    }
+
+    /** @param array<string,mixed> $row @param array<string,mixed> $payload */
+    private static function is_stale_invalid_metric_reason(array $row, array $payload, string $metric): bool {
+        $reason = 'invalid_' . $metric;
+        $reasons = [];
+        foreach ([ $row, $payload ] as $representation) {
+            if (is_array($representation['reason_codes'] ?? null)) {
+                $reasons = array_merge($reasons, array_map('strval', $representation['reason_codes']));
+            }
+        }
+        if (!in_array($reason, $reasons, true)) {
+            return false;
+        }
+
+        $metric_keys = [ $metric, 'normalized_' . $metric, 'raw_' . $metric, 'original_' . $metric, 'source_' . $metric ];
+        $values = [];
+        foreach ([ $row, $payload ] as $representation) {
+            self::collect_metric_representations($representation, $metric_keys, $values);
+        }
+        foreach ($values as $value) {
+            // Structured source data is malformed evidence, not a missing value.
+            if ((is_array($value) || is_object($value) || is_resource($value)) || !self::is_blank_optional_metric($value)) {
+                return false;
+            }
+        }
+
+        // An absent representation and representations that are all blank both
+        // prove that a persisted invalid reason is stale.
+        return true;
+    }
+
+    /**
+     * @param array<string,mixed> $representation
+     * @param array<int,string>   $metric_keys
+     * @param array<int,mixed>    $values
+     */
+    private static function collect_metric_representations(array $representation, array $metric_keys, array &$values): void {
+        foreach ($representation as $key => $value) {
+            if (is_string($key) && in_array(strtolower($key), $metric_keys, true)) {
+                $values[] = $value;
+            }
+            if (is_array($value)) {
+                self::collect_metric_representations($value, $metric_keys, $values);
+            }
+        }
     }
 
     /** @param array<string,mixed> $row @param array<string,mixed> $batch */
