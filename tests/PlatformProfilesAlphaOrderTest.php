@@ -2,11 +2,11 @@
 /**
  * Phase 1 — Alphabetical ordering test for PlatformProfiles::get_platform_labels().
  *
- * Verifies:
- *   - Labels are returned in A→Z order by display name.
- *   - At minimum the first label alphabetically precedes the last alphabetically.
- *   - The slug→label mapping is preserved (asort does not discard keys).
- *   - The function returns a non-empty array.
+ * Verifies the production contract:
+ *   - Only cam and fansite registry members are returned.
+ *   - Slugs and labels are sanitized and the slug→label mapping is preserved.
+ *   - Labels use PHP's case-sensitive default asort() ordering.
+ *   - Link hubs and social platforms are excluded.
  */
 
 namespace TMWSEO\Engine\Platform;
@@ -54,52 +54,74 @@ class PlatformProfilesAlphaOrderTest extends TestCase {
         }
     }
 
-    public function test_labels_are_in_alphabetical_order(): void {
-        $values  = array_values( $this->labels );
-        $sorted  = $values;
-        natcasesort( $sorted );
-        $this->assertSame( array_values( $sorted ), $values,
-            'PlatformProfiles::get_platform_labels() should return labels sorted A→Z'
+    public function test_labels_use_production_asort_order(): void {
+        $expected = $this->expected_sidebar_labels();
+
+        $this->assertSame(
+            $expected,
+            $this->labels,
+            'Labels should use the same case-sensitive SORT_REGULAR asort contract as production.'
         );
     }
 
-    public function test_first_label_alphabetically_before_last(): void {
-        $values = array_values( $this->labels );
-        $first  = reset( $values );
-        $last   = end( $values );
-        $this->assertLessThanOrEqual(
-            0,
-            strcasecmp( $first, $last ),
-            "First label '{$first}' should come before or equal last label '{$last}' alphabetically"
-        );
+    public function test_entries_match_cam_and_fansite_registry_membership(): void {
+        $registry_by_slug = [];
+        foreach ( PlatformRegistry::get_platforms() as $platform ) {
+            $registry_by_slug[ sanitize_key( (string) ( $platform['slug'] ?? '' ) ) ] = $platform;
+        }
+
+        foreach ( $this->labels as $slug => $label ) {
+            $this->assertArrayHasKey( $slug, $registry_by_slug );
+            $this->assertContains( $registry_by_slug[ $slug ]['group'], [ 'cam', 'fansite' ] );
+            $this->assertSame( sanitize_text_field( (string) $registry_by_slug[ $slug ]['name'] ), $label );
+        }
     }
 
-    public function test_allmylinks_before_xcams(): void {
-        $values = array_values( $this->labels );
-        $pos_all  = array_search( 'AllMyLinks', $values, true );
-        $pos_xc   = array_search( 'Xcams', $values, true );
-        $this->assertNotFalse( $pos_all );
-        $this->assertNotFalse( $pos_xc );
-        $this->assertLessThan( $pos_xc, $pos_all,
-            "AllMyLinks (A) should appear before Xcams (X)"
-        );
+    public function test_non_sidebar_registry_groups_are_excluded(): void {
+        $this->assertArrayNotHasKey( 'allmylinks', $this->labels );
+        $this->assertArrayNotHasKey( 'linktree', $this->labels );
+        $this->assertArrayNotHasKey( 'twitter', $this->labels );
     }
 
     public function test_slug_to_name_mapping_preserved(): void {
-        // asort() must not discard keys
-        $this->assertArrayHasKey( 'chaturbate', $this->labels );
+        // asort() must preserve the sanitized registry slug keys.
         $this->assertSame( 'Chaturbate', $this->labels['chaturbate'] );
-        $this->assertArrayHasKey( 'fansly', $this->labels );
         $this->assertSame( 'Fansly', $this->labels['fansly'] );
+        $this->assertSame( 'Cams.com', $this->labels['camscom'] );
     }
 
-    public function test_priority_order_is_not_preserved(): void {
-        // Linktree (priority 5) should NOT be first if alphabetical; AllMyLinks is.
+    public function test_case_sensitive_order_differs_from_natural_case_insensitive_order(): void {
         $values = array_values( $this->labels );
-        $first  = reset( $values );
-        // AllMyLinks comes before Linktree alphabetically
-        $this->assertSame( 'AllMyLinks', $first,
-            "AllMyLinks should be first alphabetically, not priority-first platform"
-        );
+        $natural = $values;
+        natcasesort( $natural );
+
+        $this->assertNotSame( array_values( $natural ), $values );
+        $this->assertSame( 'BongaCams', reset( $values ) );
     }
+
+    /**
+     * Reproduce the production membership, sanitization, and sorting contract
+     * from the canonical registry without hard-coding a stale fixture.
+     *
+     * @return array<string,string>
+     */
+    private function expected_sidebar_labels(): array {
+        $expected = [];
+
+        foreach ( PlatformRegistry::get_platforms() as $platform ) {
+            $slug  = sanitize_key( (string) ( $platform['slug'] ?? '' ) );
+            $label = sanitize_text_field( (string) ( $platform['name'] ?? '' ) );
+            $group = (string) ( $platform['group'] ?? 'other' );
+
+            if ( $slug === '' || $label === '' || ! in_array( $group, [ 'cam', 'fansite' ], true ) ) {
+                continue;
+            }
+
+            $expected[ $slug ] = $label;
+        }
+
+        asort( $expected );
+        return $expected;
+    }
+
 }
