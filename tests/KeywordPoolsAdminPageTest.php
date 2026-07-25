@@ -596,9 +596,11 @@ dani daniels,1200,2.50,0.10,75
     }
 
 
-    public function test_approval_contract_allows_missing_optional_ad_difficulty_without_invalid_reason(): void {
-        $method = new ReflectionMethod(KeywordPoolsAdminPage::class, 'import_row_approval_contract');
-        $method->setAccessible(true);
+    public function test_approval_contract_removes_stale_invalid_ad_difficulty_for_every_missing_representation(): void {
+        $approvalMethod = new ReflectionMethod(KeywordPoolsAdminPage::class, 'import_row_approval_contract');
+        $approvalMethod->setAccessible(true);
+        $effectiveMethod = new ReflectionMethod(KeywordPoolsAdminPage::class, 'effective_import_row_classification');
+        $effectiveMethod->setAccessible(true);
         $missingRows = [
             'null value' => [ 'ad_difficulty' => null ],
             'blank value' => [ 'ad_difficulty' => '' ],
@@ -613,9 +615,11 @@ dani daniels,1200,2.50,0.10,75
                 'decision' => 'review_required',
                 'normalized_keyword' => 'asian cam models',
                 'pool' => 'category',
-                'row_payload' => json_encode(array_merge([ 'keyword' => 'asian cam models', 'normalized_keyword' => 'asian cam models', 'reason_codes' => [ 'browse_supporting_intent' ] ], $metricPayload)),
+                'row_payload' => json_encode(array_merge([ 'keyword' => 'asian cam models', 'normalized_keyword' => 'asian cam models', 'reason_codes' => [ 'browse_supporting_intent', 'invalid_ad_difficulty' ] ], $metricPayload)),
             ];
-            $result = $method->invoke(null, $row);
+            $effective = $effectiveMethod->invoke(null, $row);
+            $result = $approvalMethod->invoke(null, $row);
+            $this->assertNotContains('invalid_ad_difficulty', $effective['reason_codes'], $label);
             $this->assertTrue((bool) $result['can_approve'], $label);
             $this->assertSame('', (string) $result['approval_block_reason'], $label);
         }
@@ -650,19 +654,33 @@ dani daniels,1200,2.50,0.10,75
     }
 
     public function test_approval_contract_preserves_normalized_null_when_raw_metric_was_malformed(): void {
-        $method = new ReflectionMethod(KeywordPoolsAdminPage::class, 'import_row_approval_contract');
-        $method->setAccessible(true);
-        $malformed = [
-            'id' => 773,
-            'validation_state' => 'review_required',
-            'decision' => 'review_required',
-            'normalized_keyword' => 'asian cam models',
-            'pool' => 'category',
-            'row_payload' => json_encode([ 'keyword' => 'asian cam models', 'normalized_keyword' => 'asian cam models', 'ad_difficulty' => null, 'raw_ad_difficulty' => 'abc', 'reason_codes' => [ 'browse_supporting_intent', 'invalid_ad_difficulty' ] ]),
+        $approvalMethod = new ReflectionMethod(KeywordPoolsAdminPage::class, 'import_row_approval_contract');
+        $approvalMethod->setAccessible(true);
+        $effectiveMethod = new ReflectionMethod(KeywordPoolsAdminPage::class, 'effective_import_row_classification');
+        $effectiveMethod->setAccessible(true);
+        $malformedSources = [
+            'raw payload value' => [ 'raw_ad_difficulty' => 'abc' ],
+            'source stored-row value' => [ 'stored' => [ 'source_ad_difficulty' => 'abc' ] ],
+            'original nested payload value' => [ 'raw' => [ 'original_ad_difficulty' => 'abc' ] ],
+            'normalized nonblank payload value' => [ 'normalized_ad_difficulty' => 'abc' ],
         ];
-        $malformedResult = $method->invoke(null, $malformed);
-        $this->assertFalse((bool) $malformedResult['can_approve']);
-        $this->assertSame('invalid_ad_difficulty', (string) $malformedResult['approval_block_reason']);
+        foreach ($malformedSources as $label => $source) {
+            $stored = $source['stored'] ?? [];
+            unset($source['stored']);
+            $malformed = array_merge([
+                'id' => 773,
+                'validation_state' => 'review_required',
+                'decision' => 'review_required',
+                'normalized_keyword' => 'asian cam models',
+                'pool' => 'category',
+            ], $stored);
+            $malformed['row_payload'] = json_encode(array_merge([ 'keyword' => 'asian cam models', 'normalized_keyword' => 'asian cam models', 'ad_difficulty' => null, 'reason_codes' => [ 'browse_supporting_intent', 'invalid_ad_difficulty' ] ], $source));
+            $effective = $effectiveMethod->invoke(null, $malformed);
+            $malformedResult = $approvalMethod->invoke(null, $malformed);
+            $this->assertContains('invalid_ad_difficulty', $effective['reason_codes'], $label);
+            $this->assertFalse((bool) $malformedResult['can_approve'], $label);
+            $this->assertSame('invalid_ad_difficulty', (string) $malformedResult['approval_block_reason'], $label);
+        }
     }
 
     public function test_approval_contract_preserves_malformed_metric_equivalent_blockers(): void {

@@ -1152,32 +1152,47 @@ class KeywordPoolsAdminPage {
     /** @param array<string,mixed> $row @param array<string,mixed> $payload */
     private static function is_stale_invalid_metric_reason(array $row, array $payload, string $metric): bool {
         $reason = 'invalid_' . $metric;
-        $reasons = is_array($payload['reason_codes'] ?? null) ? array_map('strval', $payload['reason_codes']) : [];
+        $reasons = [];
+        foreach ([ $row, $payload ] as $representation) {
+            if (is_array($representation['reason_codes'] ?? null)) {
+                $reasons = array_merge($reasons, array_map('strval', $representation['reason_codes']));
+            }
+        }
         if (!in_array($reason, $reasons, true)) {
             return false;
         }
 
-        foreach ([ 'raw_' . $metric, 'original_' . $metric, 'source_' . $metric ] as $raw_key) {
-            if (array_key_exists($raw_key, $payload)) {
-                return self::is_blank_optional_metric($payload[$raw_key]);
-            }
-            if (array_key_exists($raw_key, $row)) {
-                return self::is_blank_optional_metric($row[$raw_key]);
-            }
+        $metric_keys = [ $metric, 'normalized_' . $metric, 'raw_' . $metric, 'original_' . $metric, 'source_' . $metric ];
+        $values = [];
+        foreach ([ $row, $payload ] as $representation) {
+            self::collect_metric_representations($representation, $metric_keys, $values);
         }
-
-        if (array_key_exists($metric, $payload)) {
-            if (null === $payload[$metric] && array_key_exists($metric, $row) && !self::is_blank_optional_metric($row[$metric])) {
+        foreach ($values as $value) {
+            // Structured source data is malformed evidence, not a missing value.
+            if ((is_array($value) || is_object($value) || is_resource($value)) || !self::is_blank_optional_metric($value)) {
                 return false;
             }
-            return null !== $payload[$metric] && self::is_blank_optional_metric($payload[$metric]);
         }
 
-        if (array_key_exists($metric, $row)) {
-            return self::is_blank_optional_metric($row[$metric]);
-        }
-
+        // An absent representation and representations that are all blank both
+        // prove that a persisted invalid reason is stale.
         return true;
+    }
+
+    /**
+     * @param array<string,mixed> $representation
+     * @param array<int,string>   $metric_keys
+     * @param array<int,mixed>    $values
+     */
+    private static function collect_metric_representations(array $representation, array $metric_keys, array &$values): void {
+        foreach ($representation as $key => $value) {
+            if (is_string($key) && in_array(strtolower($key), $metric_keys, true)) {
+                $values[] = $value;
+            }
+            if (is_array($value)) {
+                self::collect_metric_representations($value, $metric_keys, $values);
+            }
+        }
     }
 
     /** @param array<string,mixed> $row @param array<string,mixed> $batch */
