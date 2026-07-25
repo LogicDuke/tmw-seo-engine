@@ -261,12 +261,12 @@ class ModelKeywordPack {
         //
         // Priority order for model pages:
         //   P1: approved personal/model-specific CSV keywords (explicit human sign-off)
-        //   P2: bucketed template-expanded model Rank Math extras (Git-approved, deterministic)
-        //   P3: filtered old global DB pool (safety-gated fallback)
+        //   P2: approved global DB pool (human-approved, safety-gated)
+        //   P3: bucketed template-expanded model Rank Math extras (Git-approved, deterministic)
         //   P4: existing deterministic fallback chips
         //
         // P1 must never be overridden by P2, P3, or P4.
-        // P3 has a model-rankmath-specific safety gate blocking unsafe generic terms.
+        // P2 has a model-rankmath-specific safety gate blocking unsafe generic terms.
         // ─────────────────────────────────────────────────────────────────────
         $rankmath_chips                = [];
         $approved_model_keywords       = [];
@@ -281,7 +281,7 @@ class ModelKeywordPack {
                 $model_name
             );
 
-            // P2: bucketed template-expanded model Rank Math extras.
+            // P3: bucketed template-expanded model Rank Math extras.
             // Git-approved config, deterministic, safe, varied across 3,500+ models.
             $template_expanded_result = ModelKeywordPoolTemplateExpander::expand_for_pool_bucketed(
                 $model_name,
@@ -291,7 +291,7 @@ class ModelKeywordPack {
             );
             $template_expanded_chips = (array) ($template_expanded_result['accepted'] ?? []);
 
-            // P3: filtered old global DB pool.
+            // P2: filtered approved global DB pool.
             // Apply model-rankmath-only safety gate before using as fallback.
             $raw_global_pool           = (array) ($classified_fragment['global_pool_candidates'] ?? []);
             $approved_global_pool_keywords = self::filter_global_pool_for_model_rankmath($raw_global_pool);
@@ -335,11 +335,14 @@ class ModelKeywordPack {
                 ]);
             }
 
-            // Merge P1+P2 as preferred, P3+P4 as fallback.
-            $rankmath_chips = self::merge_preferred_keywords(
-                array_merge($approved_model_keywords, $template_expanded_chips),
-                array_merge($approved_global_pool_keywords, $rankmath_fallback_candidates),
-                12
+            // Approved global rows must precede templates. Templates normally return
+            // four candidates, so the former P2-template/P3-global ordering made an
+            // approved global row functionally unreachable whenever P1 was sparse.
+            $rankmath_chips = array_merge(
+                $approved_model_keywords,
+                $approved_global_pool_keywords,
+                $template_expanded_chips,
+                $rankmath_fallback_candidates
             );
             $rankmath_chips = self::finalize_rankmath_additional_keywords(
                 $rankmath_chips,
@@ -554,8 +557,8 @@ class ModelKeywordPack {
 
     /**
      * @param string[]          $approved_model     model-specific extra_focus_candidates after ordering
-     * @param string[]          $template_expanded  template-expanded bucketed chips (P2)
-     * @param string[]          $global_pool        global_pool_candidates from provider (filtered, P3)
+     * @param string[]          $template_expanded  template-expanded bucketed chips (P3)
+     * @param string[]          $global_pool        global_pool_candidates from provider (filtered, P2)
      * @param string[]          $fallback            build_rankmath_chips() output (P4)
      * @param string[]          $final_chips        rankmath_chips after finalize (the 4 chosen)
      * @param array<string,bool>$exclusions         classified_exclusion_lookup
@@ -624,14 +627,14 @@ class ModelKeywordPack {
             $log_candidate((string) $kw, 'model_specific_approved');
         }
 
-        // 2. Template-expanded bucketed chips (P2).
-        foreach ($template_expanded as $kw) {
-            $log_candidate((string) $kw, 'template_expanded_approved');
-        }
-
-        // 3. Global pool approved rows, safety-filtered (P3).
+        // 2. Global pool approved rows, safety-filtered (P2).
         foreach ($global_pool as $kw) {
             $log_candidate((string) $kw, 'global_pool_approved_filtered');
+        }
+
+        // 3. Template-expanded bucketed chips (P3).
+        foreach ($template_expanded as $kw) {
+            $log_candidate((string) $kw, 'template_expanded_approved');
         }
 
         // 4. Deterministic fallback chips (P4).
@@ -871,41 +874,19 @@ class ModelKeywordPack {
         $keywords = self::filter_keywords_against_classified_exclusions($keywords, $excluded);
         $keywords = self::remove_primary_keyword_from_extras($keywords, $primary);
         $keywords = self::dedupe_keywords($keywords);
-        return self::dedupe_reordered_keywords($keywords, 4);
+        return self::cap_rankmath_additional_keywords($keywords, 4);
     }
 
     /**
-     * Remove keywords that are reordered duplicates of an earlier keyword.
-     *
-     * "anisyia livejasmin" and "livejasmin anisyia" share the same sorted
-     * token set and are treated as duplicates; the first occurrence wins.
+     * Cap the already exact-deduplicated Rank Math extras.
+     * Token-reordered phrases are retained: approved search-query variants such
+     * as "anisyia livejasmin" and "livejasmin anisyia" are distinct P1 rows.
      *
      * @param  string[] $keywords  Already exact-deduped list.
      * @return string[]
      */
-    private static function dedupe_reordered_keywords(array $keywords): array {
-        $out = [];
-        $seen_fingerprints = [];
-        foreach ($keywords as $kw) {
-            $clean = self::normalize_keyword((string) $kw);
-            if ($clean === '') {
-                continue;
-            }
-            $lower = function_exists('mb_strtolower') ? mb_strtolower($clean, 'UTF-8') : strtolower($clean);
-            $tokens = preg_split('/\s+/u', $lower);
-            if (!is_array($tokens)) {
-                $tokens = [$lower];
-            }
-            $tokens = array_values(array_filter($tokens, 'strlen'));
-            sort($tokens, SORT_STRING);
-            $fingerprint = implode('|', $tokens);
-            if (isset($seen_fingerprints[$fingerprint])) {
-                continue;
-            }
-            $seen_fingerprints[$fingerprint] = true;
-            $out[] = $kw;
-        }
-        return $out;
+    private static function cap_rankmath_additional_keywords(array $keywords, int $limit): array {
+        return array_slice($keywords, 0, max(0, $limit));
     }
 
     /** @param string[] $keywords @return string[] */
@@ -1505,4 +1486,3 @@ private static function debug_assert_model_additional_keywords(array $additional
         }
     }
 }}
-
