@@ -53,7 +53,11 @@ final class KeywordPoolImportBatchRepositoryTestWpdb {
         if (str_starts_with($sql, 'SHOW TABLES LIKE')) {
             if (preg_match("/'([^']+)'/", $sql, $match)) {
                 $table = stripslashes($match[1]);
-                return in_array($table, $this->missing_tables, true) ? null : $table;
+                $table = str_replace([ '\\%', '\\_' ], [ '%', '_' ], $table);
+                if (!array_key_exists($table, $this->columns) || in_array($table, $this->missing_tables, true)) {
+                    return null;
+                }
+                return $table;
             }
         }
         if (str_contains($sql, 'tmw_keyword_import_batches') && str_contains($sql, 'import_batch_id')) {
