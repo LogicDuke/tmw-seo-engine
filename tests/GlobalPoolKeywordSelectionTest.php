@@ -69,20 +69,7 @@ namespace {
     if (!function_exists('get_the_terms'))        { function get_the_terms($p, $t) { return []; } }
     if (!function_exists('is_wp_error'))          { function is_wp_error($x) { return $x instanceof \WP_Error; } }
 
-    // ── TMWSEO stubs ─────────────────────────────────────────────────────────
-    if (!class_exists('TMWSEO\\Engine\\Logs')) {
-        eval('namespace TMWSEO\\Engine; class Logs { public static function info($c,$m,$d=[]){} public static function warn($c,$m,$d=[]){} public static function error($c,$m,$d=[]){} public static function debug($c,$m,$d=[]){} }');
-    }
-    // Stubs required by ModelKeywordPack::build().
-    if (!class_exists('TMWSEO\\Engine\\Services\\DataForSEO')) {
-        eval('namespace TMWSEO\\Engine\\Services; class DataForSEO { public static function is_configured(): bool { return false; } public static function keyword_suggestions(string $seed, int $limit = 80): array { return [\'ok\' => false, \'items\' => []]; } }');
-    }
-    if (!class_exists('TMWSEO\\Engine\\Platform\\PlatformProfiles')) {
-        eval('namespace TMWSEO\\Engine\\Platform; class PlatformProfiles { public static function get_links(int $model_id): array { return [[\'platform\' => \'livejasmin\']]; } }');
-    }
-    if (!class_exists('TMWSEO\\Engine\\Keywords\\KeywordLibrary')) {
-        eval('namespace TMWSEO\\Engine\\Keywords; class KeywordLibrary { public static function clean_keyword(string $keyword): string { $keyword = strtolower(strip_tags($keyword)); $keyword = preg_replace(\'/[^a-z0-9\\s-]+/\', \' \', $keyword) ?? $keyword; return trim(preg_replace(\'/\\s+/\', \' \', $keyword) ?? $keyword); } public static function score(string $keyword, array $context = []): int { return str_contains(strtolower($keyword), strtolower((string) ($context[\'name\'] ?? \'\'))) ? 80 : 40; } public static function pick_multi(array $categories, string $type, int $limit, string $seed, array $exclude = [], array $context = []): array { return $type === \'extra\' ? [\'generated fallback extra\', \'live chat schedule\'] : [\'generated fallback longtail\', \'how to join live cam chat\']; } public static function has_category(string $slug): bool { return true; } }');
-    }
+    // Production dependencies are loaded by the shared PHPUnit bootstrap.
 
     // ── Autoload ──────────────────────────────────────────────────────────────
     require_once dirname(__DIR__) . '/includes/keywords/class-page-type-keyword-filter.php';

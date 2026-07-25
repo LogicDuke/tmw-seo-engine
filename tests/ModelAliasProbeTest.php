@@ -14,18 +14,7 @@ namespace TMWSEO\Engine\Model;
 
 use PHPUnit\Framework\TestCase;
 
-// ── Minimal stubs so the class can be loaded without WP ──────────────────────
-
-namespace TMWSEO\Engine\Services;
-function get_option( string $key, $default = false ) { return $default; }
-
-namespace TMWSEO\Engine\Platform;
-class PlatformRegistry {
-    public static function get_slugs(): array { return []; }
-    public static function get( string $slug ): ?array { return null; }
-}
-
-namespace TMWSEO\Engine\Model;
+// Production dependencies are loaded by the shared PHPUnit bootstrap.
 
 // ── Concrete test subclass that exposes the protected method ──────────────────
 

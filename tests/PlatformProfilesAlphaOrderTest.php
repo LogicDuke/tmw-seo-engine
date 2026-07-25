@@ -24,27 +24,7 @@ if ( ! function_exists( 'TMWSEO\Engine\Platform\sanitize_text_field' ) ) {
     function sanitize_text_field( string $s ): string { return trim( $s ); }
 }
 
-// ── Minimal PlatformRegistry stub that returns a fixed list in priority order ─
-
-// (The real PlatformRegistry is priority-ordered; the stub mimics that.)
-class PlatformRegistry {
-    public static function get_platforms(): array {
-        // Priority order (NOT alphabetical) — mirrors the real registry.
-        return [
-            [ 'slug' => 'linktree',    'name' => 'Linktree',     'priority' => 5  ],
-            [ 'slug' => 'twitter',     'name' => 'X (Twitter)',  'priority' => 12 ],
-            [ 'slug' => 'chaturbate',  'name' => 'Chaturbate',   'priority' => 30 ],
-            [ 'slug' => 'allmylinks',  'name' => 'AllMyLinks',   'priority' => 6  ],
-            [ 'slug' => 'stripchat',   'name' => 'Stripchat',    'priority' => 20 ],
-            [ 'slug' => 'fansly',      'name' => 'Fansly',       'priority' => 15 ],
-            [ 'slug' => 'xcams',       'name' => 'Xcams',        'priority' => 234 ],
-            [ 'slug' => 'bonga',       'name' => 'BongaCams',    'priority' => 60 ],
-            [ 'slug' => 'camsoda',     'name' => 'CamSoda',      'priority' => 50 ],
-        ];
-    }
-    public static function get( string $slug ): ?array { return null; }
-    public static function get_slugs(): array { return array_column( self::get_platforms(), 'slug' ); }
-}
+// PlatformRegistry and PlatformProfiles are loaded by the shared bootstrap.
 
 // ── Load the real PlatformProfiles class under test ───────────────────────────
 
