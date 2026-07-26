@@ -118,18 +118,51 @@ final class KeywordPoolImportBatchRepositoryTestWpdb {
             $status = stripslashes($match[1]);
             $rows = array_values(array_filter($rows, static fn(array $row): bool => (string) ($row['status'] ?? '') === $status));
         }
-        if (preg_match("/keyword LIKE '([^']+)' OR normalized_keyword LIKE '([^']+)'/", $sql, $match)) {
-            $needle = stripslashes($match[1]);
+        if (preg_match("~keyword LIKE '((?:\\\\.|[^'])*)' OR normalized_keyword LIKE '((?:\\\\.|[^'])*)'~", $sql, $match)) {
+            $needle = self::decode_sql_string($match[1]);
             if (str_starts_with($needle, '%')) {
                 $needle = substr($needle, 1);
             }
             if (str_ends_with($needle, '%')) {
                 $needle = substr($needle, 0, -1);
             }
-            $needle = strtolower(str_replace([ '\\%', '\\_' ], [ '%', '_' ], $needle));
+            $needle = strtolower(self::decode_like_literal($needle));
             $rows = array_values(array_filter($rows, static fn(array $row): bool => str_contains(strtolower((string) ($row['keyword'] ?? '')), $needle) || str_contains(strtolower((string) ($row['normalized_keyword'] ?? '')), $needle)));
         }
         return $rows;
+    }
+
+    private static function decode_sql_string(string $value): string {
+        $decoded = '';
+        $length = strlen($value);
+        for ($index = 0; $index < $length; $index++) {
+            if ('\\' !== $value[$index] || $index + 1 >= $length) {
+                $decoded .= $value[$index];
+                continue;
+            }
+            $next = $value[++$index];
+            $decoded .= match ($next) {
+                '\\' => '\\',
+                "'" => "'",
+                '"' => '"',
+                '0' => "\0",
+                default => '\\' . $next,
+            };
+        }
+        return $decoded;
+    }
+
+    private static function decode_like_literal(string $value): string {
+        $decoded = '';
+        $length = strlen($value);
+        for ($index = 0; $index < $length; $index++) {
+            if ('\\' === $value[$index] && $index + 1 < $length && in_array($value[$index + 1], [ '\\', '%', '_' ], true)) {
+                $decoded .= $value[++$index];
+                continue;
+            }
+            $decoded .= $value[$index];
+        }
+        return $decoded;
     }
 
     public function get_row(string $sql, string $output = 'OBJECT'): array|null {
@@ -554,15 +587,21 @@ final class KeywordPoolImportBatchRepositoryTest extends TestCase {
             [ 'id' => 1, 'batch_id' => 12, 'keyword' => '100% classy', 'normalized_keyword' => '100 percent classy' ],
             [ 'id' => 2, 'batch_id' => 12, 'keyword' => 'plain keyword', 'normalized_keyword' => 'literal_under score' ],
             [ 'id' => 3, 'batch_id' => 12, 'keyword' => '100 percent classy', 'normalized_keyword' => 'unrelated' ],
+            [ 'id' => 4, 'batch_id' => 12, 'keyword' => "O'Reilly keyword research", 'normalized_keyword' => 'oreilly keyword research' ],
+            [ 'id' => 5, 'batch_id' => 12, 'keyword' => 'windows path', 'normalized_keyword' => 'C:\\temp keyword file' ],
         ];
         $GLOBALS['wpdb'] = $wpdb;
         $repository = new KeywordPoolImportBatchRepository();
 
         $percent_rows = $repository->query_rows(12, '', 10, 0, '', 'desc', '100% classy');
         $underscore_rows = $repository->query_rows(12, '', 10, 0, '', 'desc', 'literal_under');
+        $apostrophe_rows = $repository->query_rows(12, '', 10, 0, '', 'desc', "O'Reilly");
+        $backslash_rows = $repository->query_rows(12, '', 10, 0, '', 'desc', 'C:\\temp');
 
         $this->assertSame([ 1 ], array_column($percent_rows, 'id'));
         $this->assertSame([ 2 ], array_column($underscore_rows, 'id'));
+        $this->assertSame([ 4 ], array_column($apostrophe_rows, 'id'));
+        $this->assertSame([ 5 ], array_column($backslash_rows, 'id'));
     }
 
     public function test_approved_filter_combines_persisted_status_search_and_filtered_pagination(): void {
