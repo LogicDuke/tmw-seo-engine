@@ -560,7 +560,7 @@ class Schema {
             KEY role_status (role, status),
             KEY status (status),
             KEY source_batch_id (source_batch_id)
-        ) $charset_collate;";
+        ) ENGINE=InnoDB $charset_collate;";
     }
 
     /**
@@ -580,7 +580,9 @@ class Schema {
         $version_option = 'tmw_keyword_assignments_schema_version';
         $table = $wpdb->prefix . 'tmw_keyword_assignments';
 
-        if (empty(self::missing_tables([ $table ])) && (int) get_option($version_option, 0) >= $target_version) {
+        if (empty(self::missing_tables([ $table ]))
+            && self::keyword_assignments_table_is_innodb($table)
+            && (int) get_option($version_option, 0) >= $target_version) {
             return true;
         }
 
@@ -600,9 +602,39 @@ class Schema {
             return false;
         }
 
+        if (!self::convert_keyword_assignments_table_to_innodb($table)) {
+            error_log('[TMW-KW-ASSIGN-SCHEMA] Assignments table is not InnoDB; schema version not advanced.');
+            return false;
+        }
+
         update_option($version_option, $target_version, false);
         error_log('[TMW-KW-ASSIGN-SCHEMA] Keyword assignments table verified/created (schema v' . $target_version . ').');
         return true;
+    }
+
+    private static function convert_keyword_assignments_table_to_innodb(string $table): bool {
+        global $wpdb;
+        if (self::keyword_assignments_table_is_innodb($table)) {
+            return true;
+        }
+        $wpdb->last_error = '';
+        if (false === $wpdb->query('ALTER TABLE `' . str_replace('`', '``', $table) . '` ENGINE=InnoDB') || '' !== (string) $wpdb->last_error) {
+            $message = '[TMW-KW-ASSIGN-SCHEMA] InnoDB conversion failed for ' . $table . ': db_error=' . self::safe_db_error((string) $wpdb->last_error);
+            update_option('tmw_keyword_assignments_engine_error', $message, false);
+            error_log($message);
+            return false;
+        }
+        $verified = self::keyword_assignments_table_is_innodb($table);
+        if ($verified) {
+            delete_option('tmw_keyword_assignments_engine_error');
+        }
+        return $verified;
+    }
+
+    private static function keyword_assignments_table_is_innodb(string $table): bool {
+        global $wpdb;
+        $status = $wpdb->get_row($wpdb->prepare('SHOW TABLE STATUS LIKE %s', $wpdb->esc_like($table)), ARRAY_A);
+        return is_array($status) && 'innodb' === strtolower((string) ($status['Engine'] ?? ''));
     }
 
     private static function safe_sql_hash(string $sql): string {

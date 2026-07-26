@@ -96,7 +96,8 @@ final class AssignmentStateWpdb {
             if ( $this->fail_verification ) { return '2'; }
             $count = 0;
             foreach ( $state as $row ) {
-                if ( (int) $row['keyword_candidate_id'] === (int) $m[1] && 1 === (int) $row['canonical_owner'] && 'primary' === (string) $row['role'] ) { $count++; }
+                if ( (int) $row['keyword_candidate_id'] === (int) $m[1] && 1 === (int) $row['canonical_owner'] && 'primary' === (string) $row['role']
+                    && ( false === strpos( $sql, 'status IN' ) || in_array( (string) $row['status'], [ 'approved', 'review_required' ], true ) ) ) { $count++; }
             }
             return (string) $count;
         }
@@ -147,8 +148,8 @@ final class AssignmentStateWpdb {
         if ( preg_match( '/WHERE keyword_candidate_id = (\d+)( FOR UPDATE)?/', $sql, $m ) ) {
             return array_values( array_filter( $state, fn ( $row ) => (int) $row['keyword_candidate_id'] === (int) $m[1] ) );
         }
-        if ( preg_match( "/WHERE pool = '([^']*)' AND page_type = '([^']*)' AND target_key = '([^']*)'/", $sql, $m ) ) {
-            return array_values( array_filter( $state, fn ( $row ) => $row['pool'] === $m[1] && $row['page_type'] === $m[2] && $row['target_key'] === $m[3] ) );
+        if ( preg_match( "/WHERE pool = '([^']*)' AND page_type = '([^']*)' AND target_type = '([^']*)' AND target_key = '([^']*)'/", $sql, $m ) ) {
+            return array_values( array_filter( $state, fn ( $row ) => $row['pool'] === $m[1] && $row['page_type'] === $m[2] && $row['target_type'] === $m[3] && $row['target_key'] === $m[4] ) );
         }
         if ( preg_match( "/WHERE pool = '([^']*)' AND page_type = '([^']*)' AND target_type = '([^']*)' AND target_id = (\d+)/", $sql, $m ) ) {
             return array_values( array_filter( $state, fn ( $row ) => $row['pool'] === $m[1] && $row['page_type'] === $m[2] && $row['target_type'] === $m[3] && (int) $row['target_id'] === (int) $m[4] ) );
@@ -277,6 +278,27 @@ final class KeywordAssignmentRepositoryTest extends TestCase {
         $this->assertSame( 'approved', $wpdb->assignments[ (int) $first['id'] ]['status'] );
     }
 
+    public function test_upsert_create_clear_owner_and_delete_paths(): void {
+        $wpdb = $this->wpdb();
+        $repo = new KeywordAssignmentRepository();
+        $created = $repo->upsert_assignment( $this->payload( 42, [ 'status' => 'approved' ] ) );
+        $this->assertTrue( $created['ok'] );
+        $this->assertSame( 'created', $created['action'] );
+        $this->assertTrue( $repo->set_primary_owner( (int) $created['id'] ) );
+        $this->assertTrue( $repo->clear_primary_owner( (int) $created['id'] ) );
+        $this->assertSame( 0, (int) $wpdb->assignments[ (int) $created['id'] ]['canonical_owner'] );
+        $this->assertTrue( $repo->delete_assignment( (int) $created['id'] ) );
+        $this->assertArrayNotHasKey( (int) $created['id'], $wpdb->assignments );
+    }
+
+    public function test_primary_transaction_ignores_stale_wpdb_error(): void {
+        $wpdb = $this->wpdb();
+        $repo = new KeywordAssignmentRepository();
+        $created = $repo->create_assignment( $this->payload( 42, [ 'status' => 'approved' ] ) );
+        $wpdb->last_error = 'stale error';
+        $this->assertTrue( $repo->set_primary_owner( (int) $created['id'] ) );
+    }
+
     // ── 11. Two active primaries prevented ────────────────────────────────
 
     public function test_two_active_primary_owners_are_prevented(): void {
@@ -288,6 +310,8 @@ final class KeywordAssignmentRepositoryTest extends TestCase {
 
         $this->assertFalse( $second['ok'] );
         $this->assertSame( 'active_primary_owner_already_exists', $second['error'] );
+        $owners = array_filter( $wpdb->assignments, fn ( $row ) => 'primary' === $row['role'] && 1 === (int) $row['canonical_owner'] && in_array( $row['status'], KeywordAssignmentRepository::ACTIVE_STATUSES, true ) );
+        $this->assertCount( 1, $owners, 'Competing primary creations leave exactly one committed owner.' );
     }
 
     // ── 12. Switching primary leaves exactly one canonical owner ──────────
@@ -360,6 +384,55 @@ final class KeywordAssignmentRepositoryTest extends TestCase {
         $found = $repo->find_assignment( 42, [ 'pool' => 'category', 'page_type' => 'tmw_category_page', 'target_type' => 'tmw_category_page', 'target_id' => 501 ] );
         $this->assertNotNull( $found );
         $this->assertSame( 'tmw_category_page:501', $found['target_key'] );
+    }
+
+    public function test_keyed_target_lookup_includes_target_type(): void {
+        $this->wpdb();
+        $repo = new KeywordAssignmentRepository();
+        $repo->create_assignment( $this->payload( 42, [ 'target_type' => 'alpha', 'target_id' => 0, 'target_key' => 'shared-key' ] ) );
+        $repo->create_assignment( $this->payload( 42, [ 'target_type' => 'beta', 'target_id' => 0, 'target_key' => 'shared-key' ] ) );
+
+        $rows = $repo->find_assignments_for_target( 'category', 'tmw_category_page', 'alpha', 0, 'shared-key' );
+        $this->assertCount( 1, $rows );
+        $this->assertSame( 'alpha', $rows[0]['target_type'] );
+    }
+
+    public function test_partial_provenance_upsert_preserves_omitted_mutable_fields(): void {
+        $wpdb = $this->wpdb();
+        $repo = new KeywordAssignmentRepository();
+        $created = $repo->create_assignment( $this->payload( 42, [
+            'status' => 'approved', 'active_in_rank_math' => 1, 'present_in_content' => 1,
+            'last_verified_at' => '2026-07-01 12:00:00', 'conflict_reason' => 'existing-conflict',
+            'approval_reason' => 'existing-approval', 'shared_secondary_allowed' => 1,
+        ] ) );
+        $partial = [
+            'keyword_candidate_id' => 42, 'pool' => 'category', 'page_type' => 'tmw_category_page',
+            'target_type' => 'tmw_category_page', 'target_id' => 501, 'source_batch_id' => 99,
+        ];
+        $this->assertTrue( $repo->upsert_assignment( $partial )['ok'] );
+        $row = $wpdb->assignments[ (int) $created['id'] ];
+        foreach ( [ 'status' => 'approved', 'active_in_rank_math' => 1, 'present_in_content' => 1,
+            'last_verified_at' => '2026-07-01 12:00:00', 'conflict_reason' => 'existing-conflict',
+            'approval_reason' => 'existing-approval', 'shared_secondary_allowed' => 1 ] as $field => $expected ) {
+            $this->assertSame( $expected, is_int( $expected ) ? (int) $row[ $field ] : $row[ $field ], $field );
+        }
+        $this->assertSame( 99, (int) $row['source_batch_id'] );
+    }
+
+    public function test_upsert_cannot_reactivate_stale_canonical_primary_beside_owner(): void {
+        $wpdb = $this->wpdb();
+        $repo = new KeywordAssignmentRepository();
+        $old = $repo->create_assignment( $this->payload( 42, [ 'role' => 'primary', 'canonical_owner' => 1, 'status' => 'approved', 'target_id' => 501 ] ) );
+        $this->assertTrue( $repo->update_assignment_status( (int) $old['id'], 'inactive' ) );
+        $new = $repo->create_assignment( $this->payload( 42, [ 'role' => 'primary', 'canonical_owner' => 1, 'status' => 'approved', 'target_id' => 502 ] ) );
+        $this->assertTrue( $new['ok'] );
+
+        $result = $repo->upsert_assignment( $this->payload( 42, [ 'status' => 'approved', 'target_id' => 501 ] ) );
+        $this->assertFalse( $result['ok'] );
+        $this->assertSame( 'active_primary_owner_already_exists', $result['error'] );
+        $owners = array_filter( $wpdb->assignments, fn ( $row ) => 'primary' === $row['role'] && 1 === (int) $row['canonical_owner'] && in_array( $row['status'], KeywordAssignmentRepository::ACTIVE_STATUSES, true ) );
+        $this->assertCount( 1, $owners );
+        $this->assertSame( 'inactive', $wpdb->assignments[ (int) $old['id'] ]['status'] );
     }
 
     // ── 18 & 19. Status updates isolated from candidate and siblings ──────

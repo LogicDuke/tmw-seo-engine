@@ -192,9 +192,11 @@ class KeywordOwnershipReportService {
         $diagnostics['primary_owner_violations'] = (int) $wpdb->get_var(
             "SELECT COUNT(*) FROM (SELECT keyword_candidate_id FROM {$table} WHERE canonical_owner = 1 AND role = 'primary' AND status IN ('approved','review_required') GROUP BY keyword_candidate_id HAVING COUNT(*) > 1) owner_violations"
         );
-        $diagnostics['orphan_assignments'] = (int) $wpdb->get_var(
-            "SELECT COUNT(*) FROM {$table} assignments LEFT JOIN {$this->candidates_table()} candidates ON candidates.id = assignments.keyword_candidate_id WHERE candidates.id IS NULL"
-        );
+        if ( $this->table_exists( $this->candidates_table() ) ) {
+            $diagnostics['orphan_assignments'] = (int) $wpdb->get_var(
+                "SELECT COUNT(*) FROM {$table} assignments LEFT JOIN {$this->candidates_table()} candidates ON candidates.id = assignments.keyword_candidate_id WHERE candidates.id IS NULL"
+            );
+        }
         $diagnostics['duplicate_assignment_identities'] = (int) $wpdb->get_var(
             "SELECT COUNT(*) FROM (SELECT assignment_key FROM {$table} GROUP BY assignment_key HAVING COUNT(*) > 1) duplicate_identities"
         );

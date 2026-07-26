@@ -202,9 +202,10 @@ class KeywordAssignmentRepository {
         $target_type = $this->sanitize_key_value( $target_type, 50 );
         if ( '' !== trim( $target_key ) ) {
             $rows = $wpdb->get_results( $wpdb->prepare(
-                'SELECT * FROM ' . $this->table() . ' WHERE pool = %s AND page_type = %s AND target_key = %s ORDER BY id ASC',
+                'SELECT * FROM ' . $this->table() . ' WHERE pool = %s AND page_type = %s AND target_type = %s AND target_key = %s ORDER BY id ASC',
                 $pool,
                 $page_type,
+                $target_type,
                 substr( trim( $target_key ), 0, 191 )
             ), ARRAY_A );
         } else {
@@ -295,12 +296,8 @@ class KeywordAssignmentRepository {
         if ( isset( $normalized['error'] ) ) {
             return [ 'ok' => false, 'error' => (string) $normalized['error'] ];
         }
-        // Creating a NEW active primary while another active primary exists
-        // must go through set_primary_owner() instead; fail closed here.
-        if ( 'primary' === $normalized['role']
-            && in_array( $normalized['status'], self::ACTIVE_STATUSES, true )
-            && null !== $this->find_primary_owner( (int) $normalized['keyword_candidate_id'] ) ) {
-            return [ 'ok' => false, 'error' => 'active_primary_owner_already_exists' ];
+        if ( $this->is_active_canonical_primary( $normalized ) ) {
+            return $this->create_active_primary_atomically( $normalized );
         }
         global $wpdb;
         $existing = $wpdb->get_var( $wpdb->prepare(
@@ -336,35 +333,45 @@ class KeywordAssignmentRepository {
             return [ 'ok' => false, 'error' => (string) $normalized['error'] ];
         }
         global $wpdb;
-        $existing_id = (int) $wpdb->get_var( $wpdb->prepare(
-            'SELECT id FROM ' . $this->table() . ' WHERE assignment_key = %s LIMIT 1',
+        $existing = $wpdb->get_row( $wpdb->prepare(
+            'SELECT * FROM ' . $this->table() . ' WHERE assignment_key = %s LIMIT 1',
             $normalized['assignment_key']
-        ) );
-        if ( $existing_id <= 0 ) {
+        ), ARRAY_A );
+        if ( ! is_array( $existing ) ) {
             $created = $this->create_assignment( $data );
             if ( ! empty( $created['ok'] ) ) {
                 return [ 'ok' => true, 'id' => (int) $created['id'], 'action' => 'created' ];
             }
             return $created;
         }
-        // Canonical/primary promotion must go through set_primary_owner();
-        // an upsert never silently flips ownership.
-        $mutable = [
-            'target_name'              => $normalized['target_name'],
-            'target_slug'              => $normalized['target_slug'],
-            'status'                   => $normalized['status'],
-            'shared_secondary_allowed' => $normalized['shared_secondary_allowed'],
-            'conflict_reason'          => $normalized['conflict_reason'],
-            'approval_reason'          => $normalized['approval_reason'],
-            'source_batch_id'          => $normalized['source_batch_id'],
-            'source_import_row_id'     => $normalized['source_import_row_id'],
-            'source_type'              => $normalized['source_type'],
-            'source_reference'         => $normalized['source_reference'],
-            'active_in_rank_math'      => $normalized['active_in_rank_math'],
-            'present_in_content'       => $normalized['present_in_content'],
-            'last_verified_at'         => $normalized['last_verified_at'],
-            'updated_at'               => $this->now(),
-        ];
+        $existing_id = (int) ( $existing['id'] ?? 0 );
+        if ( $existing_id <= 0 ) {
+            return [ 'ok' => false, 'error' => 'existing_assignment_ambiguous' ];
+        }
+
+        // Only fields explicitly supplied by the caller are mutable. Identity
+        // and stored ownership fields are always preserved.
+        $mutable = [];
+        foreach ( [
+            'target_name', 'target_slug', 'status', 'shared_secondary_allowed',
+            'conflict_reason', 'approval_reason', 'source_batch_id',
+            'source_import_row_id', 'source_type', 'source_reference',
+            'active_in_rank_math', 'present_in_content', 'last_verified_at',
+        ] as $field ) {
+            if ( array_key_exists( $field, $data ) ) {
+                $mutable[ $field ] = $normalized[ $field ];
+            }
+        }
+        $resulting = array_merge( $existing, $mutable );
+        if ( 1 === (int) ( $resulting['active_in_rank_math'] ?? 0 )
+            && ( 'excluded' === (string) ( $resulting['role'] ?? '' )
+                || in_array( (string) ( $resulting['status'] ?? '' ), self::RANK_MATH_FORBIDDEN_STATUSES, true ) ) ) {
+            return [ 'ok' => false, 'error' => 'rank_math_activation_forbidden_for_role_or_status', 'id' => $existing_id ];
+        }
+        $mutable['updated_at'] = $this->now();
+        if ( ! $this->is_active_canonical_primary( $existing ) && $this->is_active_canonical_primary( $resulting ) ) {
+            return $this->update_activating_primary_atomically( $existing_id, (int) $existing['keyword_candidate_id'], $mutable );
+        }
         $updated = $wpdb->update( $this->table(), $mutable, [ 'id' => $existing_id ] );
         if ( false === $updated ) {
             return [ 'ok' => false, 'error' => 'update_failed', 'id' => $existing_id ];
@@ -390,6 +397,17 @@ class KeywordAssignmentRepository {
         if ( in_array( $status, self::RANK_MATH_FORBIDDEN_STATUSES, true ) ) {
             $data['active_in_rank_math'] = 0;
         }
+        $existing = $this->find_by_id( $assignment_id );
+        if ( ! is_array( $existing ) ) { return false; }
+        if ( ! $this->is_active_canonical_primary( $existing )
+            && $this->is_active_canonical_primary( array_merge( $existing, $data ) ) ) {
+            $result = $this->update_activating_primary_atomically(
+                $assignment_id,
+                (int) ( $existing['keyword_candidate_id'] ?? 0 ),
+                $data
+            );
+            return ! empty( $result['ok'] );
+        }
         global $wpdb;
         $updated = $wpdb->update( $this->table(), $data, [ 'id' => $assignment_id ] );
         if ( false === $updated ) { return false; }
@@ -410,6 +428,7 @@ class KeywordAssignmentRepository {
         global $wpdb;
         $table = $this->table();
 
+        $wpdb->last_error = '';
         if ( false === $wpdb->query( 'START TRANSACTION' ) || '' !== (string) $wpdb->last_error ) {
             $this->log( 'set_primary_owner: transaction start failed id=' . $assignment_id );
             return false;
@@ -514,6 +533,90 @@ class KeywordAssignmentRepository {
     }
 
     // ── Helpers ───────────────────────────────────────────────────────────
+
+    /** @param array<string,mixed> $row */
+    private function is_active_canonical_primary( array $row ): bool {
+        return 'primary' === (string) ( $row['role'] ?? '' )
+            && 1 === (int) ( $row['canonical_owner'] ?? 0 )
+            && in_array( (string) ( $row['status'] ?? '' ), self::ACTIVE_STATUSES, true );
+    }
+
+    /** @param array<string,mixed> $normalized @return array{ok:bool,id?:int,error?:string} */
+    private function create_active_primary_atomically( array $normalized ): array {
+        global $wpdb;
+        $table = $this->table();
+        $candidate_id = (int) $normalized['keyword_candidate_id'];
+        $wpdb->last_error = '';
+        if ( false === $wpdb->query( 'START TRANSACTION' ) || '' !== (string) $wpdb->last_error ) {
+            return [ 'ok' => false, 'error' => 'transaction_start_failed' ];
+        }
+        $wpdb->last_error = '';
+        $locked = $wpdb->get_results( $wpdb->prepare( "SELECT id FROM {$table} WHERE keyword_candidate_id = %d FOR UPDATE", $candidate_id ), ARRAY_A );
+        if ( ! is_array( $locked ) || '' !== (string) $wpdb->last_error ) {
+            $wpdb->query( 'ROLLBACK' );
+            return [ 'ok' => false, 'error' => 'candidate_lock_failed' ];
+        }
+        $existing = (int) $wpdb->get_var( $wpdb->prepare( "SELECT id FROM {$table} WHERE assignment_key = %s LIMIT 1", $normalized['assignment_key'] ) );
+        if ( $existing > 0 ) {
+            $wpdb->query( 'ROLLBACK' );
+            return [ 'ok' => false, 'error' => 'assignment_identity_exists', 'id' => $existing ];
+        }
+        if ( 0 !== $this->active_owner_count( $candidate_id ) ) {
+            $wpdb->query( 'ROLLBACK' );
+            return [ 'ok' => false, 'error' => 'active_primary_owner_already_exists' ];
+        }
+        $normalized['created_at'] = $this->now();
+        $normalized['updated_at'] = $this->now();
+        if ( false === $wpdb->insert( $table, $this->to_row( $normalized ) ) ) {
+            $wpdb->query( 'ROLLBACK' );
+            return [ 'ok' => false, 'error' => 'insert_failed' ];
+        }
+        $id = (int) $wpdb->insert_id;
+        if ( 1 !== $this->active_owner_count( $candidate_id ) || false === $wpdb->query( 'COMMIT' ) ) {
+            $wpdb->query( 'ROLLBACK' );
+            return [ 'ok' => false, 'error' => 'primary_owner_verification_failed' ];
+        }
+        $this->log( sprintf( 'created assignment id=%d candidate=%d key=%s role=primary status=%s', $id, $candidate_id, (string) $normalized['target_key'], (string) $normalized['status'] ) );
+        return [ 'ok' => true, 'id' => $id ];
+    }
+
+    /** @param array<string,mixed> $mutable @return array{ok:bool,id:int,action?:string,error?:string} */
+    private function update_activating_primary_atomically( int $assignment_id, int $candidate_id, array $mutable ): array {
+        global $wpdb;
+        $table = $this->table();
+        $wpdb->last_error = '';
+        if ( false === $wpdb->query( 'START TRANSACTION' ) || '' !== (string) $wpdb->last_error ) {
+            return [ 'ok' => false, 'error' => 'transaction_start_failed', 'id' => $assignment_id ];
+        }
+        $wpdb->last_error = '';
+        $locked = $wpdb->get_results( $wpdb->prepare( "SELECT id FROM {$table} WHERE keyword_candidate_id = %d FOR UPDATE", $candidate_id ), ARRAY_A );
+        if ( ! is_array( $locked ) || '' !== (string) $wpdb->last_error ) {
+            $wpdb->query( 'ROLLBACK' );
+            return [ 'ok' => false, 'error' => 'candidate_lock_failed', 'id' => $assignment_id ];
+        }
+        if ( 0 !== $this->active_owner_count( $candidate_id ) ) {
+            $wpdb->query( 'ROLLBACK' );
+            return [ 'ok' => false, 'error' => 'active_primary_owner_already_exists', 'id' => $assignment_id ];
+        }
+        if ( false === $wpdb->update( $table, $mutable, [ 'id' => $assignment_id ] ) || 1 !== $this->active_owner_count( $candidate_id ) ) {
+            $wpdb->query( 'ROLLBACK' );
+            return [ 'ok' => false, 'error' => 'primary_owner_verification_failed', 'id' => $assignment_id ];
+        }
+        if ( false === $wpdb->query( 'COMMIT' ) ) {
+            $wpdb->query( 'ROLLBACK' );
+            return [ 'ok' => false, 'error' => 'commit_failed', 'id' => $assignment_id ];
+        }
+        return [ 'ok' => true, 'id' => $assignment_id, 'action' => 'updated' ];
+    }
+
+    private function active_owner_count( int $candidate_id ): int {
+        global $wpdb;
+        return (int) $wpdb->get_var( $wpdb->prepare(
+            "SELECT COUNT(*) FROM {$this->table()} WHERE keyword_candidate_id = %d AND canonical_owner = 1 AND role = 'primary' AND status IN ('approved','review_required')",
+            $candidate_id
+        ) );
+    }
+
 
     /** @param array<string,mixed> $normalized @return array<string,mixed> */
     private function to_row( array $normalized ): array {

@@ -40,6 +40,8 @@ final class KeywordAssignmentSchemaStaticTest extends TestCase {
         }
         $this->original_wpdb = $GLOBALS['wpdb'] ?? null;
         $GLOBALS['_tmw_test_options'] = [];
+        $GLOBALS['_tmw_assignment_dbdelta_calls'] = 0;
+        $this->assertNotSame( '', self::$guard_source, 'Guard source extraction failed.' );
     }
 
     protected function tearDown(): void {
@@ -55,7 +57,7 @@ final class KeywordAssignmentSchemaStaticTest extends TestCase {
         $this->assertSame( substr_count( $ddl, '(' ), substr_count( $ddl, ')' ), 'Balanced parentheses.' );
         $this->assertStringContainsString( 'PRIMARY KEY (id)', $ddl );
         $this->assertStringContainsString( 'UNIQUE KEY assignment_key (assignment_key)', $ddl );
-        $this->assertStringContainsString( ') DEFAULT CHARACTER SET utf8mb4', $ddl );
+        $this->assertStringContainsString( ') ENGINE=InnoDB DEFAULT CHARACTER SET utf8mb4', $ddl );
         // No Postgres-style partial unique index and no generated columns
         // (both unsupported by dbDelta / older MariaDB).
         $this->assertStringNotContainsString( 'WHERE', $ddl );
@@ -129,10 +131,33 @@ final class KeywordAssignmentSchemaStaticTest extends TestCase {
         $this->assertSame( 1, $GLOBALS['_tmw_assignment_dbdelta_calls'], 'Second run early-returns without dbDelta.' );
     }
 
+    public function test_runtime_guard_converts_existing_myisam_table(): void {
+        $wpdb = new AssignmentSchemaGuardWpdb();
+        $wpdb->assignments_table_exists = true;
+        $wpdb->assignments_engine = 'MyISAM';
+        $GLOBALS['wpdb'] = $wpdb;
+
+        $this->assertTrue( \TMWSEO\Engine\Schema::ensure_keyword_assignments_schema() );
+        $this->assertSame( 'InnoDB', $wpdb->assignments_engine );
+        $this->assertSame( 1, (int) get_option( 'tmw_keyword_assignments_schema_version', 0 ) );
+    }
+
+    public function test_failed_engine_conversion_does_not_mark_schema_ready(): void {
+        $wpdb = new AssignmentSchemaGuardWpdb();
+        $wpdb->assignments_table_exists = true;
+        $wpdb->assignments_engine = 'MyISAM';
+        $wpdb->fail_engine_conversion = true;
+        $GLOBALS['wpdb'] = $wpdb;
+
+        $this->assertFalse( \TMWSEO\Engine\Schema::ensure_keyword_assignments_schema() );
+        $this->assertSame( 0, (int) get_option( 'tmw_keyword_assignments_schema_version', 0 ) );
+        $this->assertSame( 'MyISAM', $wpdb->assignments_engine );
+    }
+
     // ── 5. No destructive statements in the new schema code ───────────────
 
     public function test_new_schema_code_contains_no_destructive_statements(): void {
-        foreach ( [ 'DROP TABLE', 'DROP COLUMN', 'TRUNCATE', 'DELETE FROM', 'ALTER TABLE' ] as $destructive ) {
+        foreach ( [ 'DROP TABLE', 'DROP COLUMN', 'TRUNCATE', 'DELETE FROM' ] as $destructive ) {
             $this->assertStringNotContainsString( $destructive, self::$guard_source, 'Destructive statement in new schema code: ' . $destructive );
             $this->assertStringNotContainsString( $destructive, self::$ddl );
         }
@@ -243,6 +268,9 @@ final class AssignmentSchemaGuardWpdb {
     public string $prefix = 'wp_';
     public bool $assignments_table_exists = false;
     public bool $candidates_table_exists = true;
+    public string $assignments_engine = 'InnoDB';
+    public bool $fail_engine_conversion = false;
+    public string $last_error = '';
     /** @var array<int,string> */
     public array $mutations = [];
     /** @var array<int,string> */
@@ -273,10 +301,20 @@ final class AssignmentSchemaGuardWpdb {
         }
         return null;
     }
-    public function get_row( string $sql, string $output = 'OBJECT' ) { return null; }
+    public function get_row( string $sql, string $output = 'OBJECT' ) {
+        if ( false !== stripos( $sql, 'SHOW TABLE STATUS LIKE' ) && $this->assignments_table_exists ) {
+            return [ 'Engine' => $this->assignments_engine ];
+        }
+        return null;
+    }
     public function get_results( string $sql, string $output = 'OBJECT' ): array { return []; }
     public function get_col( string $sql ): array { return []; }
     public function query( string $sql ) {
+        if ( false !== stripos( $sql, 'ALTER TABLE `wp_tmw_keyword_assignments` ENGINE=InnoDB' ) ) {
+            if ( $this->fail_engine_conversion ) { $this->last_error = 'conversion failed'; return false; }
+            $this->assignments_engine = 'InnoDB';
+            return 1;
+        }
         if ( preg_match( '/^(INSERT|UPDATE|DELETE|REPLACE|TRUNCATE|DROP)/i', trim( $sql ) ) ) {
             $this->mutations[] = $sql;
         }
