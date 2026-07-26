@@ -1223,6 +1223,240 @@ class TMWSEOCommand extends \WP_CLI_Command {
         return null;
     }
 
+    // ── Keyword ownership report (PR-A, read-only) ─────────────────────────
+
+    /**
+     * Read-only global keyword ownership report.
+     *
+     * For every keyword candidate across all pools, targets, and page types,
+     * reports identity, ownership, import-row lineage, shared candidate_ids,
+     * Rank Math presence, content presence, staleness, duplicates, cross-pool
+     * collisions, and the parallel ownership registries. Performs SELECT/SHOW
+     * queries only — never mutates data. Debug tag: [TMW-KW-OWNERSHIP-REPORT].
+     *
+     * Summary totals always reflect the FULL dataset; filters affect only the
+     * rows printed above the summary.
+     *
+     * ## OPTIONS
+     *
+     * [--format=<format>]
+     * : Output format: table, csv, or json. Default: table. Table shows a
+     * curated column subset; csv/json carry all fields.
+     *
+     * [--keyword=<phrase>]
+     * : Only the candidate whose normalized form equals this phrase.
+     *
+     * [--candidate-id=<id>]
+     * : Only this candidate row.
+     *
+     * [--target-id=<id>]
+     * : Only keywords referencing this target/page ID anywhere.
+     *
+     * [--pool=<pool>]
+     * : Only keywords touching this pool: category, model, or video.
+     *
+     * [--conflicts-only]
+     * : Only rows with a different-target block, cross-pool collision, or
+     * candidate_id shared across targets.
+     *
+     * [--shared-candidate-ids-only]
+     * : Only rows whose candidate_id is referenced by multiple batches or targets.
+     *
+     * [--approved-unused-only]
+     * : Only approved keywords absent from Rank Math and content everywhere.
+     *
+     * [--rankmath-unsupported-only]
+     * : Only keywords active in Rank Math on a page but absent from that
+     * page's content.
+     *
+     * [--duplicates-only]
+     * : Only duplicate import rows (same/cross batch) or near-duplicate clusters.
+     *
+     * [--output=<path>]
+     * : Stream csv/json rows to this file (directory must exist; .php refused).
+     * The summary still prints to STDOUT.
+     *
+     * ## EXAMPLES
+     *
+     *     wp tmwseo keyword-ownership-report
+     *     wp tmwseo keyword-ownership-report --format=json --output=/tmp/kw-ownership.json
+     *     wp tmwseo keyword-ownership-report --keyword="example phrase"
+     *     wp tmwseo keyword-ownership-report --pool=category --conflicts-only
+     *     wp tmwseo keyword-ownership-report --shared-candidate-ids-only --format=csv --output=/tmp/shared.csv
+     *     wp tmwseo keyword-ownership-report --approved-unused-only
+     *     wp tmwseo keyword-ownership-report --rankmath-unsupported-only
+     *     wp tmwseo keyword-ownership-report --duplicates-only --target-id=456
+     *     wp tmwseo keyword-ownership-report --candidate-id=123 --format=json
+     *
+     * @subcommand keyword-ownership-report
+     */
+    public function keyword_ownership_report( $args, $assoc ) {
+        if ( ! class_exists( '\TMWSEO\Engine\Keywords\KeywordOwnershipReportService' ) ) {
+            require_once dirname( __DIR__ ) . '/keywords/class-keyword-ownership-report-service.php';
+        }
+
+        $format = isset( $assoc['format'] ) && in_array( $assoc['format'], [ 'table', 'csv', 'json' ], true )
+            ? (string) $assoc['format']
+            : 'table';
+
+        $filters = [
+            'keyword'                   => (string) ( $assoc['keyword'] ?? '' ),
+            'candidate_id'              => (int) ( $assoc['candidate-id'] ?? 0 ),
+            'target_id'                 => (int) ( $assoc['target-id'] ?? 0 ),
+            'pool'                      => (string) ( $assoc['pool'] ?? '' ),
+            'conflicts_only'            => isset( $assoc['conflicts-only'] ),
+            'shared_candidate_ids_only' => isset( $assoc['shared-candidate-ids-only'] ),
+            'approved_unused_only'      => isset( $assoc['approved-unused-only'] ),
+            'rankmath_unsupported_only' => isset( $assoc['rankmath-unsupported-only'] ),
+            'duplicates_only'           => isset( $assoc['duplicates-only'] ),
+        ];
+        if ( '' !== $filters['pool'] && ! in_array( $filters['pool'], [ 'category', 'model', 'video' ], true ) ) {
+            \WP_CLI::error( '[TMW-KW-OWNERSHIP-REPORT] --pool must be one of: category, model, video.' );
+        }
+
+        $handle = null;
+        $output = (string) ( $assoc['output'] ?? '' );
+        if ( '' !== $output ) {
+            if ( 'table' === $format ) {
+                \WP_CLI::error( '[TMW-KW-OWNERSHIP-REPORT] --output requires --format=csv or --format=json.' );
+            }
+            if ( 'php' === strtolower( (string) pathinfo( $output, PATHINFO_EXTENSION ) ) ) {
+                \WP_CLI::error( '[TMW-KW-OWNERSHIP-REPORT] --output refuses .php paths.' );
+            }
+            $dir = dirname( $output );
+            if ( ! is_dir( $dir ) || ! is_writable( $dir ) ) {
+                \WP_CLI::error( '[TMW-KW-OWNERSHIP-REPORT] --output directory does not exist or is not writable: ' . $dir );
+            }
+            $handle = fopen( $output, 'w' );
+            if ( false === $handle ) {
+                \WP_CLI::error( '[TMW-KW-OWNERSHIP-REPORT] Unable to open --output file for writing: ' . $output );
+            }
+        } elseif ( 'table' !== $format ) {
+            $handle = fopen( 'php://output', 'w' );
+        }
+
+        $service       = new \TMWSEO\Engine\Keywords\KeywordOwnershipReportService();
+        $table_columns = [ 'candidate_id', 'keyword', 'status', 'intent_type', 'owner_target', 'targets', 'flags', 'resolution_state' ];
+        $csv_header    = null;
+        $json_first    = true;
+        $printed       = 0;
+
+        if ( 'json' === $format ) { fwrite( $handle, '[' ); }
+        if ( 'table' === $format ) {
+            \WP_CLI::log( implode( "\t", $table_columns ) );
+        }
+
+        foreach ( $service->run( $filters ) as $row ) {
+            $printed++;
+            if ( 'json' === $format ) {
+                fwrite( $handle, ( $json_first ? '' : ',' ) . "\n" . wp_json_encode( $row ) );
+                $json_first = false;
+                continue;
+            }
+            if ( 'csv' === $format ) {
+                $flat = $this->flatten_ownership_row( $row );
+                if ( null === $csv_header ) {
+                    $csv_header = array_keys( $flat );
+                    fputcsv( $handle, $csv_header );
+                }
+                fputcsv( $handle, array_values( $flat ) );
+                continue;
+            }
+            \WP_CLI::log( implode( "\t", [
+                (string) $row['candidate_id'],
+                (string) $row['keyword'],
+                (string) $row['status'],
+                (string) $row['intent_type'],
+                trim( (string) $row['target_type'] . ':' . (string) $row['target_id'] . ' ' . (string) $row['target_name'] ),
+                (string) count( (array) $row['distinct_targets'] ),
+                $this->ownership_row_flags( $row ),
+                (string) $row['resolution_state'],
+            ] ) );
+        }
+
+        if ( 'json' === $format ) { fwrite( $handle, "\n]\n" ); }
+        if ( null !== $handle ) { fclose( $handle ); }
+
+        $summary = $service->summary();
+        \WP_CLI::log( '[TMW-KW-OWNERSHIP-REPORT] SUMMARY (full dataset; filters affect rows above only)' );
+        foreach ( [
+            'total_candidate_identities',
+            'approved_candidates',
+            'candidates_referenced_by_multiple_targets',
+            'shared_candidate_ids_across_batches',
+            'approved_but_unused',
+            'rankmath_active_content_missing',
+            'blocked_due_to_different_target',
+            'cross_pool_conflicts',
+            'duplicate_import_rows_same_batch',
+            'duplicate_import_rows_cross_batch',
+            'near_duplicate_clusters',
+            'stale_owners',
+            'optional_tables_missing',
+        ] as $key ) {
+            \WP_CLI::log( '  ' . $key . ': ' . (string) ( $summary[ $key ] ?? 0 ) );
+        }
+        if ( '' !== $output ) {
+            \WP_CLI::log( '[TMW-KW-OWNERSHIP-REPORT] Rows written to ' . $output . ': ' . $printed );
+        }
+        \WP_CLI::success( '[TMW-KW-OWNERSHIP-REPORT] Report complete. Rows emitted: ' . $printed );
+    }
+
+    /**
+     * Flatten one report row for CSV output (nested arrays serialized compactly).
+     *
+     * @param array<string,mixed> $row
+     * @return array<string,string>
+     */
+    private function flatten_ownership_row( array $row ): array {
+        $flat = [];
+        foreach ( $row as $key => $value ) {
+            if ( 'import_rows' === $key ) {
+                $cells = [];
+                foreach ( (array) $value as $import_row ) {
+                    $cells[] = sprintf(
+                        'batch#%d[%s->%s]:%s/%s/%s(%s)',
+                        (int) ( $import_row['batch_id'] ?? 0 ),
+                        (string) ( $import_row['pool'] ?? '' ),
+                        (string) ( $import_row['batch_target_name'] ?? '' ),
+                        (string) ( $import_row['row_status'] ?? '' ),
+                        (string) ( $import_row['result_action'] ?? '' ),
+                        (string) ( $import_row['result_reason'] ?? '' ),
+                        (string) ( $import_row['match'] ?? '' )
+                    );
+                }
+                $flat[ $key ] = implode( '; ', $cells );
+                continue;
+            }
+            if ( is_array( $value ) ) {
+                $flat[ $key ] = (string) wp_json_encode( $value );
+                continue;
+            }
+            $flat[ $key ] = is_bool( $value ) ? ( $value ? '1' : '0' ) : (string) $value;
+        }
+        return $flat;
+    }
+
+    /** @param array<string,mixed> $row */
+    private function ownership_row_flags( array $row ): string {
+        $flags = [];
+        foreach ( [
+            'candidate_id_shared_across_batches' => 'shared_batches',
+            'candidate_id_shared_across_targets' => 'shared_targets',
+            'active_but_unsupported'             => 'rm_unsupported',
+            'approved_but_unused'                => 'approved_unused',
+            'stale_owner'                        => 'stale',
+            'blocked_different_target_history'   => 'blocked_target',
+            'cross_pool_collision'               => 'cross_pool',
+            'duplicate_rows_same_batch'          => 'dup_batch',
+            'duplicate_rows_cross_batch'         => 'dup_cross',
+        ] as $key => $label ) {
+            if ( ! empty( $row[ $key ] ) ) { $flags[] = $label; }
+        }
+        if ( '' !== (string) ( $row['near_duplicate_cluster_id'] ?? '' ) ) { $flags[] = 'near_dup'; }
+        return [] === $flags ? '-' : implode( ',', $flags );
+    }
+
 }
 
 \WP_CLI::add_command( 'tmwseo', 'TMWSEO\Engine\CLI\TMWSEOCommand' );

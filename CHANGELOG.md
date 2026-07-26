@@ -1,5 +1,16 @@
 # Changelog
 
+## 5.9.20-ownership-diag-v1.0.0 — 2026-07-26
+
+PR-A from the keyword cross-category ownership audit: a strictly read-only global keyword ownership diagnostic. **No approval, rejection, candidate, Rank Math, content, indexing, publishing, migration, cache, or schema behavior changed.**
+
+- **New `KeywordOwnershipReportService`** (`includes/keywords/class-keyword-ownership-report-service.php`): streams, for every keyword candidate across all pools/targets/page types, identity + owner columns, both import-row linkages (`by_candidate_id` and `by_keyword`), distinct targets and page types, cross-batch/cross-target shared `candidate_id` detection, per-page Rank Math role (`primary|extra|absent`) and content presence, `active_but_unsupported` / `approved_but_unused` / `stale_owner` verdicts, blocked-different-target history, cross-pool collisions, same/cross-batch duplicate rows, near-duplicate clusters, and the three parallel registries (post-meta `_tmwseo_keyword`/`_tmwseo_secondary_keywords`, `tmwseo_keyword_usage`, `tmw_cannibalization_flags`). SELECT/SHOW only; optional tables report `table_missing` instead of failing; keyset pagination + per-chunk batch loading (no N+1); bounded page cache. Deliberately logs via `error_log` only, because the plugin `Logs` facility persists to a DB table. Tag: `[TMW-KW-OWNERSHIP-REPORT]`.
+- **New WP-CLI subcommand** `wp tmwseo keyword-ownership-report` (`includes/cli/class-cli.php`): `--format=table|csv|json`, `--keyword`, `--candidate-id`, `--target-id`, `--pool`, `--conflicts-only`, `--shared-candidate-ids-only`, `--approved-unused-only`, `--rankmath-unsupported-only`, `--duplicates-only`, `--output=<path>` (streamed; `.php` refused). Summary totals always cover the full dataset regardless of filters.
+- **Loader**: service registered via `tmwseo_safe_require` (`includes/class-loader.php`).
+- **Tests** (`tests/KeywordOwnershipReportServiceTest.php`, 17 tests / 81 assertions): sharing across batches/targets, cross-pool collisions, duplicates, approved-unused, Rank-Math-active-content-missing, stale owner, filter behavior, near-duplicate clustering, missing-table fail-safe, missing-candidates-table abort, write-safety against a recording `$wpdb` (zero mutating calls) plus a forbidden-write-token source scan, and a guard that no audit example category/keyword names are hardcoded.
+
+Scope note: the optional Command Center admin section was intentionally skipped — a faithful read-only rendering inside the existing tab framework exceeded the ≤80-line budget, and the CLI is the deliverable. PR-B (scoped reject) and the assignment architecture are deliberately NOT included.
+
 ## 5.9.19-content-polish-v1.0.0 — 2026-07-21
 
 Rendering and post-processing polish. **No editorial prose, semantic composition, keyword placement, density, validation, uniqueness, or Rank Math behavior changed.** Ports the four pipeline improvements that shipped in the v5.9.17 content-polish work but were missing from the v5.9.16 main line; the v5.9.18 editorial variant pools are untouched, so regenerated pages are identical in editorial content to v5.9.18 with only rendering and post-processing improved.
