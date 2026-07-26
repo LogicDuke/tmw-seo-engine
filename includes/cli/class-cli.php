@@ -1612,6 +1612,420 @@ class TMWSEOCommand extends \WP_CLI_Command {
         \WP_CLI::success( '[TMW-KW-ASSIGN-MIGRATE] ' . (string) $report['mode'] . ' complete.' );
     }
 
+    // ── Keyword assignment review workflow (PR-E, explicit actions only) ──
+
+    /**
+     * Reviewed, auditable rollout workflow for the keyword-assignment
+     * migration. EVERY action is explicit — there is no default action, no
+     * mutation without an explicit subaction, and execution is dry-run
+     * unless --mode=execute is passed. Tag: [TMW-KW-ASSIGN-REVIEW].
+     *
+     * Candidate rows, Rank Math metadata, page content, and postmeta are
+     * never touched. Assignment writes happen only via
+     * `execute-approved --mode=execute` on explicitly approved records.
+     *
+     * ## OPTIONS
+     *
+     * <action>
+     * : One of: sync, list, approve, reject, defer, reset-to-pending,
+     * export, execute-approved, status.
+     *
+     * [--id=<ids>]
+     * : Comma-separated explicit review record ID(s) for approve, reject,
+     * defer, reset-to-pending, and execute-approved.
+     *
+     * [--review-state=<state>]
+     * : Filter: pending, approved, rejected, or deferred.
+     *
+     * [--execution-state=<state>]
+     * : Filter: not_executed, executed, skipped, failed, or stale.
+     *
+     * [--classification=<classification>]
+     * : Filter by analyzer classification.
+     *
+     * [--candidate-id=<id>]
+     * : Filter by keyword candidate ID.
+     *
+     * [--keyword=<phrase>]
+     * : Filter by normalized keyword.
+     *
+     * [--pool=<pool>]
+     * : Filter by pool.
+     *
+     * [--page-type=<type>]
+     * : Filter by page type.
+     *
+     * [--target-type=<type>]
+     * : Filter by target type.
+     *
+     * [--target-id=<id>]
+     * : Filter by target ID.
+     *
+     * [--target-key=<key>]
+     * : Filter by target key.
+     *
+     * [--role=<role>]
+     * : Filter by planned role.
+     *
+     * [--planned-status=<status>]
+     * : Filter by planned assignment status.
+     *
+     * [--source-type=<type>]
+     * : Filter by source type.
+     *
+     * [--source-batch-id=<id>]
+     * : Filter by source import batch ID.
+     *
+     * [--candidate-status=<status>]
+     * : Filter by candidate status snapshot.
+     *
+     * [--rankmath=<0|1>]
+     * : Filter by active-in-Rank-Math flag.
+     *
+     * [--content=<0|1>]
+     * : Filter by present-in-content flag.
+     *
+     * [--limit=<n>]
+     * : list/export row limit; sync analysis limit (disables stale-missing detection).
+     *
+     * [--offset=<n>]
+     * : list/export row offset.
+     *
+     * [--include-report-only]
+     * : sync only — also record non-writable classifications as report-only
+     * records (never approvable, never executable).
+     *
+     * [--confirm]
+     * : Required for any filtered bulk review mutation.
+     *
+     * [--all-matching]
+     * : Required in addition to --confirm for unbounded filtered mutation.
+     *
+     * [--note=<text>]
+     * : Review note stored with the mutation and audit row.
+     *
+     * [--reviewer=<identity>]
+     * : Reviewer identity for the audit trail (defaults to the WP-CLI user).
+     *
+     * [--mode=<mode>]
+     * : execute-approved only — dry-run (default) or execute.
+     *
+     * [--output=<path>]
+     * : export only — .json or .csv output path; every other extension refused.
+     *
+     * ## EXAMPLES
+     *
+     *     wp tmwseo keyword-assignment-review sync
+     *     wp tmwseo keyword-assignment-review sync --classification=clear_primary_owner
+     *     wp tmwseo keyword-assignment-review list --review-state=pending --limit=50
+     *     wp tmwseo keyword-assignment-review approve --id=12
+     *     wp tmwseo keyword-assignment-review approve --classification=clear_primary_owner --confirm --all-matching
+     *     wp tmwseo keyword-assignment-review reject --id=13 --note="wrong target"
+     *     wp tmwseo keyword-assignment-review export --output=/tmp/review.csv
+     *     wp tmwseo keyword-assignment-review execute-approved
+     *     wp tmwseo keyword-assignment-review execute-approved --mode=execute
+     *     wp tmwseo keyword-assignment-review status
+     *
+     * @subcommand keyword-assignment-review
+     */
+    public function keyword_assignment_review( $args, $assoc ) {
+        $this->require_review_classes();
+
+        $action = (string) ( $args[0] ?? '' );
+        $allowed_actions = [ 'sync', 'list', 'approve', 'reject', 'defer', 'reset-to-pending', 'export', 'execute-approved', 'status' ];
+        if ( ! in_array( $action, $allowed_actions, true ) ) {
+            \WP_CLI::error( '[TMW-KW-ASSIGN-REVIEW] Explicit action required. One of: ' . implode( ', ', $allowed_actions ) . '.' );
+        }
+
+        $repository = new \TMWSEO\Engine\Keywords\KeywordAssignmentReviewRepository();
+        if ( ! $repository->tables_exist() && ! \TMWSEO\Engine\Schema::ensure_keyword_assignment_review_schema() ) {
+            \WP_CLI::error( '[TMW-KW-ASSIGN-REVIEW] Review tables are missing and could not be created.' );
+        }
+        $actor = (string) ( $assoc['reviewer'] ?? '' );
+        if ( '' === $actor ) {
+            $user_id = function_exists( 'get_current_user_id' ) ? (int) get_current_user_id() : 0;
+            $actor = $user_id > 0 ? 'user:' . $user_id : 'cli';
+        }
+        $note = (string) ( $assoc['note'] ?? '' );
+        $source = 'wp tmwseo keyword-assignment-review ' . $action;
+
+        switch ( $action ) {
+            case 'sync':
+                $this->review_action_sync( $assoc, $actor, $source );
+                return;
+            case 'list':
+                $this->review_action_list( $repository, $assoc );
+                return;
+            case 'approve':
+            case 'reject':
+            case 'defer':
+            case 'reset-to-pending':
+                $this->review_action_mutate( $repository, $action, $assoc, $actor, $note, $source );
+                return;
+            case 'export':
+                $this->review_action_export( $repository, $assoc );
+                return;
+            case 'execute-approved':
+                $this->review_action_execute( $assoc, $actor, $source );
+                return;
+            case 'status':
+                $this->review_action_status( $repository );
+                return;
+        }
+    }
+
+    private function require_review_classes(): void {
+        if ( ! class_exists( '\TMWSEO\Engine\Keywords\KeywordAssignmentReviewExecutionService' ) ) {
+            require_once dirname( __DIR__ ) . '/keywords/class-keyword-assignment-repository.php';
+            require_once dirname( __DIR__ ) . '/keywords/class-keyword-assignment-migration-analyzer.php';
+            require_once dirname( __DIR__ ) . '/keywords/class-keyword-assignment-migration-service.php';
+            require_once dirname( __DIR__ ) . '/keywords/class-keyword-assignment-review-repository.php';
+            require_once dirname( __DIR__ ) . '/keywords/class-keyword-assignment-review-sync-service.php';
+            require_once dirname( __DIR__ ) . '/keywords/class-keyword-assignment-review-execution-service.php';
+            require_once dirname( __DIR__ ) . '/keywords/class-keyword-assignment-review-export-service.php';
+        }
+    }
+
+    /**
+     * Generic review filters shared by list, export, and bulk mutation.
+     *
+     * @param array<string,mixed> $assoc
+     * @return array<string,mixed> repository column filters
+     */
+    private function review_filters_from_assoc( array $assoc ): array {
+        $filters = [];
+        $map = [
+            'review-state'     => [ 'review_state', 'string' ],
+            'execution-state'  => [ 'execution_state', 'string' ],
+            'classification'   => [ 'classification', 'string' ],
+            'candidate-id'     => [ 'keyword_candidate_id', 'int' ],
+            'keyword'          => [ 'normalized_keyword', 'string' ],
+            'pool'             => [ 'pool', 'string' ],
+            'page-type'        => [ 'page_type', 'string' ],
+            'target-type'      => [ 'target_type', 'string' ],
+            'target-id'        => [ 'target_id', 'int' ],
+            'target-key'       => [ 'target_key', 'string' ],
+            'role'             => [ 'planned_role', 'string' ],
+            'planned-status'   => [ 'planned_status', 'string' ],
+            'source-type'      => [ 'source_type', 'string' ],
+            'source-batch-id'  => [ 'source_batch_id', 'int' ],
+            'candidate-status' => [ 'candidate_status', 'string' ],
+            'rankmath'         => [ 'active_in_rank_math', 'int' ],
+            'content'          => [ 'present_in_content', 'int' ],
+        ];
+        foreach ( $map as $option => [ $column, $type ] ) {
+            if ( isset( $assoc[ $option ] ) && '' !== (string) $assoc[ $option ] ) {
+                $filters[ $column ] = 'int' === $type ? (int) $assoc[ $option ] : (string) $assoc[ $option ];
+            }
+        }
+        if ( isset( $filters['review_state'] ) && ! in_array( $filters['review_state'], \TMWSEO\Engine\Keywords\KeywordAssignmentReviewRepository::REVIEW_STATES, true ) ) {
+            \WP_CLI::error( '[TMW-KW-ASSIGN-REVIEW] --review-state must be one of: ' . implode( ', ', \TMWSEO\Engine\Keywords\KeywordAssignmentReviewRepository::REVIEW_STATES ) . '.' );
+        }
+        if ( isset( $filters['execution_state'] ) && ! in_array( $filters['execution_state'], \TMWSEO\Engine\Keywords\KeywordAssignmentReviewRepository::EXECUTION_STATES, true ) ) {
+            \WP_CLI::error( '[TMW-KW-ASSIGN-REVIEW] --execution-state must be one of: ' . implode( ', ', \TMWSEO\Engine\Keywords\KeywordAssignmentReviewRepository::EXECUTION_STATES ) . '.' );
+        }
+        return $filters;
+    }
+
+    /** @param array<string,mixed> $assoc @return array<int,int> */
+    private function review_ids_from_assoc( array $assoc ): array {
+        if ( ! isset( $assoc['id'] ) ) { return []; }
+        $ids = array_values( array_filter( array_map( 'intval', array_map( 'trim', explode( ',', (string) $assoc['id'] ) ) ), fn ( $id ) => $id > 0 ) );
+        if ( [] === $ids ) {
+            \WP_CLI::error( '[TMW-KW-ASSIGN-REVIEW] --id contains no valid review record IDs.' );
+        }
+        return $ids;
+    }
+
+    /** @param array<string,mixed> $assoc */
+    private function review_action_sync( array $assoc, string $actor, string $source ): void {
+        $filters = [];
+        foreach ( [ 'keyword' => 'keyword', 'candidate-id' => 'candidate_id', 'target-id' => 'target_id', 'pool' => 'pool', 'limit' => 'limit', 'classification' => 'classification', 'candidate-status' => 'candidate_status', 'source-type' => 'source_type' ] as $option => $key ) {
+            if ( isset( $assoc[ $option ] ) && '' !== (string) $assoc[ $option ] ) {
+                $filters[ $key ] = in_array( $key, [ 'candidate_id', 'target_id', 'limit' ], true ) ? (int) $assoc[ $option ] : (string) $assoc[ $option ];
+            }
+        }
+        foreach ( [ 'rankmath' => 'active_in_rank_math', 'content' => 'present_in_content' ] as $option => $key ) {
+            if ( isset( $assoc[ $option ] ) && '' !== (string) $assoc[ $option ] ) {
+                $filters[ $key ] = (int) $assoc[ $option ];
+            }
+        }
+        $service = new \TMWSEO\Engine\Keywords\KeywordAssignmentReviewSyncService();
+        $report = $service->sync( $filters, isset( $assoc['include-report-only'] ), $actor, $source );
+        \WP_CLI::log( '[TMW-KW-ASSIGN-REVIEW] sync fresh_planned_records=' . (string) $report['fresh_planned_records'] . ' missing_check_ran=' . ( $report['missing_check_ran'] ? 'yes' : 'no' ) );
+        foreach ( (array) $report['counts'] as $bucket => $count ) {
+            \WP_CLI::log( '  ' . $bucket . ': ' . (string) $count );
+        }
+        if ( [] !== (array) $report['failures'] ) {
+            foreach ( (array) $report['failures'] as $failure ) {
+                \WP_CLI::log( '  FAILED candidate=' . (string) $failure['candidate_id'] . ' target=' . (string) $failure['target_key'] . ' error=' . (string) $failure['error'] );
+            }
+            \WP_CLI::error( '[TMW-KW-ASSIGN-REVIEW] sync completed with failures.' );
+        }
+        \WP_CLI::success( '[TMW-KW-ASSIGN-REVIEW] sync complete.' );
+    }
+
+    private function review_action_list( \TMWSEO\Engine\Keywords\KeywordAssignmentReviewRepository $repository, array $assoc ): void {
+        $filters = $this->review_filters_from_assoc( $assoc );
+        $limit = isset( $assoc['limit'] ) ? max( 1, (int) $assoc['limit'] ) : 100;
+        $offset = isset( $assoc['offset'] ) ? max( 0, (int) $assoc['offset'] ) : 0;
+        $total = $repository->count_reviews( $filters );
+        $rows = $repository->list_reviews( $filters, $limit, $offset );
+        \WP_CLI::log( '[TMW-KW-ASSIGN-REVIEW] matched=' . $total . ' showing=' . count( $rows ) . ' offset=' . $offset );
+        foreach ( $rows as $row ) {
+            \WP_CLI::log( sprintf(
+                '  #%d cand=%d "%s" %s %s/%s target=%s role=%s status=%s review=%s exec=%s%s',
+                (int) $row['id'],
+                (int) $row['keyword_candidate_id'],
+                (string) $row['normalized_keyword'],
+                (string) $row['classification'],
+                (string) $row['pool'],
+                (string) $row['page_type'],
+                (string) $row['target_key'],
+                (string) $row['planned_role'],
+                (string) $row['planned_status'],
+                (string) $row['review_state'],
+                (string) $row['execution_state'],
+                ! empty( $row['report_only'] ) ? ' [report-only]' : ''
+            ) );
+        }
+    }
+
+    private function review_action_mutate( \TMWSEO\Engine\Keywords\KeywordAssignmentReviewRepository $repository, string $action, array $assoc, string $actor, string $note, string $source ): void {
+        $state_map = [ 'approve' => 'approved', 'reject' => 'rejected', 'defer' => 'deferred', 'reset-to-pending' => 'pending' ];
+        $new_state = $state_map[ $action ];
+        $ids = $this->review_ids_from_assoc( $assoc );
+
+        if ( [] === $ids ) {
+            // Filtered bulk mutation: explicit confirmation is mandatory, and
+            // an unbounded selection additionally requires --all-matching.
+            $filters = $this->review_filters_from_assoc( $assoc );
+            if ( [] === $filters ) {
+                \WP_CLI::error( '[TMW-KW-ASSIGN-REVIEW] ' . $action . ' requires --id=<ids> or at least one filter.' );
+            }
+            $matched = $repository->count_reviews( $filters );
+            \WP_CLI::log( '[TMW-KW-ASSIGN-REVIEW] ' . $action . ' matches ' . $matched . ' review record(s).' );
+            if ( ! isset( $assoc['confirm'] ) ) {
+                \WP_CLI::error( '[TMW-KW-ASSIGN-REVIEW] Filtered bulk ' . $action . ' requires --confirm. No records were mutated.' );
+            }
+            $limit = isset( $assoc['limit'] ) ? max( 1, (int) $assoc['limit'] ) : 0;
+            if ( 0 === $limit && ! isset( $assoc['all-matching'] ) ) {
+                \WP_CLI::error( '[TMW-KW-ASSIGN-REVIEW] Unbounded filtered ' . $action . ' refused. Add --limit=<n> or the explicit --all-matching safety flag. No records were mutated.' );
+            }
+            $rows = $repository->list_reviews( $filters, $limit, isset( $assoc['offset'] ) ? max( 0, (int) $assoc['offset'] ) : 0 );
+            $ids = array_map( fn ( $row ) => (int) $row['id'], $rows );
+            if ( [] === $ids ) {
+                \WP_CLI::error( '[TMW-KW-ASSIGN-REVIEW] No review records match the given filters.' );
+            }
+        }
+
+        $ok = 0; $unchanged = 0; $failed = 0;
+        foreach ( $ids as $id ) {
+            $result = $repository->transition_review_state( $id, $new_state, $actor, $note, $source );
+            if ( ! empty( $result['ok'] ) ) {
+                'unchanged' === (string) ( $result['outcome'] ?? '' ) ? $unchanged++ : $ok++;
+                continue;
+            }
+            $failed++;
+            \WP_CLI::log( '  #' . $id . ' REFUSED: ' . (string) ( $result['error'] ?? 'unknown_error' ) );
+        }
+        \WP_CLI::log( '[TMW-KW-ASSIGN-REVIEW] ' . $action . ' applied=' . $ok . ' unchanged=' . $unchanged . ' refused=' . $failed );
+        if ( $failed > 0 ) {
+            \WP_CLI::error( '[TMW-KW-ASSIGN-REVIEW] ' . $action . ' completed with refusals; see above.' );
+        }
+        \WP_CLI::success( '[TMW-KW-ASSIGN-REVIEW] ' . $action . ' complete.' );
+    }
+
+    private function review_action_export( \TMWSEO\Engine\Keywords\KeywordAssignmentReviewRepository $repository, array $assoc ): void {
+        $output = (string) ( $assoc['output'] ?? '' );
+        if ( '' === $output ) {
+            \WP_CLI::error( '[TMW-KW-ASSIGN-REVIEW] export requires --output=<path> ending in .json or .csv.' );
+        }
+        $export = new \TMWSEO\Engine\Keywords\KeywordAssignmentReviewExportService();
+        if ( ! $export->is_safe_output_path( $output ) ) {
+            \WP_CLI::error( '[TMW-KW-ASSIGN-REVIEW] --output must end in .json or .csv; other extensions (including .php) are refused.' );
+        }
+        $dir = dirname( $output );
+        if ( ! is_dir( $dir ) || ! is_writable( $dir ) ) {
+            \WP_CLI::error( '[TMW-KW-ASSIGN-REVIEW] --output directory does not exist or is not writable: ' . $dir );
+        }
+        $filters = $this->review_filters_from_assoc( $assoc );
+        $limit = isset( $assoc['limit'] ) ? max( 1, (int) $assoc['limit'] ) : 0;
+        $offset = isset( $assoc['offset'] ) ? max( 0, (int) $assoc['offset'] ) : 0;
+        $rows = $repository->list_reviews( $filters, $limit, $offset );
+        $body = 'csv' === $export->format_for_path( $output ) ? $export->to_csv( $rows ) : $export->to_json( $rows );
+        if ( false === file_put_contents( $output, $body ) ) {
+            \WP_CLI::error( '[TMW-KW-ASSIGN-REVIEW] Unable to write export to ' . $output );
+        }
+        \WP_CLI::success( '[TMW-KW-ASSIGN-REVIEW] Exported ' . count( $rows ) . ' record(s) to ' . $output );
+    }
+
+    private function review_action_execute( array $assoc, string $actor, string $source ): void {
+        $mode = (string) ( $assoc['mode'] ?? 'dry-run' );
+        if ( ! in_array( $mode, [ 'dry-run', 'execute' ], true ) ) {
+            \WP_CLI::error( '[TMW-KW-ASSIGN-REVIEW] --mode must be dry-run or execute.' );
+        }
+        $filters = [];
+        foreach ( [ 'candidate-id' => 'candidate_id', 'target-id' => 'target_id', 'pool' => 'pool', 'keyword' => 'keyword', 'classification' => 'classification' ] as $option => $key ) {
+            if ( isset( $assoc[ $option ] ) && '' !== (string) $assoc[ $option ] ) {
+                $filters[ $key ] = in_array( $key, [ 'candidate_id', 'target_id' ], true ) ? (int) $assoc[ $option ] : (string) $assoc[ $option ];
+            }
+        }
+        if ( isset( $assoc['id'] ) ) {
+            $filters['review_ids'] = $this->review_ids_from_assoc( $assoc );
+        }
+        $service = new \TMWSEO\Engine\Keywords\KeywordAssignmentReviewExecutionService();
+        $report = $service->execute_approved( $filters, 'execute' === $mode, $actor, $source );
+        \WP_CLI::log( '[TMW-KW-ASSIGN-REVIEW] mode=' . (string) $report['mode'] . ' matched=' . (string) $report['selection']['matched'] );
+        foreach ( (array) $report['counts'] as $bucket => $count ) {
+            \WP_CLI::log( '  ' . $bucket . ': ' . (string) $count );
+        }
+        foreach ( (array) $report['results'] as $result ) {
+            \WP_CLI::log( sprintf(
+                '  #%d cand=%d "%s" %s target=%s -> %s%s',
+                (int) $result['review_id'],
+                (int) $result['candidate_id'],
+                (string) $result['normalized_keyword'],
+                (string) $result['classification'],
+                (string) $result['target_key'],
+                (string) $result['outcome'],
+                isset( $result['error'] ) ? ' error=' . (string) $result['error'] : ( isset( $result['reason'] ) ? ' reason=' . (string) $result['reason'] : '' )
+            ) );
+        }
+        if ( (int) $report['counts']['failed'] > 0 ) {
+            \WP_CLI::error( '[TMW-KW-ASSIGN-REVIEW] ' . (string) $report['mode'] . ' completed with ' . (string) $report['counts']['failed'] . ' failure(s).' );
+        }
+        \WP_CLI::success( '[TMW-KW-ASSIGN-REVIEW] ' . (string) $report['mode'] . ' complete.' );
+    }
+
+    private function review_action_status( \TMWSEO\Engine\Keywords\KeywordAssignmentReviewRepository $repository ): void {
+        $total = $repository->count_reviews( [] );
+        \WP_CLI::log( '[TMW-KW-ASSIGN-REVIEW] total review records: ' . $total );
+        foreach ( \TMWSEO\Engine\Keywords\KeywordAssignmentReviewRepository::REVIEW_STATES as $review_state ) {
+            \WP_CLI::log( '  review_state ' . $review_state . ': ' . $repository->count_reviews( [ 'review_state' => $review_state ] ) );
+        }
+        foreach ( \TMWSEO\Engine\Keywords\KeywordAssignmentReviewRepository::EXECUTION_STATES as $execution_state ) {
+            \WP_CLI::log( '  execution_state ' . $execution_state . ': ' . $repository->count_reviews( [ 'execution_state' => $execution_state ] ) );
+        }
+        foreach ( [
+            \TMWSEO\Engine\Keywords\KeywordAssignmentMigrationAnalyzer::C_CLEAR_PRIMARY,
+            \TMWSEO\Engine\Keywords\KeywordAssignmentMigrationAnalyzer::C_SECONDARY,
+            \TMWSEO\Engine\Keywords\KeywordAssignmentMigrationAnalyzer::C_UNUSED_OWNER,
+            \TMWSEO\Engine\Keywords\KeywordAssignmentMigrationAnalyzer::C_MANUAL_REVIEW,
+            \TMWSEO\Engine\Keywords\KeywordAssignmentMigrationAnalyzer::C_STALE_OWNER,
+            \TMWSEO\Engine\Keywords\KeywordAssignmentMigrationAnalyzer::C_CONFLICT,
+            \TMWSEO\Engine\Keywords\KeywordAssignmentMigrationAnalyzer::C_UNRESOLVED,
+            \TMWSEO\Engine\Keywords\KeywordAssignmentMigrationAnalyzer::C_REJECTED_SKIP,
+        ] as $classification ) {
+            $count = $repository->count_reviews( [ 'classification' => $classification ] );
+            if ( $count > 0 ) {
+                \WP_CLI::log( '  classification ' . $classification . ': ' . $count );
+            }
+        }
+        \WP_CLI::log( '  report_only records: ' . $repository->count_reviews( [ 'report_only' => 1 ] ) );
+        \WP_CLI::success( '[TMW-KW-ASSIGN-REVIEW] status complete.' );
+    }
+
 }
 
 \WP_CLI::add_command( 'tmwseo', 'TMWSEO\Engine\CLI\TMWSEOCommand' );

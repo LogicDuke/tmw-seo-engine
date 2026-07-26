@@ -637,6 +637,179 @@ class Schema {
         return is_array($status) && 'innodb' === strtolower((string) ($status['Engine'] ?? ''));
     }
 
+    /**
+     * PR-E — single DDL source for {$prefix}tmw_keyword_assignment_review.
+     *
+     * Persistent migration review state: one row per deterministic planned-
+     * action identity (UNIQUE review_key = sha1 of migration version +
+     * candidate + pool + page_type + target_type + target_id + target_key).
+     * The reviewed snapshot (classification, role, planned status, canonical-
+     * owner flag, source attribution) is pinned by snapshot_hash so execution
+     * can prove the plan did not change after approval. Additive only — no
+     * existing table is touched, no data is read or written, no backfill.
+     * No foreign keys, matching every existing keyword table.
+     */
+    public static function get_keyword_assignment_review_schema_sql(string $table, string $charset_collate): string {
+        return "CREATE TABLE $table (
+            id BIGINT(20) UNSIGNED NOT NULL AUTO_INCREMENT,
+            review_key CHAR(40) NOT NULL,
+            migration_version VARCHAR(30) NOT NULL,
+            keyword_candidate_id BIGINT(20) UNSIGNED NOT NULL,
+            assignment_key CHAR(40) NOT NULL DEFAULT '',
+            normalized_keyword VARCHAR(191) NOT NULL DEFAULT '',
+            classification VARCHAR(40) NOT NULL,
+            candidate_status VARCHAR(30) NOT NULL DEFAULT '',
+            planned_action VARCHAR(20) NOT NULL DEFAULT '',
+            pool VARCHAR(30) NOT NULL,
+            page_type VARCHAR(50) NOT NULL,
+            target_type VARCHAR(50) NOT NULL DEFAULT '',
+            target_id BIGINT(20) UNSIGNED NOT NULL DEFAULT 0,
+            target_key VARCHAR(191) NOT NULL,
+            target_name VARCHAR(255) NULL,
+            planned_role VARCHAR(20) NOT NULL DEFAULT '',
+            planned_status VARCHAR(30) NOT NULL DEFAULT '',
+            planned_canonical_owner TINYINT(1) NOT NULL DEFAULT 0,
+            active_in_rank_math TINYINT(1) NOT NULL DEFAULT 0,
+            present_in_content TINYINT(1) NOT NULL DEFAULT 0,
+            source_type VARCHAR(50) NOT NULL DEFAULT '',
+            source_reference VARCHAR(191) NOT NULL DEFAULT '',
+            source_batch_id BIGINT(20) UNSIGNED NOT NULL DEFAULT 0,
+            source_import_row_id BIGINT(20) UNSIGNED NOT NULL DEFAULT 0,
+            snapshot_hash CHAR(40) NOT NULL,
+            report_only TINYINT(1) NOT NULL DEFAULT 0,
+            review_state VARCHAR(20) NOT NULL DEFAULT 'pending',
+            reviewer VARCHAR(191) NOT NULL DEFAULT '',
+            review_note VARCHAR(500) NOT NULL DEFAULT '',
+            reviewed_at DATETIME NULL,
+            execution_state VARCHAR(20) NOT NULL DEFAULT 'not_executed',
+            executed_at DATETIME NULL,
+            execution_result VARCHAR(500) NOT NULL DEFAULT '',
+            stale_reason VARCHAR(500) NOT NULL DEFAULT '',
+            created_at DATETIME NOT NULL,
+            updated_at DATETIME NOT NULL,
+            PRIMARY KEY (id),
+            UNIQUE KEY review_key (review_key),
+            KEY candidate (keyword_candidate_id),
+            KEY review_exec_state (review_state, execution_state),
+            KEY classification (classification),
+            KEY pool_target (pool, target_type, target_id),
+            KEY target_key (target_key),
+            KEY migration_version (migration_version),
+            KEY source_batch_id (source_batch_id)
+        ) ENGINE=InnoDB $charset_collate;";
+    }
+
+    /**
+     * PR-E — single DDL source for {$prefix}tmw_keyword_assignment_review_audit.
+     *
+     * Append-only audit trail for every review mutation: old/new review and
+     * execution states, actor, note, command source, and the snapshot hash
+     * in force at mutation time. Rows are only ever inserted — no update or
+     * delete path exists anywhere in the plugin.
+     */
+    public static function get_keyword_assignment_review_audit_schema_sql(string $table, string $charset_collate): string {
+        return "CREATE TABLE $table (
+            id BIGINT(20) UNSIGNED NOT NULL AUTO_INCREMENT,
+            review_id BIGINT(20) UNSIGNED NOT NULL,
+            review_key CHAR(40) NOT NULL,
+            action VARCHAR(40) NOT NULL,
+            old_review_state VARCHAR(20) NOT NULL DEFAULT '',
+            new_review_state VARCHAR(20) NOT NULL DEFAULT '',
+            old_execution_state VARCHAR(20) NOT NULL DEFAULT '',
+            new_execution_state VARCHAR(20) NOT NULL DEFAULT '',
+            actor VARCHAR(191) NOT NULL DEFAULT '',
+            note VARCHAR(500) NOT NULL DEFAULT '',
+            source VARCHAR(100) NOT NULL DEFAULT '',
+            snapshot_hash CHAR(40) NOT NULL DEFAULT '',
+            created_at DATETIME NOT NULL,
+            PRIMARY KEY (id),
+            KEY review_id (review_id),
+            KEY review_key (review_key),
+            KEY action (action)
+        ) ENGINE=InnoDB $charset_collate;";
+    }
+
+    /**
+     * PR-E — ensure the review + audit tables exist on upgraded installs.
+     *
+     * Mirrors ensure_keyword_assignments_schema(): WP Pusher and file-drop
+     * updates do not re-run activation hooks, so this runtime guard creates
+     * both tables additively when missing. Safe to run repeatedly: once both
+     * tables exist and the version option is current, it returns without
+     * touching the database beyond the existence checks. Never reads or
+     * writes candidate rows, assignment rows, or review data, and never
+     * imports, approves, or executes anything.
+     */
+    public static function ensure_keyword_assignment_review_schema(): bool {
+        global $wpdb;
+
+        $target_version = 1;
+        $version_option = 'tmw_keyword_assignment_review_schema_version';
+        $review_table = $wpdb->prefix . 'tmw_keyword_assignment_review';
+        $audit_table = $wpdb->prefix . 'tmw_keyword_assignment_review_audit';
+
+        if (empty(self::missing_tables([ $review_table, $audit_table ]))
+            && self::keyword_review_table_is_innodb($review_table)
+            && self::keyword_review_table_is_innodb($audit_table)
+            && (int) get_option($version_option, 0) >= $target_version) {
+            return true;
+        }
+
+        if (!function_exists('dbDelta')) {
+            if (!defined('ABSPATH') || !is_readable(ABSPATH . 'wp-admin/includes/upgrade.php')) {
+                error_log('[TMW-KW-ASSIGN-REVIEW-SCHEMA] dbDelta unavailable; review tables not created.');
+                return false;
+            }
+            require_once ABSPATH . 'wp-admin/includes/upgrade.php';
+        }
+
+        $charset_collate = $wpdb->get_charset_collate();
+        dbDelta(self::get_keyword_assignment_review_schema_sql($review_table, $charset_collate));
+        dbDelta(self::get_keyword_assignment_review_audit_schema_sql($audit_table, $charset_collate));
+        self::clear_table_exists_cache([ $review_table, $audit_table ]);
+
+        if (!empty(self::missing_tables([ $review_table, $audit_table ]))) {
+            error_log('[TMW-KW-ASSIGN-REVIEW-SCHEMA] Review tables missing after dbDelta.');
+            return false;
+        }
+
+        foreach ([ $review_table, $audit_table ] as $table) {
+            if (!self::convert_keyword_review_table_to_innodb($table)) {
+                error_log('[TMW-KW-ASSIGN-REVIEW-SCHEMA] ' . $table . ' is not InnoDB; schema version not advanced.');
+                return false;
+            }
+        }
+
+        update_option($version_option, $target_version, false);
+        error_log('[TMW-KW-ASSIGN-REVIEW-SCHEMA] Keyword assignment review tables verified/created (schema v' . $target_version . ').');
+        return true;
+    }
+
+    private static function convert_keyword_review_table_to_innodb(string $table): bool {
+        global $wpdb;
+        if (self::keyword_review_table_is_innodb($table)) {
+            return true;
+        }
+        $wpdb->last_error = '';
+        if (false === $wpdb->query('ALTER TABLE `' . str_replace('`', '``', $table) . '` ENGINE=InnoDB') || '' !== (string) $wpdb->last_error) {
+            $message = '[TMW-KW-ASSIGN-REVIEW-SCHEMA] InnoDB conversion failed for ' . $table . ': db_error=' . self::safe_db_error((string) $wpdb->last_error);
+            update_option('tmw_keyword_assignment_review_engine_error', $message, false);
+            error_log($message);
+            return false;
+        }
+        $verified = self::keyword_review_table_is_innodb($table);
+        if ($verified) {
+            delete_option('tmw_keyword_assignment_review_engine_error');
+        }
+        return $verified;
+    }
+
+    private static function keyword_review_table_is_innodb(string $table): bool {
+        global $wpdb;
+        $status = $wpdb->get_row($wpdb->prepare('SHOW TABLE STATUS LIKE %s', $wpdb->esc_like($table)), ARRAY_A);
+        return is_array($status) && 'innodb' === strtolower((string) ($status['Engine'] ?? ''));
+    }
+
     private static function safe_sql_hash(string $sql): string {
         return hash('sha256', $sql);
     }
@@ -725,6 +898,8 @@ class Schema {
         $keyword_raw = $wpdb->prefix . 'tmw_keyword_raw';
         $keyword_candidates = $wpdb->prefix . 'tmw_keyword_candidates';
         $keyword_assignments = $wpdb->prefix . 'tmw_keyword_assignments';
+        $keyword_assignment_review = $wpdb->prefix . 'tmw_keyword_assignment_review';
+        $keyword_assignment_review_audit = $wpdb->prefix . 'tmw_keyword_assignment_review_audit';
         $keyword_import_batches = $wpdb->prefix . 'tmw_keyword_import_batches';
         $keyword_import_rows = $wpdb->prefix . 'tmw_keyword_import_rows';
         $keyword_blacklist = $wpdb->prefix . 'tmw_keyword_blacklist';
@@ -1663,6 +1838,8 @@ $sql_legacy_rank = "CREATE TABLE $legacy_rank (
         dbDelta($sql_keyword_candidates);
         // PR-C: keyword assignment layer (additive; identity/assignment separation).
         dbDelta(self::get_keyword_assignments_schema_sql($keyword_assignments, $charset_collate));
+        dbDelta(self::get_keyword_assignment_review_schema_sql($keyword_assignment_review, $charset_collate));
+        dbDelta(self::get_keyword_assignment_review_audit_schema_sql($keyword_assignment_review_audit, $charset_collate));
         dbDelta($sql_keyword_import_batches);
         self::run_keyword_import_rows_dbdelta($sql_keyword_import_rows, $keyword_import_rows);
         dbDelta($sql_keyword_blacklist);

@@ -261,6 +261,8 @@ class Plugin {
             add_action('admin_init', [Schema::class, 'ensure_keyword_import_history_schema']);
             // PR-C: keyword assignments table guard (additive schema only).
             add_action('admin_init', [Schema::class, 'ensure_keyword_assignments_schema']);
+            // PR-E: keyword assignment review tables guard (additive schema only).
+            add_action('admin_init', [Schema::class, 'ensure_keyword_assignment_review_schema']);
         }
         Schema::reconcile_dfseo_scan_ledger_tables();
         Schema::normalize_cluster_schema_version_option();
@@ -410,6 +412,7 @@ class Plugin {
         Schema::ensure_intelligence_schema();
         Schema::ensure_keyword_import_history_schema();
         Schema::ensure_keyword_assignments_schema();
+        Schema::ensure_keyword_assignment_review_schema();
         Schema::reconcile_dfseo_scan_ledger_tables();
         Schema::normalize_cluster_schema_version_option();
         \TMWSEO\Engine\KeywordIntelligence\KeywordDatabase::create_table();
