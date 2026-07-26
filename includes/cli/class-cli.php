@@ -1464,6 +1464,148 @@ class TMWSEOCommand extends \WP_CLI_Command {
         return [] === $flags ? '-' : implode( ',', $flags );
     }
 
+    // ── Keyword assignment migration (PR-D, dry-run default) ──────────────
+
+    /**
+     * Analyze and (explicitly) execute the keyword-assignment migration.
+     *
+     * DEFAULT MODE IS DRY-RUN AND READ-ONLY. Writes to the assignments table
+     * happen only with --mode=execute; rollback deletion only with
+     * --mode=rollback-execute. Candidate rows, Rank Math metadata, content,
+     * and postmeta are never mutated in any mode. Tag: [TMW-KW-ASSIGN-MIGRATE].
+     *
+     * ## OPTIONS
+     *
+     * [--mode=<mode>]
+     * : dry-run (default), execute, rollback-dry-run, or rollback-execute.
+     *
+     * [--source-type=<types>]
+     * : Rollback modes only — comma-separated subset of the migration source
+     * types (migration_candidate, migration_import, migration_postmeta,
+     * migration_combined). Restricts rollback to rows created from those
+     * sources. Invalid or empty values fail; the option is rejected in
+     * dry-run and execute modes.
+     *
+     * [--output=<path>]
+     * : Write the full JSON report to this file (directory must exist; .php refused).
+     *
+     * [--keyword=<phrase>]
+     * : Restrict analysis to one normalized keyword (local testing).
+     *
+     * [--candidate-id=<id>]
+     * : Restrict analysis to one candidate row (local testing).
+     *
+     * [--target-id=<id>]
+     * : Restrict analysis to keywords referencing this target ID (local testing).
+     *
+     * [--pool=<pool>]
+     * : Restrict analysis to one pool: category, model, or video.
+     *
+     * [--limit=<n>]
+     * : Stop after n analyzed keywords (local testing).
+     *
+     * ## EXAMPLES
+     *
+     *     wp tmwseo keyword-assignment-migration
+     *     wp tmwseo keyword-assignment-migration --output=/tmp/kwmig-dry-run.json
+     *     wp tmwseo keyword-assignment-migration --mode=execute --output=/tmp/kwmig-execute.json
+     *     wp tmwseo keyword-assignment-migration --mode=rollback-dry-run
+     *     wp tmwseo keyword-assignment-migration --mode=rollback-dry-run --source-type=migration_import
+     *     wp tmwseo keyword-assignment-migration --mode=rollback-execute --source-type=migration_candidate,migration_import
+     *     wp tmwseo keyword-assignment-migration --mode=rollback-execute
+     *     wp tmwseo keyword-assignment-migration --candidate-id=123 --limit=1
+     *
+     * @subcommand keyword-assignment-migration
+     */
+    public function keyword_assignment_migration( $args, $assoc ) {
+        if ( ! class_exists( '\TMWSEO\Engine\Keywords\KeywordAssignmentMigrationService' ) ) {
+            require_once dirname( __DIR__ ) . '/keywords/class-keyword-assignment-repository.php';
+            require_once dirname( __DIR__ ) . '/keywords/class-keyword-assignment-migration-analyzer.php';
+            require_once dirname( __DIR__ ) . '/keywords/class-keyword-assignment-migration-service.php';
+        }
+
+        $mode = isset( $assoc['mode'] ) ? (string) $assoc['mode'] : 'dry-run';
+        if ( ! in_array( $mode, [ 'dry-run', 'execute', 'rollback-dry-run', 'rollback-execute' ], true ) ) {
+            \WP_CLI::error( '[TMW-KW-ASSIGN-MIGRATE] --mode must be dry-run, execute, rollback-dry-run, or rollback-execute.' );
+        }
+
+        $source_types = [];
+        if ( isset( $assoc['source-type'] ) ) {
+            if ( ! in_array( $mode, [ 'rollback-dry-run', 'rollback-execute' ], true ) ) {
+                \WP_CLI::error( '[TMW-KW-ASSIGN-MIGRATE] --source-type applies only to rollback-dry-run and rollback-execute.' );
+            }
+            $allowed = \TMWSEO\Engine\Keywords\KeywordAssignmentMigrationAnalyzer::MIGRATION_SOURCE_TYPES;
+            $requested = array_values( array_filter( array_map( 'trim', explode( ',', (string) $assoc['source-type'] ) ), 'strlen' ) );
+            if ( [] === $requested ) {
+                \WP_CLI::error( '[TMW-KW-ASSIGN-MIGRATE] --source-type is empty. Allowed: ' . implode( ', ', $allowed ) . '.' );
+            }
+            $invalid = array_values( array_diff( $requested, $allowed ) );
+            if ( [] !== $invalid ) {
+                \WP_CLI::error( '[TMW-KW-ASSIGN-MIGRATE] Invalid --source-type value(s): ' . implode( ', ', $invalid ) . '. Allowed: ' . implode( ', ', $allowed ) . '.' );
+            }
+            $source_types = array_values( array_unique( $requested ) );
+        }
+        $output = (string) ( $assoc['output'] ?? '' );
+        if ( '' !== $output ) {
+            if ( 'php' === strtolower( (string) pathinfo( $output, PATHINFO_EXTENSION ) ) ) {
+                \WP_CLI::error( '[TMW-KW-ASSIGN-MIGRATE] --output refuses .php paths.' );
+            }
+            $dir = dirname( $output );
+            if ( ! is_dir( $dir ) || ! is_writable( $dir ) ) {
+                \WP_CLI::error( '[TMW-KW-ASSIGN-MIGRATE] --output directory does not exist or is not writable: ' . $dir );
+            }
+        }
+        $filters = [];
+        foreach ( [ 'keyword' => 'keyword', 'candidate-id' => 'candidate_id', 'target-id' => 'target_id', 'pool' => 'pool', 'limit' => 'limit' ] as $option => $filter_key ) {
+            if ( isset( $assoc[ $option ] ) && '' !== (string) $assoc[ $option ] ) {
+                $filters[ $filter_key ] = in_array( $filter_key, [ 'candidate_id', 'target_id', 'limit' ], true ) ? (int) $assoc[ $option ] : (string) $assoc[ $option ];
+            }
+        }
+
+        $service = new \TMWSEO\Engine\Keywords\KeywordAssignmentMigrationService();
+        if ( 'dry-run' === $mode ) {
+            $report = $service->analyze( $filters );
+        } elseif ( 'execute' === $mode ) {
+            $report = $service->execute( $filters );
+        } else {
+            $report = $service->rollback( 'rollback-execute' === $mode, $source_types );
+        }
+
+        $json = $service->serialize_report( $report );
+        if ( '' !== $output ) {
+            if ( false === file_put_contents( $output, $json ) ) {
+                \WP_CLI::error( '[TMW-KW-ASSIGN-MIGRATE] Unable to write report to ' . $output );
+            }
+            \WP_CLI::log( '[TMW-KW-ASSIGN-MIGRATE] Report written to ' . $output );
+        }
+
+        \WP_CLI::log( '[TMW-KW-ASSIGN-MIGRATE] mode=' . (string) $report['mode'] );
+        if ( isset( $report['classification_counts'] ) ) {
+            \WP_CLI::log( '  keywords_analyzed: ' . (string) ( $report['normalized_keyword_count'] ?? 0 ) );
+            \WP_CLI::log( '  target_relationships: ' . (string) ( $report['target_relationship_count'] ?? 0 ) );
+            foreach ( (array) $report['classification_counts'] as $classification => $count ) {
+                \WP_CLI::log( '  ' . $classification . ': ' . (string) $count );
+            }
+            foreach ( (array) ( $report['planned'] ?? [] ) as $action => $count ) {
+                \WP_CLI::log( '  planned_' . $action . ': ' . (string) $count );
+            }
+        }
+        if ( isset( $report['execution'] ) && is_array( $report['execution'] ) ) {
+            foreach ( $report['execution'] as $outcome => $count ) {
+                \WP_CLI::log( '  executed_' . $outcome . ': ' . (string) $count );
+            }
+        }
+        if ( isset( $report['would_delete'] ) ) {
+            \WP_CLI::log( '  rollback_rows: ' . (string) count( (array) $report['would_delete'] ) . ' deleted: ' . (string) ( $report['deleted'] ?? 0 ) . ' preserved_manual: ' . (string) ( $report['preserved_manual'] ?? 0 ) );
+        }
+        $errors = (array) ( $report['execution_errors'] ?? ( $report['errors'] ?? [] ) );
+        if ( [] !== $errors ) {
+            \WP_CLI::error( '[TMW-KW-ASSIGN-MIGRATE] Completed with ' . count( $errors ) . ' error(s); see report.', false );
+            exit( 1 );
+        }
+        \WP_CLI::success( '[TMW-KW-ASSIGN-MIGRATE] ' . (string) $report['mode'] . ' complete.' );
+    }
+
 }
 
 \WP_CLI::add_command( 'tmwseo', 'TMWSEO\Engine\CLI\TMWSEOCommand' );

@@ -262,6 +262,29 @@ class KeywordAssignmentRepository {
         return is_array( $row ) ? $row : null;
     }
 
+    /**
+     * PR-D — read rows by source attribution (rollback/diagnostics scope).
+     *
+     * @param array<int,string> $source_types
+     * @param string $source_reference optional exact match (e.g. migration version)
+     * @return array<int,array<string,mixed>>
+     */
+    public function find_assignments_by_source( array $source_types, string $source_reference = '' ): array {
+        $source_types = array_values( array_filter( array_map( 'strval', $source_types ), 'strlen' ) );
+        if ( [] === $source_types || ! $this->table_exists() ) { return []; }
+        global $wpdb;
+        $placeholders = implode( ',', array_fill( 0, count( $source_types ), '%s' ) );
+        $sql  = 'SELECT * FROM ' . $this->table() . " WHERE source_type IN ({$placeholders})";
+        $args = $source_types;
+        if ( '' !== $source_reference ) {
+            $sql   .= ' AND source_reference = %s';
+            $args[] = $source_reference;
+        }
+        $sql .= ' ORDER BY id ASC';
+        $rows = $wpdb->get_results( $wpdb->prepare( $sql, ...$args ), ARRAY_A );
+        return is_array( $rows ) ? $rows : [];
+    }
+
     public function count_assignments_for_candidate( int $candidate_id ): int {
         if ( $candidate_id <= 0 || ! $this->table_exists() ) { return 0; }
         global $wpdb;

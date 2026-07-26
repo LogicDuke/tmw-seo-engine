@@ -214,6 +214,10 @@ final class KeywordAssignmentSchemaStaticTest extends TestCase {
             'includes/class-loader.php',
             'includes/keywords/class-keyword-assignment-repository.php',
             'includes/keywords/class-keyword-ownership-report-service.php',
+            // PR-D: migration infrastructure (dry-run default; no production cutover).
+            'includes/keywords/class-keyword-assignment-migration-analyzer.php',
+            'includes/keywords/class-keyword-assignment-migration-service.php',
+            'includes/cli/class-cli.php',
         ];
         $offenders = [];
         $root = (string) realpath( dirname( __DIR__ ) );
