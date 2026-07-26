@@ -154,7 +154,58 @@ class KeywordOwnershipReportService {
             ? 'none'
             : implode( ',', $this->missing_optional_tables );
         $summary['ran'] = $this->ran;
-        return $summary;
+        // PR-C: read-only assignment-layer diagnostics, appended after the
+        // existing keys so prior output remains byte-compatible.
+        return array_merge( $summary, $this->fetch_assignment_diagnostics() );
+    }
+
+    /**
+     * PR-C — read-only diagnostics for the keyword assignment table.
+     *
+     * SELECT/SHOW only; fails safe to zeros with
+     * assignments_table_present=false when the table does not exist yet.
+     * Never mutates assignments, candidates, or anything else.
+     *
+     * @return array<string,mixed>
+     */
+    protected function fetch_assignment_diagnostics(): array {
+        $diagnostics = [
+            'assignments_table_present'            => 0,
+            'assignment_count'                     => 0,
+            'candidates_with_assignments'          => 0,
+            'candidates_with_multiple_assignments' => 0,
+            'primary_owner_violations'             => 0,
+            'orphan_assignments'                   => 0,
+            'duplicate_assignment_identities'      => 0,
+        ];
+        $table = $this->assignments_table();
+        if ( ! $this->table_exists( $table ) ) {
+            return $diagnostics;
+        }
+        global $wpdb;
+        $diagnostics['assignments_table_present'] = 1;
+        $diagnostics['assignment_count'] = (int) $wpdb->get_var( "SELECT COUNT(*) FROM {$table}" );
+        $diagnostics['candidates_with_assignments'] = (int) $wpdb->get_var( "SELECT COUNT(DISTINCT keyword_candidate_id) FROM {$table}" );
+        $diagnostics['candidates_with_multiple_assignments'] = (int) $wpdb->get_var(
+            "SELECT COUNT(*) FROM (SELECT keyword_candidate_id FROM {$table} GROUP BY keyword_candidate_id HAVING COUNT(*) > 1) grouped_candidates"
+        );
+        $diagnostics['primary_owner_violations'] = (int) $wpdb->get_var(
+            "SELECT COUNT(*) FROM (SELECT keyword_candidate_id FROM {$table} WHERE canonical_owner = 1 AND role = 'primary' AND status IN ('approved','review_required') GROUP BY keyword_candidate_id HAVING COUNT(*) > 1) owner_violations"
+        );
+        if ( $this->table_exists( $this->candidates_table() ) ) {
+            $diagnostics['orphan_assignments'] = (int) $wpdb->get_var(
+                "SELECT COUNT(*) FROM {$table} assignments LEFT JOIN {$this->candidates_table()} candidates ON candidates.id = assignments.keyword_candidate_id WHERE candidates.id IS NULL"
+            );
+        }
+        $diagnostics['duplicate_assignment_identities'] = (int) $wpdb->get_var(
+            "SELECT COUNT(*) FROM (SELECT assignment_key FROM {$table} GROUP BY assignment_key HAVING COUNT(*) > 1) duplicate_identities"
+        );
+        return $diagnostics;
+    }
+
+    protected function assignments_table(): string {
+        global $wpdb;
+        return $wpdb->prefix . 'tmw_keyword_assignments';
     }
 
     /**

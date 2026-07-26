@@ -135,6 +135,7 @@ class Loader {
         tmwseo_safe_require( $p . 'class-keyword-pool-dry-run-service.php' );
         tmwseo_safe_require( $p . 'class-keyword-pool-candidate-repository.php' );
         tmwseo_safe_require( $p . 'class-keyword-ownership-report-service.php' ); // PR-A read-only diagnostics
+        tmwseo_safe_require( $p . 'class-keyword-assignment-repository.php' ); // PR-C assignment layer (no production callers yet)
         tmwseo_safe_require( $p . 'class-keyword-pool-import-batch-repository.php' );
         tmwseo_safe_require( $p . 'class-keyword-pool-import-row-repair-service.php' );
         tmwseo_safe_require( $p . 'class-classified-model-keyword-provider.php' );

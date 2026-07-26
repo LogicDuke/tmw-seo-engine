@@ -1393,6 +1393,13 @@ class TMWSEOCommand extends \WP_CLI_Command {
             'near_duplicate_clusters',
             'stale_owners',
             'optional_tables_missing',
+            'assignments_table_present',
+            'assignment_count',
+            'candidates_with_assignments',
+            'candidates_with_multiple_assignments',
+            'primary_owner_violations',
+            'orphan_assignments',
+            'duplicate_assignment_identities',
         ] as $key ) {
             \WP_CLI::log( '  ' . $key . ': ' . (string) ( $summary[ $key ] ?? 0 ) );
         }

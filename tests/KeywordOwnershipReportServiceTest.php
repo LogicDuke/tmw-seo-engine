@@ -214,6 +214,22 @@ final class KeywordOwnershipReportServiceTest extends TestCase {
         return iterator_to_array( $service->run( $filters ), false );
     }
 
+    public function test_assignment_diagnostics_skip_orphan_join_when_candidates_table_missing(): void {
+        $wpdb = new KeywordOwnershipReportRecordingWpdb();
+        $GLOBALS['wpdb'] = $wpdb;
+        $service = new KeywordOwnershipReportServiceTestable();
+        $service->fixture_existing_tables = [ 'wp_tmw_keyword_assignments' ];
+
+        $summary = $service->summary();
+
+        $this->assertSame( 1, $summary['assignments_table_present'] );
+        $this->assertSame( 0, $summary['orphan_assignments'] );
+        foreach ( $wpdb->read_sql as $sql ) {
+            $this->assertStringNotContainsString( 'LEFT JOIN wp_tmw_keyword_candidates', $sql );
+        }
+        $this->assertSame( [], $wpdb->mutations );
+    }
+
     // ── 1. Shared candidate_id across two batches ─────────────────────────
 
     public function test_shared_candidate_id_across_two_batches_is_reported(): void {
