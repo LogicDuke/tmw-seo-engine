@@ -214,6 +214,10 @@ final class KeywordAssignmentSchemaStaticTest extends TestCase {
             'includes/class-loader.php',
             'includes/keywords/class-keyword-assignment-repository.php',
             'includes/keywords/class-keyword-ownership-report-service.php',
+            // PR-D: migration infrastructure (dry-run default; no production cutover).
+            'includes/keywords/class-keyword-assignment-migration-analyzer.php',
+            'includes/keywords/class-keyword-assignment-migration-service.php',
+            'includes/cli/class-cli.php',
         ];
         $offenders = [];
         $root = (string) realpath( dirname( __DIR__ ) );
@@ -257,6 +261,15 @@ final class KeywordAssignmentSchemaStaticTest extends TestCase {
             $this->assertFalse( stripos( self::$guard_source, $forbidden ) );
             $this->assertFalse( stripos( self::$ddl, $forbidden ) );
         }
+    }
+
+    public function test_migration_cli_validates_pool_and_fails_on_serialization_error(): void {
+        $source = (string) file_get_contents( __DIR__ . '/../includes/cli/class-cli.php' );
+
+        $this->assertStringContainsString( "[ 'category', 'model', 'video' ]", $source );
+        $this->assertStringContainsString( '--pool must be one of: category, model, video.', $source );
+        $this->assertStringContainsString( '$service->serialization_error()', $source );
+        $this->assertStringContainsString( 'Report serialization failed:', $source );
     }
 }
 
