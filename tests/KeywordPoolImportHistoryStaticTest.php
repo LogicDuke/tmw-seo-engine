@@ -304,6 +304,37 @@ class KeywordPoolImportHistoryStaticTest extends TestCase {
         $this->assertStringContainsString("? \$status : 'all'", $this->admin, 'Invalid statuses must safely select all.');
     }
 
+    public function test_batch_status_filters_render_visibly_on_the_search_controls_row(): void {
+        // One flex container holds the search controls and the persisted-status filters.
+        $this->assertStringContainsString('tmwseo-batch-controls', $this->admin);
+        $this->assertStringContainsString('display:flex;align-items:center;flex-wrap:wrap;gap:10px;', $this->admin);
+
+        // Filters must be emitted AFTER the search form, inside that container.
+        $container = strpos($this->admin, 'class="tmwseo-batch-controls"');
+        $search_call = strpos($this->admin, 'self::render_batch_search_form($batch, $batch_id, $sort, $search, $status);');
+        $filters_call = strpos($this->admin, 'self::render_batch_status_filters($batch, $batch_id, $sort, $search, $status,');
+        $this->assertIsInt($container, 'Controls container must exist.');
+        $this->assertIsInt($search_call, 'Search form call must exist.');
+        $this->assertIsInt($filters_call, 'Status filter call must exist.');
+        $this->assertLessThan($search_call, $container, 'Controls container must open before the search form.');
+        $this->assertLessThan($filters_call, $search_call, 'Status filters must render after the Search Keywords button.');
+
+        // The nav must not rely on .subsubsub: shared admin CSS sets font-size:0 there and
+        // only restores it on descendant <li>, which rendered this <li>-less nav invisible.
+        $this->assertStringContainsString('tmwseo-batch-status-filters', $this->admin);
+        $this->assertStringNotContainsString('<nav class="subsubsub"', $this->admin);
+        $this->assertStringNotContainsString('</nav><div class="clear"></div>', $this->admin);
+        $this->assertStringContainsString('float:none;clear:none;', $this->admin, 'Filters must not be floated or cleared onto another line.');
+
+        // Accessibility from PR #775 is preserved.
+        $this->assertStringContainsString('aria-current="page"', $this->admin);
+        $this->assertStringContainsString('Filter import rows by persisted status', $this->admin);
+
+        // Still category-only, still filtered before pagination, still read-only.
+        $this->assertStringContainsString("'category' === (string) (\$batch['pool'] ?? '')", $this->admin);
+        $this->assertStringContainsString("\$status_query = 'all' === \$status ? '' : \$status;", $this->admin);
+    }
+
     public function test_import_results_persist_all_attempted_rows_and_context(): void {
         $this->assertStringContainsString('persist_import($pool, $context, $summary, $history_rows)', $this->service);
         $this->assertStringContainsString("'_dry_run_row' => \$row", $this->service);

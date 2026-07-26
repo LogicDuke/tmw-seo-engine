@@ -1082,10 +1082,14 @@ class KeywordPoolsAdminPage {
         $rows = $repository->query_rows($batch_id, $status_query, $page_size, $offset, $sort['orderby'], $sort['order'], $search);
         echo '<hr /><h2>' . esc_html__('Import Batch', 'tmwseo') . ': ' . esc_html((string) ($batch['source_file'] ?: $batch['source_batch'] ?: $batch['import_batch_id'])) . '</h2>';
         echo '<p>' . esc_html(sprintf('Target: %s. Imported: %s. Total rows: %d. Page %d of %d.', (string) ($batch['target_name'] ?? ''), (string) ($batch['imported_at'] ?? ''), $total_rows, $current_page, $total_pages)) . '</p>';
+        // [TMW-BATCH-FILTER-ROW] Search controls and persisted-status filters share one
+        // horizontal flex row; filters are emitted after the Search Keywords button.
+        echo '<div class="tmwseo-batch-controls" style="display:flex;align-items:center;flex-wrap:wrap;gap:10px;margin:8px 0 12px;">';
+        self::render_batch_search_form($batch, $batch_id, $sort, $search, $status);
         if ('category' === (string) ($batch['pool'] ?? '')) {
             self::render_batch_status_filters($batch, $batch_id, $sort, $search, $status, $repository->count_rows_by_status($batch_id, $search));
         }
-        self::render_batch_search_form($batch, $batch_id, $sort, $search, $status);
+        echo '</div>';
         self::render_batch_pagination($batch, $batch_id, $current_page, $total_pages, $sort, $search, $status);
         $inspect_id = isset($_GET['tmwseo_import_row_inspect']) ? absint($_GET['tmwseo_import_row_inspect']) : 0;
         echo '<table class="widefat striped"><thead><tr>';
@@ -1128,11 +1132,11 @@ class KeywordPoolsAdminPage {
     /** @param array<string,mixed> $batch @param array<string,string> $sort */
     private static function render_batch_search_form(array $batch, int $batch_id, array $sort, string $search, string $status = 'all'): void {
         $args = self::batch_view_query_args($batch, $batch_id, 1, $sort, '', $status);
-        echo '<form method="get" class="search-form" style="margin:8px 0 12px;">';
+        echo '<form method="get" class="search-form" style="margin:0;display:inline-flex;align-items:center;">';
         foreach ($args as $key => $value) {
             echo '<input type="hidden" name="' . esc_attr((string) $key) . '" value="' . esc_attr((string) $value) . '" />';
         }
-        echo '<p class="search-box" style="float:none;margin:0;">';
+        echo '<p class="search-box" style="float:none;margin:0;display:inline-flex;align-items:center;gap:6px;">';
         echo '<label class="screen-reader-text" for="tmwseo-pool-search-input">' . esc_html__('Search Keywords', 'tmwseo') . '</label>';
         echo '<input type="search" id="tmwseo-pool-search-input" name="tmwseo_pool_search" value="' . esc_attr($search) . '" /> ';
         echo '<input type="submit" id="tmwseo-pool-search-submit" class="button" value="' . esc_attr(__('Search Keywords', 'tmwseo')) . '" />';
@@ -1153,16 +1157,27 @@ class KeywordPoolsAdminPage {
             'error' => __('Error', 'tmwseo'),
         ];
         $all_count = array_sum($counts);
-        echo '<nav class="subsubsub" aria-label="' . esc_attr__('Filter import rows by persisted status', 'tmwseo') . '">';
-        $links = [];
+        // [TMW-BATCH-FILTER-VISIBILITY] Deliberately NOT class="subsubsub". The shared
+        // admin stylesheet sets `.wrap .subsubsub { font-size: 0 }` to hide "|" separators
+        // and only restores 13px on descendant <li> elements. This nav has no <li>, so the
+        // links inherited font-size:0 and rendered as an invisible zero-height row. Layout
+        // and typography are inline here so the row cannot be collapsed, floated away, or
+        // cleared onto a separate line by external CSS.
+        $pill = 'display:inline-block;padding:4px 12px;font-size:13px;line-height:1.6;text-decoration:none;border-radius:999px;white-space:nowrap;';
+        $pill_idle = $pill . 'border:1px solid #e5e7eb;background:#f3f4f6;color:#50575e;';
+        $pill_current = $pill . 'border:1px solid #6366f1;background:#eef2ff;color:#3730a3;font-weight:600;';
+        echo '<nav class="tmwseo-batch-status-filters" aria-label="' . esc_attr__('Filter import rows by persisted status', 'tmwseo') . '"'
+            . ' style="float:none;clear:none;margin:0;padding:0;display:inline-flex;align-items:center;flex-wrap:wrap;gap:6px;font-size:13px;">';
         foreach ($labels as $status => $label) {
             $args = self::batch_view_query_args($batch, $batch_id, 1, $sort, $search, $status);
             $count = 'all' === $status ? $all_count : (int) ($counts[$status] ?? 0);
-            $class = $status === $current_status ? ' class="current" aria-current="page"' : '';
-            $links[] = '<a' . $class . ' href="' . esc_url(add_query_arg($args, admin_url('admin.php'))) . '">' . esc_html($label) . ' <span class="count">(' . esc_html((string) $count) . ')</span></a>';
+            $is_current = $status === $current_status;
+            echo '<a href="' . esc_url(add_query_arg($args, admin_url('admin.php'))) . '"'
+                . ($is_current ? ' class="current" aria-current="page"' : '')
+                . ' style="' . esc_attr($is_current ? $pill_current : $pill_idle) . '">'
+                . esc_html($label) . ' <span class="count">(' . esc_html((string) $count) . ')</span></a>';
         }
-        echo implode(' | ', $links);
-        echo '</nav><div class="clear"></div>';
+        echo '</nav>';
     }
 
     /** @param array<string,mixed> $batch */
