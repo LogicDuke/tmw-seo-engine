@@ -42,6 +42,7 @@ class KeywordAssignmentMigrationService {
     private KeywordOwnershipReportService $evidence;
     private KeywordAssignmentRepository $assignments;
     private KeywordAssignmentMigrationAnalyzer $analyzer;
+    private string $serialization_error = '';
 
     public function __construct(
         ?KeywordOwnershipReportService $evidence = null,
@@ -75,6 +76,9 @@ class KeywordAssignmentMigrationService {
         $processed = 0;
 
         foreach ( $this->evidence->run( $filters ) as $evidence_row ) {
+            // Keep consuming the generator after the decision limit so the
+            // ownership service can finish its full-source summary counters.
+            if ( $limit > 0 && $processed >= $limit ) { continue; }
             $candidate_id = (int) ( $evidence_row['candidate_id'] ?? 0 );
             $existing = $this->assignments->find_assignments_for_candidate( $candidate_id );
             $existing_encountered += count( $existing );
@@ -86,7 +90,6 @@ class KeywordAssignmentMigrationService {
             $classification = (string) $decision['classification'];
             $classification_counts[ $classification ] = ( $classification_counts[ $classification ] ?? 0 ) + 1;
             $processed++;
-            if ( $limit > 0 && $processed >= $limit ) { break; }
         }
 
         // Deterministic output order regardless of source iteration details.
@@ -94,6 +97,7 @@ class KeywordAssignmentMigrationService {
         usort( $duplicate_source_rows, fn ( $a, $b ) => [ (int) $a['candidate_id'], (string) $a['target_type'], (int) $a['target_id'], (int) $a['batch_id'] ] <=> [ (int) $b['candidate_id'], (string) $b['target_type'], (int) $b['target_id'], (int) $b['batch_id'] ] );
         ksort( $classification_counts );
 
+        if ( $limit > 0 ) { $filters['limit'] = $limit; }
         return $this->build_report( 'dry-run', $decisions, $classification_counts, $existing_encountered, $filters, [], $duplicate_source_rows );
     }
 
@@ -398,10 +402,20 @@ class KeywordAssignmentMigrationService {
 
     /** Canonical JSON serialization (stable structure; timestamps only in meta). */
     public function serialize_report( array $report ): string {
+        $this->serialization_error = '';
         $encoded = function_exists( 'wp_json_encode' )
             ? wp_json_encode( $report, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES )
             : json_encode( $report, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES );
-        return is_string( $encoded ) ? $encoded : '{}';
+        if ( ! is_string( $encoded ) ) {
+            $this->serialization_error = function_exists( 'json_last_error_msg' ) ? json_last_error_msg() : 'unknown JSON encoding error';
+            $this->log( 'report serialization failed: ' . $this->serialization_error );
+            return '{}';
+        }
+        return $encoded;
+    }
+
+    public function serialization_error(): string {
+        return $this->serialization_error;
     }
 
     private function now(): string {

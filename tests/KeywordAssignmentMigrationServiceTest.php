@@ -373,6 +373,27 @@ final class KeywordAssignmentMigrationServiceTest extends TestCase {
         $this->assertStringNotContainsString( 'post_content', $json, 'Report never dumps content bodies.' );
     }
 
+    public function test_limit_restricts_decisions_but_preserves_full_source_summary(): void {
+        $this->evidence->rows = [
+            $this->evidenceRow( 1, 'one phrase' ),
+            $this->evidenceRow( 2, 'two phrase' ),
+            $this->evidenceRow( 3, 'three phrase' ),
+        ];
+
+        $report = $this->service->analyze( [ 'limit' => 1 ] );
+
+        $this->assertSame( 1, $report['normalized_keyword_count'] );
+        $this->assertSame( 3, $report['source_counts']['candidate_identities'] );
+        $this->assertSame( [ 'limit' => 1 ], $report['filters'] );
+    }
+
+    public function test_serialization_failure_is_logged_as_service_error(): void {
+        $json = $this->service->serialize_report( [ 'bad_utf8' => "\xB1\x31" ] );
+
+        $this->assertSame( '{}', $json );
+        $this->assertStringContainsString( 'UTF-8', $this->service->serialization_error() );
+    }
+
     // ── Report summary buckets agree with counts and decisions ────────────
 
     public function test_report_buckets_agree_with_counts_and_decisions(): void {

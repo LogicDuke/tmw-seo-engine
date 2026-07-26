@@ -1561,6 +1561,9 @@ class TMWSEOCommand extends \WP_CLI_Command {
                 $filters[ $filter_key ] = in_array( $filter_key, [ 'candidate_id', 'target_id', 'limit' ], true ) ? (int) $assoc[ $option ] : (string) $assoc[ $option ];
             }
         }
+        if ( isset( $filters['pool'] ) && ! in_array( $filters['pool'], [ 'category', 'model', 'video' ], true ) ) {
+            \WP_CLI::error( '[TMW-KW-ASSIGN-MIGRATE] --pool must be one of: category, model, video.' );
+        }
 
         $service = new \TMWSEO\Engine\Keywords\KeywordAssignmentMigrationService();
         if ( 'dry-run' === $mode ) {
@@ -1572,6 +1575,9 @@ class TMWSEOCommand extends \WP_CLI_Command {
         }
 
         $json = $service->serialize_report( $report );
+        if ( '' !== $service->serialization_error() ) {
+            \WP_CLI::error( '[TMW-KW-ASSIGN-MIGRATE] Report serialization failed: ' . $service->serialization_error() );
+        }
         if ( '' !== $output ) {
             if ( false === file_put_contents( $output, $json ) ) {
                 \WP_CLI::error( '[TMW-KW-ASSIGN-MIGRATE] Unable to write report to ' . $output );

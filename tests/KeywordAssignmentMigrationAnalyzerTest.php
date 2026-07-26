@@ -361,6 +361,88 @@ final class KeywordAssignmentMigrationAnalyzerTest extends TestCase {
         $this->assertContains( 'no_target_evidence', $decision['reasons'] );
     }
 
+    public function test_postmeta_only_page_is_scored_with_its_reported_page_type(): void {
+        $decision = $this->analyzer->analyze( $this->evidence( [
+            'rankmath_presence' => [
+                [ 'post_id' => 501, 'post_type' => 'tmw_category_page', 'rankmath_role' => 'primary' ],
+                [ 'post_id' => 777, 'post_type' => 'tmw_video_page', 'rankmath_role' => 'absent' ],
+            ],
+            'content_presence' => [ [ 'post_id' => 501, 'present' => true ], [ 'post_id' => 777, 'present' => false ] ],
+            'postmeta_ownership' => [ [ 'post_id' => 777, 'role' => 'secondary' ] ],
+        ] ) );
+
+        $this->assertSame( Analyzer::C_SECONDARY, $decision['classification'] );
+        $this->assertCount( 2, $decision['targets'] );
+        $secondary = $decision['planned_actions'][1];
+        $this->assertSame( 'tmw_video_page', $secondary['payload']['target_type'] );
+        $this->assertSame( 777, $secondary['payload']['target_id'] );
+        $this->assertSame( 'migration_postmeta', $secondary['payload']['source_type'] );
+    }
+
+    public function test_postmeta_page_without_a_resolved_type_is_report_only(): void {
+        $decision = $this->analyzer->analyze( $this->evidence( [
+            'target_type' => '', 'target_id' => 0, 'distinct_targets' => [],
+            'rankmath_presence' => [], 'content_presence' => [],
+            'target_unresolvable' => [ 888 ],
+            'postmeta_ownership' => [ [ 'post_id' => 888, 'role' => 'primary' ] ],
+        ] ) );
+
+        $this->assertSame( Analyzer::C_UNRESOLVED, $decision['classification'] );
+        $this->assertSame( '', $decision['targets'][0]['target_type'] );
+        $this->assertSame( [], $decision['planned_actions'] );
+    }
+
+    public function test_same_target_in_multiple_pools_keeps_isolated_relationships(): void {
+        $category = $this->importRow( 'tmw_category_page', 501, 'rejected', 20, 'category' );
+        $model = $this->importRow( 'tmw_category_page', 501, 'approved', 21, 'model' );
+        $decision = $this->analyzer->analyze( $this->evidence( [
+            'rankmath_presence' => [ [ 'post_id' => 501, 'post_type' => 'tmw_category_page', 'rankmath_role' => 'primary' ] ],
+            'content_presence' => [ [ 'post_id' => 501, 'present' => true ] ],
+            'import_rows' => [ $model, $category ],
+        ] ) );
+
+        $this->assertCount( 2, $decision['targets'] );
+        $actions = $decision['planned_actions'];
+        $this->assertSame( [ 'category', 'model' ], array_column( array_column( $actions, 'payload' ), 'pool' ) );
+        $this->assertSame( 'approved', $actions[0]['payload']['status'] );
+        $this->assertSame( 'review_required', $actions[1]['payload']['status'], 'Approval in model must not alter the category relationship.' );
+    }
+
+    public function test_import_attribution_uses_lowest_positive_batch_then_row(): void {
+        $high = $this->importRow( 'tmw_category_page', 501, 'approved', 9 );
+        $high['row_id'] = 10;
+        $low_row = $this->importRow( 'tmw_category_page', 501, 'approved', 4 );
+        $low_row['row_id'] = 8;
+        $lower_row = $low_row;
+        $lower_row['row_id'] = 7;
+        $base = [
+            'rankmath_presence' => [ [ 'post_id' => 501, 'post_type' => 'tmw_category_page', 'rankmath_role' => 'primary' ] ],
+            'content_presence' => [ [ 'post_id' => 501, 'present' => true ] ],
+        ];
+        $forward = $this->analyzer->analyze( $this->evidence( $base + [ 'import_rows' => [ $high, $low_row, $lower_row ] ] ) );
+        $reverse = $this->analyzer->analyze( $this->evidence( $base + [ 'import_rows' => [ $lower_row, $low_row, $high ] ] ) );
+
+        $this->assertSame( 4, $this->primaryAction( $forward )['payload']['source_batch_id'] );
+        $this->assertSame( 7, $this->primaryAction( $forward )['payload']['source_import_row_id'] );
+        $this->assertSame( $forward, $reverse );
+    }
+
+    public function test_existing_identity_is_normalized_before_matching(): void {
+        $existing = [ [
+            'id' => 404, 'keyword_candidate_id' => 10, 'pool' => 'CATEGORY!!!',
+            'page_type' => 'TMW_CATEGORY_PAGE!!!', 'target_type' => 'TMW_CATEGORY_PAGE!!!',
+            'target_id' => 501, 'target_key' => '  tmw_category_page:501  ', 'role' => 'primary',
+            'canonical_owner' => 1, 'status' => 'approved', 'source_type' => 'manual',
+        ] ];
+        $decision = $this->analyzer->analyze( $this->evidence( [
+            'rankmath_presence' => [ [ 'post_id' => 501, 'post_type' => 'tmw_category_page', 'rankmath_role' => 'primary' ] ],
+            'content_presence' => [ [ 'post_id' => 501, 'present' => true ] ],
+        ] ), $existing );
+
+        $this->assertSame( 'preserve', $decision['planned_actions'][0]['action'] );
+        $this->assertSame( 404, $decision['planned_actions'][0]['existing_id'] );
+    }
+
     // ── Rejected candidates are skipped, never written ────────────────────
 
     public function test_rejected_candidate_is_skipped(): void {

@@ -80,7 +80,6 @@ class KeywordAssignmentMigrationAnalyzer {
      * @return array<string,mixed> Decision record (see build_decision()).
      */
     public function analyze( array $evidence_row, array $existing_assignments = [] ): array {
-        $candidate_id = (int) ( $evidence_row['candidate_id'] ?? 0 );
         $candidate_status = (string) ( $evidence_row['status'] ?? '' );
 
         // Rejected/ignored candidates are mirrored as skips: production serves
@@ -167,77 +166,121 @@ class KeywordAssignmentMigrationAnalyzer {
         $targets = [];
         $unresolved_page_ids = array_map( 'intval', (array) ( $row['target_unresolvable'] ?? [] ) );
         $rankmath_by_page = [];
+        $type_by_page = [];
         foreach ( (array) ( $row['rankmath_presence'] ?? [] ) as $entry ) {
-            $rankmath_by_page[ (int) ( $entry['post_id'] ?? 0 ) ] = (string) ( $entry['rankmath_role'] ?? 'absent' );
+            $page_id = (int) ( $entry['post_id'] ?? 0 );
+            $rankmath_by_page[ $page_id ] = (string) ( $entry['rankmath_role'] ?? 'absent' );
+            $type_by_page[ $page_id ] = (string) ( $entry['post_type'] ?? '' );
         }
         $content_by_page = [];
         foreach ( (array) ( $row['content_presence'] ?? [] ) as $entry ) {
             $content_by_page[ (int) ( $entry['post_id'] ?? 0 ) ] = ! empty( $entry['present'] );
         }
         $postmeta_by_page = [];
-        $postmeta = $row['postmeta_ownership'] ?? [];
-        foreach ( is_array( $postmeta ) ? $postmeta : [] as $entry ) {
+        foreach ( (array) ( $row['postmeta_ownership'] ?? [] ) as $entry ) {
             $postmeta_by_page[ (int) ( $entry['post_id'] ?? 0 ) ] = (string) ( $entry['role'] ?? '' );
         }
-        $import_by_target = [];
+
+        // Import evidence is isolated by the complete assignment relationship:
+        // pool + target. Within one relationship attribution is the lowest
+        // positive batch id, then the lowest positive row id.
+        $import_by_identity = [];
         foreach ( (array) ( $row['import_rows'] ?? [] ) as $import_row ) {
-            $tkey = (string) ( $import_row['batch_target_type'] ?? '' ) . ':' . (int) ( $import_row['batch_target_id'] ?? 0 );
+            $pool = (string) ( $import_row['pool'] ?? '' );
+            $type = (string) ( $import_row['batch_target_type'] ?? '' );
+            $id = (int) ( $import_row['batch_target_id'] ?? 0 );
+            $identity = $pool . '|' . $type . ':' . $id;
             $status = (string) ( $import_row['row_status'] ?? '' );
-            $import_by_target[ $tkey ]['present'] = true;
-            if ( 'approved' === $status ) { $import_by_target[ $tkey ]['approved'] = true; }
-            if ( 'rejected' === $status ) { $import_by_target[ $tkey ]['rejected'] = true; }
-            $import_by_target[ $tkey ]['pool'] = (string) ( $import_row['pool'] ?? '' );
-            $import_by_target[ $tkey ]['batch_id'] = (int) ( $import_row['batch_id'] ?? 0 );
-            $import_by_target[ $tkey ]['row_id'] = (int) ( $import_row['row_id'] ?? 0 );
+            $import_by_identity[ $identity ]['present'] = true;
+            if ( 'approved' === $status ) { $import_by_identity[ $identity ]['approved'] = true; }
+            if ( 'rejected' === $status ) { $import_by_identity[ $identity ]['rejected'] = true; }
+            $candidate = [ (int) ( $import_row['batch_id'] ?? 0 ), (int) ( $import_row['row_id'] ?? 0 ) ];
+            $current = $import_by_identity[ $identity ]['attribution'] ?? null;
+            $sort = static fn ( array $value ): array => [ $value[0] > 0 ? $value[0] : PHP_INT_MAX, $value[1] > 0 ? $value[1] : PHP_INT_MAX ];
+            if ( null === $current || $sort( $candidate ) < $sort( $current ) ) {
+                $import_by_identity[ $identity ]['attribution'] = $candidate;
+            }
+            $import_by_identity[ $identity ]['pool'] = $pool;
+            $import_by_identity[ $identity ]['target_type'] = $type;
+            $import_by_identity[ $identity ]['target_id'] = $id;
+            $import_by_identity[ $identity ]['target_name'] = (string) ( $import_row['batch_target_name'] ?? '' );
         }
 
         $own_type = (string) ( $row['target_type'] ?? '' );
         $own_id   = (int) ( $row['target_id'] ?? 0 );
-
+        $default_pool = (string) ( $row['intent_type'] ?? '' );
+        $relationships = [];
         foreach ( (array) ( $row['distinct_targets'] ?? [] ) as $target ) {
             $type = (string) ( $target['target_type'] ?? '' );
-            $id   = (int) ( $target['target_id'] ?? 0 );
+            $id = (int) ( $target['target_id'] ?? 0 );
             if ( '' === $type && 0 === $id ) { continue; }
-            $key  = $type . ':' . $id;
-            $is_global = ( 'global' === $type );
-            $unresolved = ! $is_global && ( $id <= 0 || in_array( $id, $unresolved_page_ids, true ) );
+            $has_import = false;
+            foreach ( $import_by_identity as $import ) {
+                if ( $type === $import['target_type'] && $id === $import['target_id'] ) { $has_import = true; break; }
+            }
+            // Candidate ownership is a relationship in its own intent pool.
+            // Otherwise an imported target is represented only by its actual
+            // pool relationship(s), not by an invented default-pool duplicate.
+            if ( ! $has_import || ( $type === $own_type && $id === $own_id ) ) {
+                $relationships[ $default_pool . '|' . $type . ':' . $id ] = $target + [ 'pool' => $default_pool ];
+            }
+        }
+        foreach ( $import_by_identity as $identity => $import ) {
+            $relationships[ $identity ] = [
+                'target_type' => $import['target_type'], 'target_id' => $import['target_id'],
+                'target_name' => $import['target_name'], 'pool' => $import['pool'],
+            ];
+        }
+        // Postmeta-only pages are real legacy relationships. Use the page's
+        // reported post type when resolvable; an absent type remains an
+        // unresolved diagnostic target and is never written.
+        foreach ( $postmeta_by_page as $id => $role ) {
+            $type = (string) ( $type_by_page[ $id ] ?? '' );
+            $identity = $default_pool . '|' . $type . ':' . $id;
+            if ( ! isset( $relationships[ $identity ] ) ) {
+                $relationships[ $identity ] = [ 'target_type' => $type, 'target_id' => $id, 'target_name' => '', 'pool' => $default_pool ];
+            }
+        }
 
+        foreach ( $relationships as $identity => $target ) {
+            $type = (string) $target['target_type'];
+            $id = (int) $target['target_id'];
+            $pool = (string) $target['pool'];
+            $key = ( $pool === $default_pool ? '' : $pool . '|' ) . $type . ':' . $id;
+            $is_global = 'global' === $type;
+            $unresolved = ! $is_global && ( '' === $type || $id <= 0 || in_array( $id, $unresolved_page_ids, true ) );
+            $import = $import_by_identity[ $identity ] ?? [];
+            $attribution = $import['attribution'] ?? [ 0, 0 ];
             $evidence = [
-                'candidate_owner'    => ( $type === $own_type && $id === $own_id ),
-                'candidate_approved' => ( $type === $own_type && $id === $own_id && 'approved' === (string) ( $row['status'] ?? '' ) ),
-                'rankmath_role'      => $is_global ? 'absent' : ( $rankmath_by_page[ $id ] ?? 'absent' ),
-                'content_present'    => ! $is_global && ! empty( $content_by_page[ $id ] ),
-                'content_evaluated'  => $is_global ? false : array_key_exists( $id, $content_by_page ),
-                'import_present'     => ! empty( $import_by_target[ $key ]['present'] ),
-                'import_approved'    => ! empty( $import_by_target[ $key ]['approved'] ),
-                'import_rejected'    => ! empty( $import_by_target[ $key ]['rejected'] ),
-                'postmeta_role'      => $is_global ? '' : ( $postmeta_by_page[ $id ] ?? '' ),
+                'candidate_owner' => ( $pool === $default_pool && $type === $own_type && $id === $own_id ),
+                'candidate_approved' => ( $pool === $default_pool && $type === $own_type && $id === $own_id && 'approved' === (string) ( $row['status'] ?? '' ) ),
+                'rankmath_role' => $is_global ? 'absent' : ( $rankmath_by_page[ $id ] ?? 'absent' ),
+                'content_present' => ! $is_global && ! empty( $content_by_page[ $id ] ),
+                'content_evaluated' => ! $is_global && array_key_exists( $id, $content_by_page ),
+                'import_present' => ! empty( $import['present'] ),
+                'import_approved' => ! empty( $import['approved'] ),
+                'import_rejected' => ! empty( $import['rejected'] ),
+                'postmeta_role' => $is_global ? '' : ( $postmeta_by_page[ $id ] ?? '' ),
             ];
             $score = 0;
-            if ( $evidence['candidate_owner'] )              { $score += self::W_CANDIDATE_OWNER; }
-            if ( $evidence['candidate_approved'] )           { $score += self::W_CANDIDATE_APPROVED; }
-            if ( 'primary' === $evidence['rankmath_role'] )  { $score += self::W_RANKMATH_PRIMARY; }
-            if ( 'extra' === $evidence['rankmath_role'] )    { $score += self::W_RANKMATH_EXTRA; }
-            if ( $evidence['content_present'] )              { $score += self::W_CONTENT_PRESENT; }
-            if ( $evidence['import_approved'] )              { $score += self::W_IMPORT_APPROVED; }
-            if ( $evidence['import_present'] )               { $score += self::W_IMPORT_PRESENT; }
-            if ( 'primary' === $evidence['postmeta_role'] )  { $score += self::W_POSTMETA_PRIMARY; }
-            if ( 'secondary' === $evidence['postmeta_role'] ){ $score += self::W_POSTMETA_SECONDARY; }
-
+            if ( $evidence['candidate_owner'] ) { $score += self::W_CANDIDATE_OWNER; }
+            if ( $evidence['candidate_approved'] ) { $score += self::W_CANDIDATE_APPROVED; }
+            if ( 'primary' === $evidence['rankmath_role'] ) { $score += self::W_RANKMATH_PRIMARY; }
+            if ( 'extra' === $evidence['rankmath_role'] ) { $score += self::W_RANKMATH_EXTRA; }
+            if ( $evidence['content_present'] ) { $score += self::W_CONTENT_PRESENT; }
+            if ( $evidence['import_approved'] ) { $score += self::W_IMPORT_APPROVED; }
+            if ( $evidence['import_present'] ) { $score += self::W_IMPORT_PRESENT; }
+            if ( 'primary' === $evidence['postmeta_role'] ) { $score += self::W_POSTMETA_PRIMARY; }
+            if ( 'secondary' === $evidence['postmeta_role'] ) { $score += self::W_POSTMETA_SECONDARY; }
             $targets[] = [
-                'key'         => $key,
-                'target_type' => $type,
-                'target_id'   => $id,
+                'key' => $key, 'target_type' => $type, 'target_id' => $id,
                 'target_name' => (string) ( $target['target_name'] ?? '' ),
-                'target_key'  => $is_global ? 'global-model-pool' : ( $type . ':' . $id ),
-                'pool'        => (string) ( $import_by_target[ $key ]['pool'] ?? ( $row['intent_type'] ?? '' ) ),
-                'source_batch_id'      => (int) ( $import_by_target[ $key ]['batch_id'] ?? 0 ),
-                'source_import_row_id' => (int) ( $import_by_target[ $key ]['row_id'] ?? 0 ),
-                'unresolved'  => $unresolved,
-                'is_global'   => $is_global,
-                'score'       => $score,
-                'has_usage'   => ( 'absent' !== $evidence['rankmath_role'] ) || $evidence['content_present'],
-                'evidence'    => $evidence,
+                'target_key' => $is_global ? 'global-model-pool' : ( $type . ':' . $id ),
+                'pool' => $pool, 'source_batch_id' => $attribution[0],
+                'source_import_row_id' => $attribution[1], 'unresolved' => $unresolved,
+                'is_global' => $is_global, 'score' => $score,
+                'has_usage' => ( 'absent' !== $evidence['rankmath_role'] ) || $evidence['content_present'],
+                'evidence' => $evidence,
             ];
         }
         usort( $targets, [ $this, 'compare_targets' ] );
@@ -298,7 +341,6 @@ class KeywordAssignmentMigrationAnalyzer {
      * @return array<int,array<string,mixed>>
      */
     private function plan_for_winner( array $row, array $winner, array $targets, array $existing, string $classification ): array {
-        $candidate_id = (int) ( $row['candidate_id'] ?? 0 );
         $planned = [];
 
         // Existing MANUAL primary on a different target vetoes automated
@@ -392,12 +434,17 @@ class KeywordAssignmentMigrationAnalyzer {
     }
 
     private function find_existing_identity( array $existing, array $payload ): ?array {
+        $repository = new KeywordAssignmentRepository();
+        $normalized_payload = $repository->normalize_assignment( $payload );
+        if ( isset( $normalized_payload['error'] ) ) { return null; }
         foreach ( $existing as $assignment ) {
-            if ( (string) ( $assignment['pool'] ?? '' ) === (string) $payload['pool']
-                && (string) ( $assignment['page_type'] ?? '' ) === (string) $payload['page_type']
-                && (string) ( $assignment['target_type'] ?? '' ) === (string) $payload['target_type']
-                && (int) ( $assignment['target_id'] ?? 0 ) === (int) $payload['target_id']
-                && (string) ( $assignment['target_key'] ?? '' ) === (string) $payload['target_key'] ) {
+            $normalized_assignment = $repository->normalize_assignment( $assignment );
+            if ( ! isset( $normalized_assignment['error'] )
+                && (string) $normalized_assignment['pool'] === (string) $normalized_payload['pool']
+                && (string) $normalized_assignment['page_type'] === (string) $normalized_payload['page_type']
+                && (string) $normalized_assignment['target_type'] === (string) $normalized_payload['target_type']
+                && (int) $normalized_assignment['target_id'] === (int) $normalized_payload['target_id']
+                && (string) $normalized_assignment['target_key'] === (string) $normalized_payload['target_key'] ) {
                 return $assignment;
             }
         }
@@ -405,7 +452,18 @@ class KeywordAssignmentMigrationAnalyzer {
     }
 
     private function same_identity_as_target( array $assignment, array $target ): bool {
-        return (string) ( $assignment['target_type'] ?? '' ) === (string) $target['target_type']
+        $repository = new KeywordAssignmentRepository();
+        $normalized_assignment = $repository->normalize_assignment( $assignment );
+        $normalized_target = $repository->normalize_assignment( [
+            'keyword_candidate_id' => (int) ( $assignment['keyword_candidate_id'] ?? 1 ),
+            'pool' => (string) ( $target['pool'] ?? $assignment['pool'] ?? 'migration' ),
+            'page_type' => ! empty( $target['is_global'] ) ? 'global' : (string) $target['target_type'],
+            'target_type' => (string) $target['target_type'],
+            'target_id' => (int) $target['target_id'],
+            'target_key' => (string) $target['target_key'],
+        ] );
+        return ! isset( $normalized_assignment['error'] ) && ! isset( $normalized_target['error'] )
+            && (string) $normalized_assignment['target_type'] === (string) $normalized_target['target_type']
             && (int) ( $assignment['target_id'] ?? 0 ) === (int) $target['target_id'];
     }
 
