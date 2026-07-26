@@ -456,6 +456,10 @@ class KeywordPoolsAdminPage {
         if ('' !== $search) {
             $redirect_args['tmwseo_pool_search'] = $search;
         }
+        $status = self::current_import_row_status_from_array($_POST);
+        if ('all' !== $status && 'category' === (string) ($batch['pool'] ?? '')) {
+            $redirect_args['tmwseo_import_row_status'] = $status;
+        }
 
         wp_safe_redirect(add_query_arg($redirect_args, admin_url('admin.php')));
         exit;
@@ -1069,20 +1073,25 @@ class KeywordPoolsAdminPage {
         $current_page = max(1, isset($_GET['tmwseo_keyword_batch_page']) ? absint($_GET['tmwseo_keyword_batch_page']) : 1);
         $sort = self::current_import_row_sort_from_array($_GET);
         $search = self::current_pool_search_from_array($_GET);
-        $total_rows = $repository->count_rows($batch_id, '', $search);
+        $status = 'category' === (string) ($batch['pool'] ?? '') ? self::current_import_row_status_from_array($_GET) : 'all';
+        $status_query = 'all' === $status ? '' : $status;
+        $total_rows = $repository->count_rows($batch_id, $status_query, $search);
         $total_pages = max(1, (int) ceil($total_rows / $page_size));
         if ($current_page > $total_pages) { $current_page = $total_pages; }
         $offset = ($current_page - 1) * $page_size;
-        $rows = $repository->query_rows($batch_id, '', $page_size, $offset, $sort['orderby'], $sort['order'], $search);
+        $rows = $repository->query_rows($batch_id, $status_query, $page_size, $offset, $sort['orderby'], $sort['order'], $search);
         echo '<hr /><h2>' . esc_html__('Import Batch', 'tmwseo') . ': ' . esc_html((string) ($batch['source_file'] ?: $batch['source_batch'] ?: $batch['import_batch_id'])) . '</h2>';
         echo '<p>' . esc_html(sprintf('Target: %s. Imported: %s. Total rows: %d. Page %d of %d.', (string) ($batch['target_name'] ?? ''), (string) ($batch['imported_at'] ?? ''), $total_rows, $current_page, $total_pages)) . '</p>';
-        self::render_batch_search_form($batch, $batch_id, $sort, $search);
-        self::render_batch_pagination($batch, $batch_id, $current_page, $total_pages, $sort, $search);
+        if ('category' === (string) ($batch['pool'] ?? '')) {
+            self::render_batch_status_filters($batch, $batch_id, $sort, $search, $status, $repository->count_rows_by_status($batch_id, $search));
+        }
+        self::render_batch_search_form($batch, $batch_id, $sort, $search, $status);
+        self::render_batch_pagination($batch, $batch_id, $current_page, $total_pages, $sort, $search, $status);
         $inspect_id = isset($_GET['tmwseo_import_row_inspect']) ? absint($_GET['tmwseo_import_row_inspect']) : 0;
         echo '<table class="widefat striped"><thead><tr>';
         foreach ([ 'Keyword', 'Volume', 'Status', 'Target', 'Result / Reason', 'Actions' ] as $header) {
             if ('Volume' === $header) {
-                echo '<th>' . self::volume_sort_header($batch, $batch_id, $current_page, $sort, $search) . '</th>';
+                echo '<th>' . self::volume_sort_header($batch, $batch_id, $current_page, $sort, $search, $status) . '</th>';
                 continue;
             }
             echo '<th>' . esc_html($header) . '</th>';
@@ -1097,8 +1106,8 @@ class KeywordPoolsAdminPage {
             echo '<td>' . self::status_badge((string) ($row['status'] ?? 'review_required')) . '</td>';
             echo '<td>' . esc_html((string) ($row['target_name'] ?? $batch['target_name'] ?? '')) . '</td>';
             echo '<td>' . esc_html(trim((string) ($row['result_action'] ?? '') . ((string) ($row['result_reason'] ?? '') !== '' ? ' — ' . (string) $row['result_reason'] : ''))) . '</td>';
-            echo '<td>' . self::import_row_action_forms($row, $current_page, $sort, $search) . ' ';
-            $inspect_args = self::batch_view_query_args($batch, $batch_id, $current_page, $sort, $search);
+            echo '<td>' . self::import_row_action_forms($row, $current_page, $sort, $search, $status) . ' ';
+            $inspect_args = self::batch_view_query_args($batch, $batch_id, $current_page, $sort, $search, $status);
             $inspect_args['tmwseo_import_row_inspect'] = $row_id;
             $inspect_url = add_query_arg($inspect_args, admin_url('admin.php'));
             echo '<a href="' . esc_url($inspect_url) . '">' . esc_html__('Inspect', 'tmwseo') . '</a> ';
@@ -1111,14 +1120,14 @@ class KeywordPoolsAdminPage {
             }
         }
         echo '</tbody></table>';
-        self::render_batch_pagination($batch, $batch_id, $current_page, $total_pages, $sort, $search);
+        self::render_batch_pagination($batch, $batch_id, $current_page, $total_pages, $sort, $search, $status);
         echo '<div class="notice notice-warning inline"><p><strong>' . esc_html__('Safety boundary:', 'tmwseo') . '</strong> ' . esc_html__('Manual row actions only update keyword-pool candidates and import-row review state. They do not write Rank Math, content, slugs, taxonomy terms, publishing state, or indexing/noindex.', 'tmwseo') . '</p></div>';
     }
 
 
     /** @param array<string,mixed> $batch @param array<string,string> $sort */
-    private static function render_batch_search_form(array $batch, int $batch_id, array $sort, string $search): void {
-        $args = self::batch_view_query_args($batch, $batch_id, 1, $sort);
+    private static function render_batch_search_form(array $batch, int $batch_id, array $sort, string $search, string $status = 'all'): void {
+        $args = self::batch_view_query_args($batch, $batch_id, 1, $sort, '', $status);
         echo '<form method="get" class="search-form" style="margin:8px 0 12px;">';
         foreach ($args as $key => $value) {
             echo '<input type="hidden" name="' . esc_attr((string) $key) . '" value="' . esc_attr((string) $value) . '" />';
@@ -1131,10 +1140,35 @@ class KeywordPoolsAdminPage {
         echo '</form>';
     }
 
+    /** @param array<string,mixed> $batch @param array<string,string> $sort @param array<string,int> $counts */
+    private static function render_batch_status_filters(array $batch, int $batch_id, array $sort, string $search, string $current_status, array $counts): void {
+        $labels = [
+            'all' => __('All', 'tmwseo'),
+            'approved' => __('Approved', 'tmwseo'),
+            'queued_for_review' => __('Queued for review', 'tmwseo'),
+            'review_required' => __('Review required', 'tmwseo'),
+            'blocked' => __('Blocked', 'tmwseo'),
+            'rejected' => __('Rejected', 'tmwseo'),
+            'skipped' => __('Skipped', 'tmwseo'),
+            'error' => __('Error', 'tmwseo'),
+        ];
+        $all_count = array_sum($counts);
+        echo '<nav class="subsubsub" aria-label="' . esc_attr__('Filter import rows by persisted status', 'tmwseo') . '">';
+        $links = [];
+        foreach ($labels as $status => $label) {
+            $args = self::batch_view_query_args($batch, $batch_id, 1, $sort, $search, $status);
+            $count = 'all' === $status ? $all_count : (int) ($counts[$status] ?? 0);
+            $class = $status === $current_status ? ' class="current" aria-current="page"' : '';
+            $links[] = '<a' . $class . ' href="' . esc_url(add_query_arg($args, admin_url('admin.php'))) . '">' . esc_html($label) . ' <span class="count">(' . esc_html((string) $count) . ')</span></a>';
+        }
+        echo implode(' | ', $links);
+        echo '</nav><div class="clear"></div>';
+    }
+
     /** @param array<string,mixed> $batch */
-    private static function render_batch_pagination(array $batch, int $batch_id, int $current_page, int $total_pages, array $sort = [], string $search = ''): void {
+    private static function render_batch_pagination(array $batch, int $batch_id, int $current_page, int $total_pages, array $sort = [], string $search = '', string $status = 'all'): void {
         if ($total_pages <= 1) { return; }
-        $base_args = self::batch_view_query_args($batch, $batch_id, 0, $sort, $search);
+        $base_args = self::batch_view_query_args($batch, $batch_id, 0, $sort, $search, $status);
         echo '<p class="tablenav-pages">';
         echo '<span class="displaying-num">' . esc_html(sprintf(__('Page %1$d of %2$d', 'tmwseo'), $current_page, $total_pages)) . '</span> ';
         if ($current_page > 1) {
@@ -1173,6 +1207,14 @@ class KeywordPoolsAdminPage {
         return function_exists('mb_substr') ? mb_substr($search, 0, 100) : substr($search, 0, 100);
     }
 
+    /** @param array<string,mixed> $args */
+    private static function current_import_row_status_from_array(array $args): string {
+        $status = isset($args['tmwseo_import_row_status']) && !is_array($args['tmwseo_import_row_status'])
+            ? sanitize_key((string) wp_unslash($args['tmwseo_import_row_status']))
+            : 'all';
+        return in_array($status, [ 'all', 'approved', 'queued_for_review', 'review_required', 'blocked', 'rejected', 'skipped', 'error' ], true) ? $status : 'all';
+    }
+
     /** @param array<string,mixed> $batch */
     private static function batch_target_query_value(array $batch) {
         if (self::is_global_model_pool_context($batch)) {
@@ -1182,7 +1224,7 @@ class KeywordPoolsAdminPage {
     }
 
     /** @param array<string,mixed> $batch @param array<string,string> $sort @return array<string,mixed> */
-    private static function batch_view_query_args(array $batch, int $batch_id, int $page = 1, array $sort = [], string $search = ''): array {
+    private static function batch_view_query_args(array $batch, int $batch_id, int $page = 1, array $sort = [], string $search = '', string $status = 'all'): array {
         $args = [
             'page' => self::PAGE_SLUG,
             'pool' => (string) ($batch['pool'] ?? 'model'),
@@ -1200,11 +1242,14 @@ class KeywordPoolsAdminPage {
         if ('' !== $search) {
             $args['tmwseo_pool_search'] = $search;
         }
+        if ('all' !== $status && in_array($status, [ 'approved', 'queued_for_review', 'review_required', 'blocked', 'rejected', 'skipped', 'error' ], true)) {
+            $args['tmwseo_import_row_status'] = $status;
+        }
         return $args;
     }
 
     /** @param array<string,mixed> $batch @param array<string,string> $sort */
-    private static function volume_sort_header(array $batch, int $batch_id, int $current_page, array $sort, string $search = ''): string {
+    private static function volume_sort_header(array $batch, int $batch_id, int $current_page, array $sort, string $search = '', string $status = 'all'): string {
         $current_order = 'volume' === (string) ($sort['orderby'] ?? '') ? (string) ($sort['order'] ?? 'desc') : '';
         $next_order = 'desc' === $current_order ? 'asc' : 'desc';
         $label = __('Volume', 'tmwseo');
@@ -1213,12 +1258,12 @@ class KeywordPoolsAdminPage {
         } elseif ('asc' === $current_order) {
             $label .= ' ↑';
         }
-        $args = self::batch_view_query_args($batch, $batch_id, $current_page, [ 'orderby' => 'volume', 'order' => $next_order ], $search);
+        $args = self::batch_view_query_args($batch, $batch_id, $current_page, [ 'orderby' => 'volume', 'order' => $next_order ], $search, $status);
         return '<a href="' . esc_url(add_query_arg($args, admin_url('admin.php'))) . '">' . esc_html($label) . '</a>';
     }
 
     /** @param array<string,mixed> $row */
-    private static function import_row_action_forms(array $row, int $current_page = 1, array $sort = [], string $search = ''): string {
+    private static function import_row_action_forms(array $row, int $current_page = 1, array $sort = [], string $search = '', string $status = 'all'): string {
         $row_id = (int) ($row['id'] ?? 0);
         if ($row_id <= 0) { return ''; }
         $forms = [];
@@ -1237,6 +1282,7 @@ class KeywordPoolsAdminPage {
                 . '<input type="hidden" name="tmwseo_keyword_batch_page" value="' . esc_attr((string) max(1, $current_page)) . '" />'
                 . ('volume' === (string) ($sort['orderby'] ?? '') ? '<input type="hidden" name="orderby" value="volume" /><input type="hidden" name="order" value="' . esc_attr((string) ($sort['order'] ?? 'desc')) . '" />' : '')
                 . ('' !== trim($search) ? '<input type="hidden" name="tmwseo_pool_search" value="' . esc_attr($search) . '" />' : '')
+                . ('all' !== $status ? '<input type="hidden" name="tmwseo_import_row_status" value="' . esc_attr($status) . '" />' : '')
                 . '<input type="hidden" name="' . esc_attr(self::NONCE_FIELD) . '" value="' . esc_attr(wp_create_nonce('tmwseo_keyword_import_row_action_' . $row_id)) . '" />'
                 . '<button type="submit" class="button-link">' . esc_html($label) . '</button>'
                 . '</form>';

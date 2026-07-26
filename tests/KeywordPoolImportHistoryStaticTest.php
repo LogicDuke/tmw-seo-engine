@@ -289,13 +289,19 @@ class KeywordPoolImportHistoryStaticTest extends TestCase {
     public function test_batch_view_has_pagination_controls(): void {
         $this->assertStringContainsString('$page_size = 100', $this->admin);
         $this->assertStringContainsString("\$search = self::current_pool_search_from_array(\$_GET);", $this->admin);
-        $this->assertStringContainsString("count_rows(\$batch_id, '', \$search)", $this->admin);
-        $this->assertStringContainsString("query_rows(\$batch_id, '', \$page_size, \$offset, \$sort['orderby'], \$sort['order'], \$search)", $this->admin);
+        $this->assertStringContainsString('count_rows($batch_id, $status_query, $search)', $this->admin);
+        $this->assertStringContainsString("query_rows(\$batch_id, \$status_query, \$page_size, \$offset, \$sort['orderby'], \$sort['order'], \$search)", $this->admin);
         $this->assertStringContainsString('tmwseo_pool_search', $this->admin);
         $this->assertStringContainsString('render_batch_pagination', $this->admin);
         $this->assertStringContainsString('Previous', $this->admin);
         $this->assertStringContainsString('Next', $this->admin);
         $this->assertStringContainsString('Total rows: %d. Page %d of %d.', $this->admin);
+        foreach ([ 'all', 'approved', 'queued_for_review', 'review_required', 'blocked', 'rejected', 'skipped', 'error' ] as $status) {
+            $this->assertStringContainsString("'{$status}'", $this->admin);
+        }
+        $this->assertStringContainsString('tmwseo_import_row_status', $this->admin);
+        $this->assertStringContainsString('count_rows_by_status($batch_id, $search)', $this->admin);
+        $this->assertStringContainsString("? \$status : 'all'", $this->admin, 'Invalid statuses must safely select all.');
     }
 
     public function test_import_results_persist_all_attempted_rows_and_context(): void {

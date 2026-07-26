@@ -457,6 +457,30 @@ class KeywordPoolImportBatchRepository {
         return max(0, (int) $wpdb->get_var($wpdb->prepare("SELECT COUNT(*) FROM {$table} WHERE " . implode(' AND ', $where), ...$args)));
     }
 
+    /** @return array<string,int> Persisted import-row counts, optionally narrowed by keyword search. */
+    public function count_rows_by_status(int $batch_id, string $search = ''): array {
+        global $wpdb;
+        if (!$this->tables_exist()) { return []; }
+        $table = $this->rows_table();
+        $where = [ 'batch_id = %d' ];
+        $args = [ $batch_id ];
+        $search = $this->sanitize_text($search, 100);
+        if ('' !== $search) {
+            $like = '%' . $wpdb->esc_like($search) . '%';
+            $where[] = '(keyword LIKE %s OR normalized_keyword LIKE %s)';
+            $args[] = $like;
+            $args[] = $like;
+        }
+        $rows = (array) $wpdb->get_results($wpdb->prepare("SELECT status, COUNT(*) AS row_count FROM {$table} WHERE " . implode(' AND ', $where) . ' GROUP BY status', ...$args), ARRAY_A);
+        $counts = [];
+        foreach ($rows as $row) {
+            if (!is_array($row)) { continue; }
+            $status = $this->sanitize_key((string) ($row['status'] ?? ''), 30);
+            if ('' !== $status) { $counts[$status] = max(0, (int) ($row['row_count'] ?? 0)); }
+        }
+        return $counts;
+    }
+
     /** @param array<string,mixed> $updates */
     public function update_import_row(int $row_id, array $updates): bool {
         global $wpdb;

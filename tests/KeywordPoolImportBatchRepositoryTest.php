@@ -53,13 +53,20 @@ final class KeywordPoolImportBatchRepositoryTestWpdb {
         if (str_starts_with($sql, 'SHOW TABLES LIKE')) {
             if (preg_match("/'([^']+)'/", $sql, $match)) {
                 $table = stripslashes($match[1]);
-                return in_array($table, $this->missing_tables, true) ? null : $table;
+                $table = str_replace([ '\\%', '\\_' ], [ '%', '_' ], $table);
+                if (!array_key_exists($table, $this->columns) || in_array($table, $this->missing_tables, true)) {
+                    return null;
+                }
+                return $table;
             }
         }
         if (str_contains($sql, 'tmw_keyword_import_batches') && str_contains($sql, 'import_batch_id')) {
             return $this->existing_batch_id;
         }
         if (str_contains($sql, 'tmw_keyword_import_rows') && str_contains($sql, 'batch_id')) {
+            if (str_contains($sql, 'SELECT COUNT(*)')) {
+                return count($this->filtered_query_rows($sql));
+            }
             return $this->existing_row_id;
         }
         return 0;
@@ -71,19 +78,7 @@ final class KeywordPoolImportBatchRepositoryTestWpdb {
             return array_map(static fn(string $field): array => [ 'Field' => $field ], $this->columns[$match[1]] ?? []);
         }
         if (str_contains($sql, 'tmw_keyword_import_rows') && str_contains($sql, 'SELECT * FROM')) {
-            $rows = $this->query_rows;
-            if (preg_match('/batch_id = (\d+)/', $sql, $match)) {
-                $batch_id = (int) $match[1];
-                $rows = array_values(array_filter($rows, static fn(array $row): bool => (int) ($row['batch_id'] ?? 0) === $batch_id));
-            }
-            if (preg_match("/status = '([^']+)'/", $sql, $match)) {
-                $status = stripslashes($match[1]);
-                $rows = array_values(array_filter($rows, static fn(array $row): bool => (string) ($row['status'] ?? '') === $status));
-            }
-            if (preg_match("/keyword LIKE '([^']+)' OR normalized_keyword LIKE '([^']+)'/", $sql, $match)) {
-                $needle = strtolower(str_replace(['%', '\\%', '\\_'], ['', '%', '_'], stripslashes($match[1])));
-                $rows = array_values(array_filter($rows, static fn(array $row): bool => str_contains(strtolower((string) ($row['keyword'] ?? '')), $needle) || str_contains(strtolower((string) ($row['normalized_keyword'] ?? '')), $needle)));
-            }
+            $rows = $this->filtered_query_rows($sql);
             if (str_contains($sql, 'COALESCE(volume, 0)')) {
                 $direction = str_contains($sql, 'COALESCE(volume, 0) ASC') ? 'asc' : 'desc';
                 usort($rows, static function (array $a, array $b) use ($direction): int {
@@ -101,7 +96,73 @@ final class KeywordPoolImportBatchRepositoryTestWpdb {
             $offset = preg_match('/OFFSET (\d+)/', $sql, $match) ? (int) $match[1] : 0;
             return array_slice($rows, $offset, $limit);
         }
+        if (str_contains($sql, 'tmw_keyword_import_rows') && str_contains($sql, 'GROUP BY status')) {
+            $counts = [];
+            foreach ($this->filtered_query_rows($sql) as $row) {
+                $status = (string) ($row['status'] ?? '');
+                $counts[$status] = ($counts[$status] ?? 0) + 1;
+            }
+            return array_map(static fn(string $status, int $count): array => [ 'status' => $status, 'row_count' => $count ], array_keys($counts), array_values($counts));
+        }
         return [];
+    }
+
+    /** @return array<int,array<string,mixed>> */
+    private function filtered_query_rows(string $sql): array {
+        $rows = $this->query_rows;
+        if (preg_match('/batch_id = (\d+)/', $sql, $match)) {
+            $batch_id = (int) $match[1];
+            $rows = array_values(array_filter($rows, static fn(array $row): bool => (int) ($row['batch_id'] ?? 0) === $batch_id));
+        }
+        if (preg_match("/status = '([^']+)'/", $sql, $match)) {
+            $status = stripslashes($match[1]);
+            $rows = array_values(array_filter($rows, static fn(array $row): bool => (string) ($row['status'] ?? '') === $status));
+        }
+        if (preg_match("~keyword LIKE '((?:\\\\.|[^'])*)' OR normalized_keyword LIKE '((?:\\\\.|[^'])*)'~", $sql, $match)) {
+            $needle = self::decode_sql_string($match[1]);
+            if (str_starts_with($needle, '%')) {
+                $needle = substr($needle, 1);
+            }
+            if (str_ends_with($needle, '%')) {
+                $needle = substr($needle, 0, -1);
+            }
+            $needle = strtolower(self::decode_like_literal($needle));
+            $rows = array_values(array_filter($rows, static fn(array $row): bool => str_contains(strtolower((string) ($row['keyword'] ?? '')), $needle) || str_contains(strtolower((string) ($row['normalized_keyword'] ?? '')), $needle)));
+        }
+        return $rows;
+    }
+
+    private static function decode_sql_string(string $value): string {
+        $decoded = '';
+        $length = strlen($value);
+        for ($index = 0; $index < $length; $index++) {
+            if ('\\' !== $value[$index] || $index + 1 >= $length) {
+                $decoded .= $value[$index];
+                continue;
+            }
+            $next = $value[++$index];
+            $decoded .= match ($next) {
+                '\\' => '\\',
+                "'" => "'",
+                '"' => '"',
+                '0' => "\0",
+                default => '\\' . $next,
+            };
+        }
+        return $decoded;
+    }
+
+    private static function decode_like_literal(string $value): string {
+        $decoded = '';
+        $length = strlen($value);
+        for ($index = 0; $index < $length; $index++) {
+            if ('\\' === $value[$index] && $index + 1 < $length && in_array($value[$index + 1], [ '\\', '%', '_' ], true)) {
+                $decoded .= $value[++$index];
+                continue;
+            }
+            $decoded .= $value[$index];
+        }
+        return $decoded;
     }
 
     public function get_row(string $sql, string $output = 'OBJECT'): array|null {
@@ -517,6 +578,71 @@ final class KeywordPoolImportBatchRepositoryTest extends TestCase {
 
         $this->assertStringContainsString("keyword LIKE '%100\\% classy%'", $wpdb->last_query);
         $this->assertStringContainsString('batch_id = 12', $wpdb->last_query);
+    }
+
+    public function test_sql_like_emulator_preserves_literal_percent_and_underscore_searches(): void {
+        $prefix = 'wp_search_literals_';
+        $wpdb = new KeywordPoolImportBatchRepositoryTestWpdb($prefix, $this->columns($prefix));
+        $wpdb->query_rows = [
+            [ 'id' => 1, 'batch_id' => 12, 'keyword' => '100% classy', 'normalized_keyword' => '100 percent classy' ],
+            [ 'id' => 2, 'batch_id' => 12, 'keyword' => 'plain keyword', 'normalized_keyword' => 'literal_under score' ],
+            [ 'id' => 3, 'batch_id' => 12, 'keyword' => '100 percent classy', 'normalized_keyword' => 'unrelated' ],
+            [ 'id' => 4, 'batch_id' => 12, 'keyword' => "O'Reilly keyword research", 'normalized_keyword' => 'oreilly keyword research' ],
+            [ 'id' => 5, 'batch_id' => 12, 'keyword' => 'windows path', 'normalized_keyword' => 'C:\\temp keyword file' ],
+        ];
+        $GLOBALS['wpdb'] = $wpdb;
+        $repository = new KeywordPoolImportBatchRepository();
+
+        $percent_rows = $repository->query_rows(12, '', 10, 0, '', 'desc', '100% classy');
+        $underscore_rows = $repository->query_rows(12, '', 10, 0, '', 'desc', 'literal_under');
+        $apostrophe_rows = $repository->query_rows(12, '', 10, 0, '', 'desc', "O'Reilly");
+        $backslash_rows = $repository->query_rows(12, '', 10, 0, '', 'desc', 'C:\\temp');
+
+        $this->assertSame([ 1 ], array_column($percent_rows, 'id'));
+        $this->assertSame([ 2 ], array_column($underscore_rows, 'id'));
+        $this->assertSame([ 4 ], array_column($apostrophe_rows, 'id'));
+        $this->assertSame([ 5 ], array_column($backslash_rows, 'id'));
+    }
+
+    public function test_approved_filter_combines_persisted_status_search_and_filtered_pagination(): void {
+        $prefix = 'wp_status_filter_';
+        $wpdb = new KeywordPoolImportBatchRepositoryTestWpdb($prefix, $this->columns($prefix));
+        $wpdb->query_rows = [
+            [ 'id' => 1, 'batch_id' => 44, 'row_index' => 1, 'keyword' => 'approved classy first page', 'normalized_keyword' => 'approved classy first page', 'status' => 'approved' ],
+            [ 'id' => 2, 'batch_id' => 44, 'row_index' => 101, 'keyword' => 'queued classy', 'normalized_keyword' => 'queued classy', 'status' => 'queued_for_review' ],
+            [ 'id' => 3, 'batch_id' => 44, 'row_index' => 205, 'keyword' => 'approved classy later page', 'normalized_keyword' => 'approved classy later page', 'status' => 'approved' ],
+            [ 'id' => 4, 'batch_id' => 44, 'row_index' => 301, 'keyword' => 'approved unrelated', 'normalized_keyword' => 'approved unrelated', 'status' => 'approved' ],
+        ];
+        $GLOBALS['wpdb'] = $wpdb;
+        $repository = new KeywordPoolImportBatchRepository();
+
+        $this->assertSame(2, $repository->count_rows(44, 'approved', 'classy'));
+        $rows = $repository->query_rows(44, 'approved', 1, 1, '', 'desc', 'classy');
+
+        $this->assertCount(1, $rows);
+        $this->assertSame('approved classy later page', $rows[0]['keyword']);
+        $this->assertSame('approved', $rows[0]['status']);
+        $this->assertStringContainsString("status = 'approved'", $wpdb->last_query);
+        $this->assertStringContainsString('LIMIT 1 OFFSET 1', $wpdb->last_query);
+        $this->assertSame([], $wpdb->updates, 'Filtering import rows must not perform writes.');
+        $this->assertSame([], $wpdb->inserts, 'Filtering import rows must not perform writes.');
+    }
+
+    public function test_status_counts_use_effective_persisted_import_row_status(): void {
+        $prefix = 'wp_status_counts_';
+        $wpdb = new KeywordPoolImportBatchRepositoryTestWpdb($prefix, $this->columns($prefix));
+        $wpdb->query_rows = [
+            [ 'id' => 1, 'batch_id' => 45, 'keyword' => 'persisted approved', 'status' => 'approved', 'candidate_id' => 90, 'row_payload' => '{"status":"queued_for_review"}' ],
+            [ 'id' => 2, 'batch_id' => 45, 'keyword' => 'persisted blocked', 'status' => 'blocked', 'candidate_id' => 91 ],
+            [ 'id' => 3, 'batch_id' => 45, 'keyword' => 'persisted error', 'status' => 'error', 'candidate_id' => 92 ],
+        ];
+        $GLOBALS['wpdb'] = $wpdb;
+
+        $counts = (new KeywordPoolImportBatchRepository())->count_rows_by_status(45);
+
+        $this->assertSame([ 'approved' => 1, 'blocked' => 1, 'error' => 1 ], $counts);
+        $this->assertStringContainsString('GROUP BY status', $wpdb->last_query);
+        $this->assertStringNotContainsString('tmw_keyword_candidates', $wpdb->last_query);
     }
 
 }
