@@ -61,7 +61,6 @@ final class KeywordOwnershipReportServiceTestable extends KeywordOwnershipReport
             $map[ $key ]['count']++;
         }
         $reflection = new \ReflectionProperty( KeywordOwnershipReportService::class, 'cluster_map' );
-        $reflection->setAccessible( true );
         $reflection->setValue( $this, $map );
     }
 
@@ -591,7 +590,6 @@ final class KeywordOwnershipReportServiceTest extends TestCase {
         $GLOBALS['wpdb'] = $wpdb;
         $service = new KeywordOwnershipReportService();
         $method = new \ReflectionMethod( KeywordOwnershipReportService::class, 'secondary_ownership_index' );
-        $method->setAccessible( true );
 
         $first_chunk  = $method->invoke( $service );
         $second_chunk = $method->invoke( $service );
