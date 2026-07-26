@@ -68,7 +68,9 @@ class KeywordAssignmentReviewSyncService {
      */
     public function sync( array $filters = [], bool $include_report_only = false, string $actor = 'cli', string $source = 'review-sync' ): array {
         $evidence_filters = array_intersect_key( $filters, array_flip( self::EVIDENCE_FILTERS ) );
-        $decision_filters = array_intersect_key( $filters, array_flip( self::DECISION_FILTERS ) );
+        // Evidence remains complete enough for classification, while the
+        // resulting actions are independently constrained to operator scope.
+        $decision_filters = array_intersect_key( $filters, array_flip( array_merge( self::DECISION_FILTERS, [ 'keyword', 'candidate_id', 'target_id', 'pool' ] ) ) );
 
         $analysis = $this->migration->analyze( $evidence_filters );
         $fresh = $this->collect_fresh_records( $analysis, $decision_filters, $include_report_only );
@@ -118,10 +120,9 @@ class KeywordAssignmentReviewSyncService {
         if ( $missing_checked ) {
             foreach ( $this->stored_records_in_scope( $filters ) as $stored ) {
                 $key = (string) $stored['review_key'];
-                if ( isset( $fresh[ $key ] ) ) { continue; }
+                if ( isset( $fresh[ $key ] ) ) { $counts['skipped']++; continue; }
                 $execution_state = (string) $stored['execution_state'];
-                if ( in_array( $execution_state, [ 'executed', 'stale' ], true ) ) { continue; }
-                if ( ! empty( $stored['report_only'] ) && ! $include_report_only ) { continue; }
+                if ( in_array( $execution_state, [ 'executed', 'stale' ], true ) ) { $counts['skipped']++; continue; }
                 $result = $this->reviews->mark_stale( $stored, 'planned_action_no_longer_produced', $actor, $source );
                 $this->tally( $counts, $failures, ! empty( $result['ok'] ) ? 'stale' : 'failed', $stored, (string) ( $result['error'] ?? '' ) );
             }
@@ -165,6 +166,7 @@ class KeywordAssignmentReviewSyncService {
                 foreach ( (array) ( $decision['planned_actions'] ?? [] ) as $action ) {
                     $record = $this->record_from_planned_action( $decision, $action, false );
                     if ( null === $record ) { continue; }
+                    $record = $this->reviews->normalize_snapshot_input( $record );
                     if ( ! $this->passes_record_filters( $record, $decision_filters ) ) { continue; }
                     $key = $this->reviews->review_key( $record );
                     if ( ! isset( $records[ $key ] ) ) { $records[ $key ] = $record; }
@@ -176,6 +178,7 @@ class KeywordAssignmentReviewSyncService {
             foreach ( (array) ( $decision['targets'] ?? [] ) as $target ) {
                 $record = $this->record_from_report_target( $decision, $target );
                 if ( null === $record ) { continue; }
+                $record = $this->reviews->normalize_snapshot_input( $record );
                 if ( ! $this->passes_record_filters( $record, $decision_filters ) ) { continue; }
                 $key = $this->reviews->review_key( $record );
                 if ( ! isset( $records[ $key ] ) ) { $records[ $key ] = $record; }
@@ -258,6 +261,10 @@ class KeywordAssignmentReviewSyncService {
 
     /** @param array<string,mixed> $record @param array<string,mixed> $filters */
     private function passes_record_filters( array $record, array $filters ): bool {
+        if ( isset( $filters['candidate_id'] ) && (int) $filters['candidate_id'] !== (int) $record['keyword_candidate_id'] ) { return false; }
+        if ( isset( $filters['keyword'] ) && (string) $filters['keyword'] !== (string) $record['normalized_keyword'] ) { return false; }
+        if ( isset( $filters['pool'] ) && (string) $filters['pool'] !== (string) $record['pool'] ) { return false; }
+        if ( isset( $filters['target_id'] ) && (int) $filters['target_id'] !== (int) $record['target_id'] ) { return false; }
         if ( isset( $filters['source_type'] ) && (string) $filters['source_type'] !== (string) $record['source_type'] ) { return false; }
         if ( isset( $filters['active_in_rank_math'] ) && (int) $filters['active_in_rank_math'] !== (int) $record['active_in_rank_math'] ) { return false; }
         if ( isset( $filters['present_in_content'] ) && (int) $filters['present_in_content'] !== (int) $record['present_in_content'] ) { return false; }

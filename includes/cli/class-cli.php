@@ -1815,6 +1815,9 @@ class TMWSEOCommand extends \WP_CLI_Command {
         ];
         foreach ( $map as $option => [ $column, $type ] ) {
             if ( isset( $assoc[ $option ] ) && '' !== (string) $assoc[ $option ] ) {
+                if ( 'int' === $type && ! preg_match( '/^\d+$/', (string) $assoc[ $option ] ) ) {
+                    \WP_CLI::error( '[TMW-KW-ASSIGN-REVIEW] --' . $option . ' must be a non-negative integer.' );
+                }
                 $filters[ $column ] = 'int' === $type ? (int) $assoc[ $option ] : (string) $assoc[ $option ];
             }
         }
@@ -1830,11 +1833,13 @@ class TMWSEOCommand extends \WP_CLI_Command {
     /** @param array<string,mixed> $assoc @return array<int,int> */
     private function review_ids_from_assoc( array $assoc ): array {
         if ( ! isset( $assoc['id'] ) ) { return []; }
-        $ids = array_values( array_filter( array_map( 'intval', array_map( 'trim', explode( ',', (string) $assoc['id'] ) ) ), fn ( $id ) => $id > 0 ) );
-        if ( [] === $ids ) {
-            \WP_CLI::error( '[TMW-KW-ASSIGN-REVIEW] --id contains no valid review record IDs.' );
+        $tokens = array_map( 'trim', explode( ',', (string) $assoc['id'] ) );
+        foreach ( $tokens as $token ) {
+            if ( ! preg_match( '/^[1-9]\d*$/', $token ) ) {
+                \WP_CLI::error( '[TMW-KW-ASSIGN-REVIEW] Every --id token must be a positive integer.' );
+            }
         }
-        return $ids;
+        return array_map( 'intval', $tokens );
     }
 
     /** @param array<string,mixed> $assoc */
@@ -1953,7 +1958,11 @@ class TMWSEOCommand extends \WP_CLI_Command {
         $limit = isset( $assoc['limit'] ) ? max( 1, (int) $assoc['limit'] ) : 0;
         $offset = isset( $assoc['offset'] ) ? max( 0, (int) $assoc['offset'] ) : 0;
         $rows = $repository->list_reviews( $filters, $limit, $offset );
-        $body = 'csv' === $export->format_for_path( $output ) ? $export->to_csv( $rows ) : $export->to_json( $rows );
+        try {
+            $body = 'csv' === $export->format_for_path( $output ) ? $export->to_csv( $rows ) : $export->to_json( $rows );
+        } catch ( \RuntimeException $error ) {
+            \WP_CLI::error( '[TMW-KW-ASSIGN-REVIEW] JSON export failed: ' . $error->getMessage() );
+        }
         if ( false === file_put_contents( $output, $body ) ) {
             \WP_CLI::error( '[TMW-KW-ASSIGN-REVIEW] Unable to write export to ' . $output );
         }
@@ -1965,14 +1974,34 @@ class TMWSEOCommand extends \WP_CLI_Command {
         if ( ! in_array( $mode, [ 'dry-run', 'execute' ], true ) ) {
             \WP_CLI::error( '[TMW-KW-ASSIGN-REVIEW] --mode must be dry-run or execute.' );
         }
+        foreach ( [ 'review-state', 'execution-state', 'limit', 'offset', 'include-report-only' ] as $unsupported ) {
+            if ( array_key_exists( $unsupported, $assoc ) ) {
+                \WP_CLI::error( '[TMW-KW-ASSIGN-REVIEW] --' . $unsupported . ' is not supported by execute-approved and was not applied.' );
+            }
+        }
         $filters = [];
-        foreach ( [ 'candidate-id' => 'candidate_id', 'target-id' => 'target_id', 'pool' => 'pool', 'keyword' => 'keyword', 'classification' => 'classification' ] as $option => $key ) {
+        $execution_map = [
+            'candidate-id' => [ 'keyword_candidate_id', 'positive-int' ], 'target-id' => [ 'target_id', 'positive-int' ],
+            'pool' => [ 'pool', 'string' ], 'keyword' => [ 'normalized_keyword', 'string' ], 'classification' => [ 'classification', 'string' ],
+            'page-type' => [ 'page_type', 'string' ], 'target-type' => [ 'target_type', 'string' ], 'target-key' => [ 'target_key', 'string' ],
+            'role' => [ 'planned_role', 'string' ], 'planned-status' => [ 'planned_status', 'string' ], 'source-type' => [ 'source_type', 'string' ],
+            'source-batch-id' => [ 'source_batch_id', 'int' ], 'candidate-status' => [ 'candidate_status', 'string' ],
+            'rankmath' => [ 'active_in_rank_math', 'int' ], 'content' => [ 'present_in_content', 'int' ],
+        ];
+        foreach ( $execution_map as $option => [ $key, $type ] ) {
             if ( isset( $assoc[ $option ] ) && '' !== (string) $assoc[ $option ] ) {
-                $filters[ $key ] = in_array( $key, [ 'candidate_id', 'target_id' ], true ) ? (int) $assoc[ $option ] : (string) $assoc[ $option ];
+                $pattern = 'positive-int' === $type ? '/^[1-9]\d*$/' : '/^\d+$/';
+                if ( 'string' !== $type && ! preg_match( $pattern, (string) $assoc[ $option ] ) ) {
+                    \WP_CLI::error( '[TMW-KW-ASSIGN-REVIEW] --' . $option . ' must be a ' . ( 'positive-int' === $type ? 'positive' : 'non-negative' ) . ' integer.' );
+                }
+                $filters[ $key ] = 'string' === $type ? (string) $assoc[ $option ] : (int) $assoc[ $option ];
             }
         }
         if ( isset( $assoc['id'] ) ) {
             $filters['review_ids'] = $this->review_ids_from_assoc( $assoc );
+        }
+        if ( 'execute' === $mode && [] === $filters && ! isset( $assoc['confirm'] ) && ! isset( $assoc['all-matching'] ) ) {
+            \WP_CLI::error( '[TMW-KW-ASSIGN-REVIEW] Unbounded execution requires --confirm or --all-matching.' );
         }
         $service = new \TMWSEO\Engine\Keywords\KeywordAssignmentReviewExecutionService();
         $report = $service->execute_approved( $filters, 'execute' === $mode, $actor, $source );

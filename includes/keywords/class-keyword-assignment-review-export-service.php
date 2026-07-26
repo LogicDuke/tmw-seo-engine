@@ -90,7 +90,10 @@ class KeywordAssignmentReviewExportService {
         $encoded = function_exists( 'wp_json_encode' )
             ? wp_json_encode( $document, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES )
             : json_encode( $document, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES );
-        return is_string( $encoded ) ? $encoded : '{}';
+        if ( ! is_string( $encoded ) ) {
+            throw new \RuntimeException( function_exists( 'json_last_error_msg' ) ? json_last_error_msg() : 'unknown JSON encoding error' );
+        }
+        return $encoded;
     }
 
     /**

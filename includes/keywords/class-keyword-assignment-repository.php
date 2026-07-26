@@ -373,10 +373,11 @@ class KeywordAssignmentRepository {
         }
 
         // Only fields explicitly supplied by the caller are mutable. Identity
-        // and stored ownership fields are always preserved.
+        // fields are preserved; reviewed migration ownership fields may be
+        // changed explicitly and are protected by the primary-owner checks.
         $mutable = [];
         foreach ( [
-            'target_name', 'target_slug', 'status', 'shared_secondary_allowed',
+            'target_name', 'target_slug', 'role', 'canonical_owner', 'status', 'shared_secondary_allowed',
             'conflict_reason', 'approval_reason', 'source_batch_id',
             'source_import_row_id', 'source_type', 'source_reference',
             'active_in_rank_math', 'present_in_content', 'last_verified_at',

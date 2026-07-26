@@ -84,6 +84,8 @@ class KeywordAssignmentReviewRepository {
         'planned_role',
         'planned_status',
         'planned_canonical_owner',
+        'active_in_rank_math',
+        'present_in_content',
         'source_type',
         'source_reference',
         'source_batch_id',
@@ -132,6 +134,7 @@ class KeywordAssignmentReviewRepository {
      * @param array<string,mixed> $record
      */
     public function review_key( array $record ): string {
+        $record = $this->normalize_snapshot_input( $record );
         return sha1( implode( '|', [
             (string) ( $record['migration_version'] ?? KeywordAssignmentMigrationAnalyzer::MIGRATION_VERSION ),
             (string) (int) ( $record['keyword_candidate_id'] ?? 0 ),
@@ -150,6 +153,7 @@ class KeywordAssignmentReviewRepository {
      * @param array<string,mixed> $record
      */
     public function snapshot_hash( array $record ): string {
+        $record = $this->normalize_snapshot_input( $record );
         $parts = [];
         foreach ( self::SNAPSHOT_FIELDS as $field ) {
             $value = $record[ $field ] ?? '';
@@ -169,6 +173,8 @@ class KeywordAssignmentReviewRepository {
      * @return array<int,string>
      */
     public function changed_snapshot_fields( array $stored, array $fresh ): array {
+        $stored = $this->normalize_snapshot_input( $stored );
+        $fresh  = $this->normalize_snapshot_input( $fresh );
         $changed = [];
         foreach ( self::SNAPSHOT_FIELDS as $field ) {
             $a = $stored[ $field ] ?? '';
@@ -180,6 +186,20 @@ class KeywordAssignmentReviewRepository {
             }
         }
         return $changed;
+    }
+
+    /** Normalize snapshot values exactly as the review table persists them. */
+    public function normalize_snapshot_input( array $record ): array {
+        foreach ( [ 'pool' => 30, 'page_type' => 50, 'target_type' => 50 ] as $field => $max ) {
+            $record[ $field ] = $this->sanitize_text( strtolower( (string) ( $record[ $field ] ?? '' ) ), $max );
+        }
+        foreach ( [ 'normalized_keyword' => 191, 'classification' => 40, 'target_key' => 191, 'planned_role' => 20, 'planned_status' => 30, 'source_type' => 50, 'source_reference' => 191 ] as $field => $max ) {
+            $record[ $field ] = $this->sanitize_text( (string) ( $record[ $field ] ?? '' ), $max );
+        }
+        foreach ( [ 'target_id', 'source_batch_id', 'source_import_row_id', 'planned_canonical_owner', 'active_in_rank_math', 'present_in_content' ] as $field ) {
+            $record[ $field ] = (int) ( $record[ $field ] ?? 0 );
+        }
+        return $record;
     }
 
     // ── Storage primitives (overridable for in-memory testing) ────────────
@@ -266,6 +286,11 @@ class KeywordAssignmentReviewRepository {
         return false !== $wpdb->update( $this->table(), $fields, [ 'id' => $review_id ] );
     }
 
+    protected function transaction( string $command ): bool {
+        global $wpdb;
+        return false !== $wpdb->query( $command );
+    }
+
     /** @param array<string,mixed> $row */
     protected function insert_audit_row( array $row ): bool {
         global $wpdb;
@@ -292,6 +317,7 @@ class KeywordAssignmentReviewRepository {
      * @return array{ok:bool,id?:int,error?:string}
      */
     public function create_review( array $record, string $actor, string $source ): array {
+        $record = $this->normalize_snapshot_input( $record );
         $candidate_id = (int) ( $record['keyword_candidate_id'] ?? 0 );
         if ( $candidate_id <= 0 ) { return [ 'ok' => false, 'error' => 'missing_keyword_candidate_id' ]; }
         if ( '' === (string) ( $record['classification'] ?? '' ) ) { return [ 'ok' => false, 'error' => 'missing_classification' ]; }
@@ -342,9 +368,14 @@ class KeywordAssignmentReviewRepository {
         if ( null !== $existing ) {
             return [ 'ok' => false, 'error' => 'review_identity_exists', 'id' => (int) $existing['id'] ];
         }
+        if ( ! $this->transaction( 'START TRANSACTION' ) ) { return [ 'ok' => false, 'error' => 'transaction_start_failed' ]; }
         $id = $this->insert_row( $row );
-        if ( $id <= 0 ) { return [ 'ok' => false, 'error' => 'insert_failed' ]; }
-        $this->audit( $id, (string) $row['review_key'], 'sync_create', '', 'pending', '', 'not_executed', $actor, '', $source, (string) $row['snapshot_hash'] );
+        if ( $id <= 0 ) { $this->transaction( 'ROLLBACK' ); return [ 'ok' => false, 'error' => 'insert_failed' ]; }
+        if ( ! $this->audit( $id, (string) $row['review_key'], 'sync_create', '', 'pending', '', 'not_executed', $actor, '', $source, (string) $row['snapshot_hash'] ) ) {
+            $this->transaction( 'ROLLBACK' );
+            return [ 'ok' => false, 'error' => 'audit_insert_failed' ];
+        }
+        if ( ! $this->transaction( 'COMMIT' ) ) { $this->transaction( 'ROLLBACK' ); return [ 'ok' => false, 'error' => 'transaction_commit_failed' ]; }
         return [ 'ok' => true, 'id' => $id ];
     }
 
@@ -361,6 +392,7 @@ class KeywordAssignmentReviewRepository {
      * @return array{ok:bool,outcome?:string,error?:string}
      */
     public function refresh_pending_snapshot( array $stored, array $fresh, string $actor, string $source ): array {
+        $fresh = $this->normalize_snapshot_input( $fresh );
         if ( 'pending' !== (string) ( $stored['review_state'] ?? '' ) ) {
             return [ 'ok' => false, 'error' => 'refresh_requires_pending_state' ];
         }
@@ -393,10 +425,9 @@ class KeywordAssignmentReviewRepository {
             'stale_reason'            => '',
             'updated_at'              => $this->now(),
         ];
-        if ( ! $this->update_row( (int) $stored['id'], $fields ) ) {
-            return [ 'ok' => false, 'error' => 'update_failed' ];
+        if ( ! $this->update_with_audit( $stored, $fields, 'sync_refresh', 'pending', 'pending', (string) $stored['execution_state'], 'not_executed', $actor, $was_stale ? 'stale_cleared_by_matching_resync' : 'snapshot_refreshed', $source, $fresh_hash ) ) {
+            return [ 'ok' => false, 'error' => 'mutation_or_audit_failed' ];
         }
-        $this->audit( (int) $stored['id'], (string) $stored['review_key'], 'sync_refresh', 'pending', 'pending', (string) $stored['execution_state'], 'not_executed', $actor, $was_stale ? 'stale_cleared_by_matching_resync' : 'snapshot_refreshed', $source, $fresh_hash );
         return [ 'ok' => true, 'outcome' => 'updated' ];
     }
 
@@ -414,13 +445,12 @@ class KeywordAssignmentReviewRepository {
         if ( 'stale' === $execution_state && (string) ( $stored['stale_reason'] ?? '' ) === $reason ) {
             return [ 'ok' => true, 'outcome' => 'unchanged' ];
         }
-        $ok = $this->update_row( (int) $stored['id'], [
+        $fields = [
             'execution_state' => 'stale',
             'stale_reason'    => $this->sanitize_text( $reason, 500 ),
             'updated_at'      => $this->now(),
-        ] );
-        if ( ! $ok ) { return [ 'ok' => false, 'error' => 'update_failed' ]; }
-        $this->audit( (int) $stored['id'], (string) $stored['review_key'], 'sync_stale', (string) $stored['review_state'], (string) $stored['review_state'], $execution_state, 'stale', $actor, $reason, $source, (string) $stored['snapshot_hash'] );
+        ];
+        if ( ! $this->update_with_audit( $stored, $fields, 'sync_stale', (string) $stored['review_state'], (string) $stored['review_state'], $execution_state, 'stale', $actor, $reason, $source, (string) $stored['snapshot_hash'] ) ) { return [ 'ok' => false, 'error' => 'mutation_or_audit_failed' ]; }
         return [ 'ok' => true, 'outcome' => 'stale' ];
     }
 
@@ -432,13 +462,12 @@ class KeywordAssignmentReviewRepository {
         if ( 'stale' !== (string) ( $stored['execution_state'] ?? '' ) ) {
             return [ 'ok' => false, 'error' => 'record_not_stale' ];
         }
-        $ok = $this->update_row( (int) $stored['id'], [
+        $fields = [
             'execution_state' => 'not_executed',
             'stale_reason'    => '',
             'updated_at'      => $this->now(),
-        ] );
-        if ( ! $ok ) { return [ 'ok' => false, 'error' => 'update_failed' ]; }
-        $this->audit( (int) $stored['id'], (string) $stored['review_key'], 'sync_restore', (string) $stored['review_state'], (string) $stored['review_state'], 'stale', 'not_executed', $actor, 'fresh_plan_matches_reviewed_snapshot', $source, (string) $stored['snapshot_hash'] );
+        ];
+        if ( ! $this->update_with_audit( $stored, $fields, 'sync_restore', (string) $stored['review_state'], (string) $stored['review_state'], 'stale', 'not_executed', $actor, 'fresh_plan_matches_reviewed_snapshot', $source, (string) $stored['snapshot_hash'] ) ) { return [ 'ok' => false, 'error' => 'mutation_or_audit_failed' ]; }
         return [ 'ok' => true, 'outcome' => 'restored' ];
     }
 
@@ -497,11 +526,10 @@ class KeywordAssignmentReviewRepository {
             $fields['review_note'] = '';
             $fields['reviewed_at'] = null;
         }
-        if ( ! $this->update_row( $review_id, $fields ) ) {
-            return [ 'ok' => false, 'error' => 'update_failed' ];
-        }
         $action = 'pending' === $new_state ? 'reset_to_pending' : $new_state;
-        $this->audit( $review_id, (string) $stored['review_key'], $action, $old_state, $new_state, $execution_state, $execution_state, $actor, $note, $source, (string) $stored['snapshot_hash'] );
+        if ( ! $this->update_with_audit( $stored, $fields, $action, $old_state, $new_state, $execution_state, $execution_state, $actor, $note, $source, (string) $stored['snapshot_hash'] ) ) {
+            return [ 'ok' => false, 'error' => 'mutation_or_audit_failed' ];
+        }
         $this->log( sprintf( 'review #%d %s -> %s by %s (%s)', $review_id, $old_state, $new_state, $actor, $source ) );
         return [ 'ok' => true, 'outcome' => $new_state ];
     }
@@ -549,17 +577,16 @@ class KeywordAssignmentReviewRepository {
         ];
         if ( 'executed' === $execution_state ) { $fields['executed_at'] = $this->now(); }
         if ( 'stale' === $execution_state ) { $fields['stale_reason'] = $this->sanitize_text( $result, 500 ); }
-        if ( ! $this->update_row( $review_id, $fields ) ) {
-            return [ 'ok' => false, 'error' => 'update_failed' ];
+        if ( ! $this->update_with_audit( $stored, $fields, 'execution_' . $execution_state, (string) $stored['review_state'], (string) $stored['review_state'], $old, $execution_state, $actor, $result, $source, (string) $stored['snapshot_hash'] ) ) {
+            return [ 'ok' => false, 'error' => 'mutation_or_audit_failed' ];
         }
-        $this->audit( $review_id, (string) $stored['review_key'], 'execution_' . $execution_state, (string) $stored['review_state'], (string) $stored['review_state'], $old, $execution_state, $actor, $result, $source, (string) $stored['snapshot_hash'] );
         return [ 'ok' => true ];
     }
 
     // ── Audit ─────────────────────────────────────────────────────────────
 
-    private function audit( int $review_id, string $review_key, string $action, string $old_review, string $new_review, string $old_exec, string $new_exec, string $actor, string $note, string $source, string $snapshot_hash ): void {
-        $this->insert_audit_row( [
+    private function audit( int $review_id, string $review_key, string $action, string $old_review, string $new_review, string $old_exec, string $new_exec, string $actor, string $note, string $source, string $snapshot_hash ): bool {
+        return $this->insert_audit_row( [
             'review_id'           => $review_id,
             'review_key'          => $review_key,
             'action'              => $this->sanitize_text( $action, 40 ),
@@ -573,6 +600,16 @@ class KeywordAssignmentReviewRepository {
             'snapshot_hash'       => $this->sanitize_text( $snapshot_hash, 40 ),
             'created_at'          => $this->now(),
         ] );
+    }
+
+    /** Update a review and append its audit as one fail-closed unit. */
+    private function update_with_audit( array $stored, array $fields, string $action, string $old_review, string $new_review, string $old_exec, string $new_exec, string $actor, string $note, string $source, string $snapshot_hash ): bool {
+        $id = (int) $stored['id'];
+        if ( ! $this->transaction( 'START TRANSACTION' ) ) { return false; }
+        if ( ! $this->update_row( $id, $fields ) ) { $this->transaction( 'ROLLBACK' ); return false; }
+        if ( $this->audit( $id, (string) $stored['review_key'], $action, $old_review, $new_review, $old_exec, $new_exec, $actor, $note, $source, $snapshot_hash ) && $this->transaction( 'COMMIT' ) ) { return true; }
+        $this->transaction( 'ROLLBACK' );
+        return false;
     }
 
     // ── Helpers ───────────────────────────────────────────────────────────

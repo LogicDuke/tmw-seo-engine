@@ -54,9 +54,6 @@ final class ReviewFakeAssignmentRepository extends KeywordAssignmentRepository {
     public int $next_id = 1;
     public int $fail_after_inserts = PHP_INT_MAX;
     private int $insert_count = 0;
-    /** @var array<int,string> */
-    public array $candidate_writes = [];
-
     public function table_exists(): bool { return true; }
 
     public function find_assignments_for_candidate( int $candidate_id ): array {
@@ -99,7 +96,7 @@ final class ReviewFakeAssignmentRepository extends KeywordAssignmentRepository {
         if ( isset( $normalized['error'] ) ) { return [ 'ok' => false, 'error' => (string) $normalized['error'] ]; }
         foreach ( $this->rows as $id => $row ) {
             if ( $row['assignment_key'] === $normalized['assignment_key'] ) {
-                foreach ( [ 'target_name', 'target_slug', 'status', 'shared_secondary_allowed', 'conflict_reason', 'approval_reason', 'source_batch_id', 'source_import_row_id', 'source_type', 'source_reference', 'active_in_rank_math', 'present_in_content', 'last_verified_at' ] as $field ) {
+                foreach ( [ 'target_name', 'target_slug', 'role', 'canonical_owner', 'status', 'shared_secondary_allowed', 'conflict_reason', 'approval_reason', 'source_batch_id', 'source_import_row_id', 'source_type', 'source_reference', 'active_in_rank_math', 'present_in_content', 'last_verified_at' ] as $field ) {
                     if ( array_key_exists( $field, $data ) ) { $this->rows[ $id ][ $field ] = $normalized[ $field ]; }
                 }
                 $this->rows[ $id ]['updated_at'] = '2026-07-26 12:30:00';
@@ -134,6 +131,9 @@ final class ReviewFakeRepository extends KeywordAssignmentReviewRepository {
     public array $audit_rows = [];
     public int $next_id = 1;
     public int $clock = 0;
+    public bool $fail_audit = false;
+    /** @var array<string,mixed>|null */
+    private ?array $transaction_snapshot = null;
 
     public function tables_exist(): bool { return true; }
 
@@ -186,7 +186,22 @@ final class ReviewFakeRepository extends KeywordAssignmentReviewRepository {
         return true;
     }
 
+    protected function transaction( string $command ): bool {
+        if ( 'START TRANSACTION' === $command ) {
+            $this->transaction_snapshot = [ 'rows' => $this->rows, 'audit_rows' => $this->audit_rows, 'next_id' => $this->next_id ];
+        } elseif ( 'ROLLBACK' === $command && null !== $this->transaction_snapshot ) {
+            $this->rows = $this->transaction_snapshot['rows'];
+            $this->audit_rows = $this->transaction_snapshot['audit_rows'];
+            $this->next_id = $this->transaction_snapshot['next_id'];
+            $this->transaction_snapshot = null;
+        } elseif ( 'COMMIT' === $command ) {
+            $this->transaction_snapshot = null;
+        }
+        return true;
+    }
+
     protected function insert_audit_row( array $row ): bool {
+        if ( $this->fail_audit ) { return false; }
         $row['id'] = count( $this->audit_rows ) + 1;
         $this->audit_rows[] = $row;
         return true;

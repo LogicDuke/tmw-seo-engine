@@ -174,11 +174,13 @@ class KeywordAssignmentReviewExecutionService {
             'execution_state'   => [ 'not_executed', 'failed' ],
             'report_only'       => 0,
         ];
-        if ( isset( $filters['candidate_id'] ) && (int) $filters['candidate_id'] > 0 ) { $stored_filters['keyword_candidate_id'] = (int) $filters['candidate_id']; }
-        if ( isset( $filters['pool'] ) && '' !== (string) $filters['pool'] ) { $stored_filters['pool'] = (string) $filters['pool']; }
-        if ( isset( $filters['target_id'] ) && (int) $filters['target_id'] > 0 ) { $stored_filters['target_id'] = (int) $filters['target_id']; }
-        if ( isset( $filters['keyword'] ) && '' !== (string) $filters['keyword'] ) { $stored_filters['normalized_keyword'] = (string) $filters['keyword']; }
-        if ( isset( $filters['classification'] ) && '' !== (string) $filters['classification'] ) { $stored_filters['classification'] = (string) $filters['classification']; }
+        $aliases = [ 'candidate_id' => 'keyword_candidate_id', 'keyword' => 'normalized_keyword' ];
+        foreach ( $filters as $column => $value ) {
+            $column = $aliases[ $column ] ?? $column;
+            if ( 'review_ids' !== $column && in_array( (string) $column, KeywordAssignmentReviewRepository::FILTERABLE_COLUMNS, true ) ) {
+                $stored_filters[ $column ] = $value;
+            }
+        }
 
         $records = $this->reviews->list_reviews( $stored_filters );
 
@@ -269,7 +271,12 @@ class KeywordAssignmentReviewExecutionService {
                 'keyword_candidate_id', 'pool', 'page_type', 'target_type', 'target_id', 'target_key', 'role', 'canonical_owner',
             ] ) );
             foreach ( (array) ( $action['changed_fields'] ?? [] ) as $field ) {
-                $partial[ $field ] = $payload[ $field ] ?? '';
+                if ( ! array_key_exists( $field, $payload ) ) {
+                    $error = 'missing_payload_field_' . (string) $field;
+                    $this->reviews->mark_execution( $review_id, 'failed', $error, $actor, $source );
+                    return [ 'bucket' => 'failed', 'outcome' => 'failed', 'error' => $error ];
+                }
+                $partial[ $field ] = $payload[ $field ];
             }
             $result = $this->assignments->upsert_assignment( $partial );
             if ( empty( $result['ok'] ) ) {

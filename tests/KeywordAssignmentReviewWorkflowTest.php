@@ -151,6 +151,8 @@ final class KeywordAssignmentReviewWorkflowTest extends TestCase {
         $this->evidence->rows = [ $row, $row ];
 
         $report = $this->sync->sync();
+        $this->assertCount( 1, $this->reviews->rows, 'Duplicate evidence yields exactly one review record.' );
+        $this->assertSame( 1, $report['counts']['inserted'] );
         $identities = array_unique( array_map( fn ( $r ) => (string) $r['review_key'], $this->reviews->rows ) );
         $this->assertCount( count( $this->reviews->rows ), $identities, 'No duplicate review identities.' );
         $this->assertSame( 0, $report['counts']['failed'] );
@@ -317,11 +319,12 @@ final class KeywordAssignmentReviewWorkflowTest extends TestCase {
         $this->evidence->rows = [ $this->evidenceRow( 1, 'alpha phrase' ) ];
         $this->sync->sync();
         $id = (int) array_values( $this->reviews->rows )[0]['id'];
+        $candidate_rows_before = $this->evidence->rows;
 
         $result = $this->reviews->transition_review_state( $id, 'rejected', 'op-a', 'not wanted', 'test' );
         $this->assertTrue( $result['ok'] );
         $this->assertSame( [], $this->assignments->rows, 'Rejection writes no assignment rows.' );
-        $this->assertSame( [], $this->assignments->candidate_writes, 'Rejection never touches candidate rows.' );
+        $this->assertSame( $candidate_rows_before, $this->evidence->rows, 'The candidate evidence rows are byte-identical after rejection.' );
         $this->assertSame( 'rejected', $this->reviews->rows[ $id ]['review_state'] );
     }
 
@@ -381,5 +384,19 @@ final class KeywordAssignmentReviewWorkflowTest extends TestCase {
         $this->assertSame( 'rejected', $reset['old_review_state'] );
         $this->assertSame( 'pending', $reset['new_review_state'] );
         $this->assertSame( 'reviewer-two', $reset['actor'], 'Reset clears the record fields but the audit keeps the actor forever.' );
+    }
+
+    public function test_review_transition_rolls_back_when_audit_insert_fails(): void {
+        $this->evidence->rows = [ $this->evidenceRow( 1, 'alpha phrase' ) ];
+        $this->sync->sync();
+        $id = (int) array_values( $this->reviews->rows )[0]['id'];
+        $audit_before = $this->reviews->audit_rows;
+        $this->reviews->fail_audit = true;
+
+        $result = $this->reviews->transition_review_state( $id, 'approved', 'op-a', '', 'test' );
+
+        $this->assertFalse( $result['ok'] );
+        $this->assertSame( 'pending', $this->reviews->rows[ $id ]['review_state'] );
+        $this->assertSame( $audit_before, $this->reviews->audit_rows );
     }
 }
