@@ -435,10 +435,10 @@ class KeywordAssignmentMigrationAnalyzer {
 
     private function find_existing_identity( array $existing, array $payload ): ?array {
         $repository = new KeywordAssignmentRepository();
-        $normalized_payload = $repository->normalize_assignment( $payload );
+        $normalized_payload = $this->normalize_assignment_identity( $repository, $payload );
         if ( isset( $normalized_payload['error'] ) ) { return null; }
         foreach ( $existing as $assignment ) {
-            $normalized_assignment = $repository->normalize_assignment( $assignment );
+            $normalized_assignment = $this->normalize_assignment_identity( $repository, $assignment );
             if ( ! isset( $normalized_assignment['error'] )
                 && (string) $normalized_assignment['pool'] === (string) $normalized_payload['pool']
                 && (string) $normalized_assignment['page_type'] === (string) $normalized_payload['page_type']
@@ -451,10 +451,20 @@ class KeywordAssignmentMigrationAnalyzer {
         return null;
     }
 
+    /** Normalize identity inputs before repository validation and comparison. */
+    private function normalize_assignment_identity( KeywordAssignmentRepository $repository, array $assignment ): array {
+        foreach ( [ 'pool', 'page_type', 'target_type' ] as $field ) {
+            if ( isset( $assignment[ $field ] ) ) {
+                $assignment[ $field ] = strtolower( (string) $assignment[ $field ] );
+            }
+        }
+        return $repository->normalize_assignment( $assignment );
+    }
+
     private function same_identity_as_target( array $assignment, array $target ): bool {
         $repository = new KeywordAssignmentRepository();
-        $normalized_assignment = $repository->normalize_assignment( $assignment );
-        $normalized_target = $repository->normalize_assignment( [
+        $normalized_assignment = $this->normalize_assignment_identity( $repository, $assignment );
+        $normalized_target = $this->normalize_assignment_identity( $repository, [
             'keyword_candidate_id' => (int) ( $assignment['keyword_candidate_id'] ?? 1 ),
             'pool' => (string) ( $target['pool'] ?? $assignment['pool'] ?? 'migration' ),
             'page_type' => ! empty( $target['is_global'] ) ? 'global' : (string) $target['target_type'],
