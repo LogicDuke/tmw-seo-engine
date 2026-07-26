@@ -383,18 +383,21 @@ class KeywordPoolImportHistoryStaticTest extends TestCase {
         $this->assertStringContainsString('check_admin_referer', $this->admin);
         $this->assertStringContainsString('current_user_can(self::CAPABILITY)', $this->admin);
         $this->assertStringContainsString('approve_import_row_as_candidate', $this->service);
+        // Approval semantics remain unchanged by PR-B.
         $this->assertStringContainsString("'status' => 'approved'", $this->admin);
         $this->assertStringContainsString("'result_reason' => 'manually_approved'", $this->admin);
-        $this->assertStringContainsString("'status' => 'rejected'", $this->admin);
-        $this->assertStringContainsString("'result_reason' => 'manually_rejected'", $this->admin);
-        $this->assertStringContainsString("update_candidate_status(\$candidate_id, 'ignored')", $this->admin);
         $this->assertStringContainsString("if (\$candidate_id > 0 && \$repository->update_candidate_status(\$candidate_id, 'approved'))", $this->admin);
-        $this->assertStringContainsString('approve_import_row_as_candidate($row, $batch)', $this->admin);
-        $this->assertStringContainsString('candidate_write_failed', $this->admin);
+        $this->assertStringContainsString('approve_import_row_as_candidate_result($row, $batch)', $this->admin);
         $this->assertStringContainsString('if ($approved_candidate_id > 0)', $this->admin);
-        $this->assertStringContainsString('$can_reject = true', $this->admin);
-        $this->assertStringContainsString("\$can_reject = \$repository->update_candidate_status(\$candidate_id, 'ignored')", $this->admin);
-        $this->assertStringContainsString('if ($can_reject)', $this->admin);
+        // PR-B scoped rejection: the manual Reject path is row-only.
+        $this->assertStringContainsString("'status' => 'rejected'", $this->admin);
+        $this->assertStringContainsString("'result_reason' => 'manually_rejected_row_only'", $this->admin);
+        $this->assertStringContainsString('[TMW-KW-SCOPED-REJECT] begin row-only rejection', $this->admin);
+        $this->assertStringContainsString('[TMW-KW-SCOPED-REJECT] end row-only rejection', $this->admin);
+        // The unsafe global demotion must never return to the Reject path.
+        $this->assertStringNotContainsString("update_candidate_status(\$candidate_id, 'ignored')", $this->admin);
+        $this->assertStringNotContainsString('manual_rejection_failed', $this->admin);
+        $this->assertStringNotContainsString('candidate_status_update_failed', $this->admin);
         $this->assertStringContainsString('SELECT id FROM {$table} WHERE id = %d LIMIT 1', $this->repository);
     }
 
