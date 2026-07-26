@@ -506,6 +506,105 @@ class Schema {
         update_option('tmw_keyword_import_rows_schema_error', $message, false);
     }
 
+    /**
+     * PR-C — single DDL source for {$prefix}tmw_keyword_assignments.
+     *
+     * Both the activation installer (create_or_update_tables) and the runtime
+     * guard (ensure_keyword_assignments_schema) run dbDelta against this exact
+     * string, so install and upgrade paths cannot drift and re-running either
+     * is idempotent by construction. Additive only: no existing table is
+     * touched, no data is read or written, no backfill occurs here.
+     *
+     * Primary-owner uniqueness per candidate is deliberately NOT an SQL
+     * constraint: MySQL/MariaDB has no partial unique index, and a generated-
+     * column workaround is incompatible with dbDelta. The invariant is
+     * enforced transactionally in KeywordAssignmentRepository::set_primary_owner().
+     * The compact UNIQUE assignment_key (sha1 of the normalized identity
+     * tuple) enforces one row per assignment identity without hitting
+     * utf8mb4 composite-index length limits.
+     */
+    public static function get_keyword_assignments_schema_sql(string $table, string $charset_collate): string {
+        return "CREATE TABLE $table (
+            id BIGINT(20) UNSIGNED NOT NULL AUTO_INCREMENT,
+            keyword_candidate_id BIGINT(20) UNSIGNED NOT NULL,
+            assignment_key CHAR(40) NOT NULL,
+            pool VARCHAR(30) NOT NULL,
+            page_type VARCHAR(50) NOT NULL,
+            target_type VARCHAR(50) NOT NULL DEFAULT '',
+            target_id BIGINT(20) UNSIGNED NULL,
+            target_key VARCHAR(191) NOT NULL,
+            target_name VARCHAR(255) NULL,
+            target_slug VARCHAR(191) NULL,
+            role VARCHAR(20) NOT NULL DEFAULT 'secondary',
+            status VARCHAR(30) NOT NULL DEFAULT 'review_required',
+            canonical_owner TINYINT(1) NOT NULL DEFAULT 0,
+            shared_secondary_allowed TINYINT(1) NOT NULL DEFAULT 0,
+            conflict_reason VARCHAR(191) NULL,
+            approval_reason VARCHAR(191) NULL,
+            source_batch_id BIGINT(20) UNSIGNED NULL,
+            source_import_row_id BIGINT(20) UNSIGNED NULL,
+            source_type VARCHAR(50) NULL,
+            source_reference VARCHAR(191) NULL,
+            active_in_rank_math TINYINT(1) NOT NULL DEFAULT 0,
+            present_in_content TINYINT(1) NOT NULL DEFAULT 0,
+            last_verified_at DATETIME NULL,
+            created_at DATETIME NOT NULL,
+            updated_at DATETIME NOT NULL,
+            PRIMARY KEY (id),
+            UNIQUE KEY assignment_key (assignment_key),
+            KEY candidate (keyword_candidate_id),
+            KEY candidate_owner (keyword_candidate_id, canonical_owner, status),
+            KEY candidate_target (keyword_candidate_id, target_type, target_id),
+            KEY target_lookup (pool, page_type, target_type, target_id),
+            KEY target_key (target_key),
+            KEY role_status (role, status),
+            KEY status (status),
+            KEY source_batch_id (source_batch_id)
+        ) $charset_collate;";
+    }
+
+    /**
+     * PR-C — ensure the keyword assignments table exists on upgraded installs.
+     *
+     * Mirrors ensure_keyword_import_history_schema(): WP Pusher and file-drop
+     * updates do not re-run activation hooks, so this runtime guard creates
+     * the table additively when missing. Safe to run repeatedly: once the
+     * table exists and the version option is current, it returns without
+     * touching the database beyond the existence check. Never reads or writes
+     * candidate rows and never backfills assignment data.
+     */
+    public static function ensure_keyword_assignments_schema(): bool {
+        global $wpdb;
+
+        $target_version = 1;
+        $version_option = 'tmw_keyword_assignments_schema_version';
+        $table = $wpdb->prefix . 'tmw_keyword_assignments';
+
+        if (empty(self::missing_tables([ $table ])) && (int) get_option($version_option, 0) >= $target_version) {
+            return true;
+        }
+
+        if (!function_exists('dbDelta')) {
+            if (!defined('ABSPATH') || !is_readable(ABSPATH . 'wp-admin/includes/upgrade.php')) {
+                error_log('[TMW-KW-ASSIGN-SCHEMA] dbDelta unavailable; assignments table not created.');
+                return false;
+            }
+            require_once ABSPATH . 'wp-admin/includes/upgrade.php';
+        }
+
+        dbDelta(self::get_keyword_assignments_schema_sql($table, $wpdb->get_charset_collate()));
+        self::clear_table_exists_cache([ $table ]);
+
+        if (!empty(self::missing_tables([ $table ]))) {
+            error_log('[TMW-KW-ASSIGN-SCHEMA] Assignments table missing after dbDelta.');
+            return false;
+        }
+
+        update_option($version_option, $target_version, false);
+        error_log('[TMW-KW-ASSIGN-SCHEMA] Keyword assignments table verified/created (schema v' . $target_version . ').');
+        return true;
+    }
+
     private static function safe_sql_hash(string $sql): string {
         return hash('sha256', $sql);
     }
@@ -593,6 +692,7 @@ class Schema {
         // Keyword intelligence (alpha.8)
         $keyword_raw = $wpdb->prefix . 'tmw_keyword_raw';
         $keyword_candidates = $wpdb->prefix . 'tmw_keyword_candidates';
+        $keyword_assignments = $wpdb->prefix . 'tmw_keyword_assignments';
         $keyword_import_batches = $wpdb->prefix . 'tmw_keyword_import_batches';
         $keyword_import_rows = $wpdb->prefix . 'tmw_keyword_import_rows';
         $keyword_blacklist = $wpdb->prefix . 'tmw_keyword_blacklist';
@@ -1529,6 +1629,8 @@ $sql_legacy_rank = "CREATE TABLE $legacy_rank (
         dbDelta($sql_aff_clicks);
         dbDelta($sql_keyword_raw);
         dbDelta($sql_keyword_candidates);
+        // PR-C: keyword assignment layer (additive; identity/assignment separation).
+        dbDelta(self::get_keyword_assignments_schema_sql($keyword_assignments, $charset_collate));
         dbDelta($sql_keyword_import_batches);
         self::run_keyword_import_rows_dbdelta($sql_keyword_import_rows, $keyword_import_rows);
         dbDelta($sql_keyword_blacklist);
