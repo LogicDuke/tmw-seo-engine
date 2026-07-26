@@ -30,7 +30,6 @@ final class KeywordOwnershipReportServiceTestable extends KeywordOwnershipReport
     public array $fixture_cannibal         = [];
     public array $fixture_pages            = [];
     public array $fixture_existing_tables  = [];
-    private bool $chunk_served             = false;
 
     protected function table_exists( string $table ): bool {
         return in_array( $table, $this->fixture_existing_tables, true );
@@ -62,6 +61,7 @@ final class KeywordOwnershipReportServiceTestable extends KeywordOwnershipReport
             $map[ $key ]['count']++;
         }
         $reflection = new \ReflectionProperty( KeywordOwnershipReportService::class, 'cluster_map' );
+        $reflection->setAccessible( true );
         $reflection->setValue( $this, $map );
     }
 
@@ -105,7 +105,7 @@ final class KeywordOwnershipReportServiceTestable extends KeywordOwnershipReport
  * Recording wpdb stub: read calls succeed with empty data; any mutating call
  * is recorded so the write-safety test can assert none happened.
  */
-final class KeywordOwnershipReportRecordingWpdb {
+class KeywordOwnershipReportRecordingWpdb {
     public string $prefix   = 'wp_';
     public string $postmeta = 'wp_postmeta';
     public string $posts    = 'wp_posts';
@@ -503,6 +503,7 @@ final class KeywordOwnershipReportServiceTest extends TestCase {
         $service->fixture_postmeta = [ 'xi phrase fifteen' => [ [ 'post_id' => 42, 'role' => 'primary' ] ] ];
         $service->fixture_usage    = [ 'xi phrase fifteen' => [ [ 'keyword_text' => 'xi phrase fifteen', 'use_count' => 3 ] ] ];
         $service->fixture_cannibal = [ 'xi phrase fifteen' => [ [ 'keyword_text' => 'xi phrase fifteen', 'severity' => 'warning' ] ] ];
+        $service->fixture_pages[42] = [ 'post_type' => 'post', 'rankmath_csv' => '', 'content_normalized' => '' ];
         // No page fixture for 907 → unresolvable.
 
         $rows = $this->rows( $service );
@@ -512,5 +513,94 @@ final class KeywordOwnershipReportServiceTest extends TestCase {
         $this->assertSame( 3, $rows[0]['usage_registry'][0]['use_count'] );
         $this->assertSame( 'warning', $rows[0]['cannibalization_flags'][0]['severity'] );
     }
-}
 
+    public function test_category_entity_id_is_not_guessed_to_be_a_post_id(): void {
+        $service = $this->service();
+        $service->fixture_candidates = [ $this->candidate( 29, 'registry phrase', [ 'entity_id' => 990 ] ) ];
+        $service->fixture_pages[990] = [ 'post_type' => 'post', 'rankmath_csv' => 'registry phrase', 'content_normalized' => 'registry phrase' ];
+
+        $row = $this->rows( $service )[0];
+
+        $this->assertSame( [], $row['rankmath_presence'] );
+        $this->assertSame( [ 990 ], $row['target_unresolvable'] );
+    }
+
+    public function test_post_backed_entity_id_resolves_directly(): void {
+        $service = $this->service();
+        $service->fixture_candidates = [ $this->candidate( 30, 'model registry phrase', [ 'entity_type' => 'model', 'entity_id' => 991 ] ) ];
+        $service->fixture_pages[991] = [ 'post_type' => 'model', 'rankmath_csv' => 'model registry phrase', 'content_normalized' => 'model registry phrase' ];
+
+        $row = $this->rows( $service )[0];
+
+        $this->assertSame( 'primary', $row['rankmath_presence'][0]['rankmath_role'] );
+        $this->assertSame( [], $row['target_unresolvable'] );
+    }
+
+    public function test_candidate_owner_and_linked_target_are_shared_across_targets(): void {
+        $service = $this->service();
+        $service->fixture_candidates = [ $this->candidate( 31, 'shared owner phrase', [ 'target_type' => 'tmw_category_page', 'target_id' => 1001 ] ) ];
+        $service->fixture_batches = [ $this->batch( 31, 'category', 1002, 'Target B' ) ];
+        $service->fixture_rows_by_cid = [ $this->importRow( 310, 31, 'shared owner phrase', [ 'candidate_id' => 31 ] ) ];
+
+        $this->assertCount( 1, $this->rows( $service, [ 'shared_candidate_ids_only' => true ] ) );
+        $this->assertCount( 1, $this->rows( $service, [ 'conflicts_only' => true ] ) );
+    }
+
+    public function test_repeated_candidate_links_to_owner_target_are_not_cross_target(): void {
+        $service = $this->service();
+        $service->fixture_candidates = [ $this->candidate( 32, 'same owner phrase', [ 'target_type' => 'tmw_category_page', 'target_id' => 1003 ] ) ];
+        $service->fixture_batches = [ $this->batch( 32, 'category', 1003, 'Target A' ), $this->batch( 33, 'category', 1003, 'Target A' ) ];
+        $service->fixture_rows_by_cid = [
+            $this->importRow( 320, 32, 'same owner phrase', [ 'candidate_id' => 32 ] ),
+            $this->importRow( 321, 33, 'same owner phrase', [ 'candidate_id' => 32 ] ),
+        ];
+
+        $this->assertFalse( $this->rows( $service )[0]['candidate_id_shared_across_targets'] );
+    }
+
+    public function test_primary_and_secondary_postmeta_pages_are_scanned_for_presence(): void {
+        $service = $this->service();
+        $service->fixture_candidates = [ $this->candidate( 33, 'owned registry phrase', [ 'status' => 'approved' ] ) ];
+        $service->fixture_postmeta = [ 'owned registry phrase' => [
+            [ 'post_id' => 1004, 'role' => 'primary' ],
+            [ 'post_id' => 1005, 'role' => 'secondary' ],
+        ] ];
+        $service->fixture_pages = [
+            1004 => [ 'post_type' => 'post', 'rankmath_csv' => '', 'content_normalized' => 'owned registry phrase' ],
+            1005 => [ 'post_type' => 'post', 'rankmath_csv' => 'owned registry phrase', 'content_normalized' => 'unrelated body' ],
+        ];
+
+        $row = $this->rows( $service )[0];
+
+        $this->assertFalse( $row['approved_but_unused'] );
+        $this->assertTrue( $row['active_but_unsupported'] );
+        $this->assertCount( 2, $row['rankmath_presence'] );
+        $this->assertSame( 'secondary', $row['postmeta_ownership'][1]['role'] );
+    }
+
+    public function test_secondary_registry_source_is_loaded_once_when_reused_across_chunks(): void {
+        $wpdb = new class extends KeywordOwnershipReportRecordingWpdb {
+            public function get_results( string $sql, string $output = 'OBJECT' ): array {
+                $this->read_sql[] = $sql;
+                if ( false !== strpos( $sql, "meta_key = '_tmwseo_secondary_keywords'" ) ) {
+                    return [ [ 'post_id' => 1006, 'meta_value' => '["boundary phrase"]' ] ];
+                }
+                return [];
+            }
+        };
+        $GLOBALS['wpdb'] = $wpdb;
+        $service = new KeywordOwnershipReportService();
+        $method = new \ReflectionMethod( KeywordOwnershipReportService::class, 'secondary_ownership_index' );
+        $method->setAccessible( true );
+
+        $first_chunk  = $method->invoke( $service );
+        $second_chunk = $method->invoke( $service );
+        $secondary_queries = array_filter( $wpdb->read_sql, static function ( string $sql ): bool {
+            return false !== strpos( $sql, "meta_key = '_tmwseo_secondary_keywords'" );
+        } );
+
+        $this->assertSame( $first_chunk, $second_chunk );
+        $this->assertArrayHasKey( 'boundary phrase', $second_chunk );
+        $this->assertCount( 1, $secondary_queries );
+    }
+}

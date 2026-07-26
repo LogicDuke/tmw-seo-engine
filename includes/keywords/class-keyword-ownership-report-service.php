@@ -72,6 +72,9 @@ class KeywordOwnershipReportService {
     /** @var array<string,array<string,bool>> table => column map */
     private array $columns_cache = [];
 
+    /** @var array<string,array<int,array{post_id:int,role:string}>>|null */
+    private ?array $secondary_ownership_index = null;
+
     private bool $ran = false;
 
     public function __construct( ?KeywordPoolCandidateRepository $normalizer = null ) {
@@ -98,6 +101,7 @@ class KeywordOwnershipReportService {
         $this->reset_summary();
         $this->missing_optional_tables = [];
         $this->page_cache              = [];
+        $this->secondary_ownership_index = null;
         $this->ran                     = true;
 
         if ( ! $this->table_exists( $this->candidates_table() ) ) {
@@ -279,9 +283,11 @@ class KeywordOwnershipReportService {
             if ( 'global' !== $own_target_type && $own_target_id > 0 ) {
                 $page_ids[ $own_target_id ] = true;
             }
+            $shared_targets[ $key ] = true;
         }
         $entity_id = (int) ( $candidate['entity_id'] ?? 0 );
-        if ( $entity_id > 0 ) {
+        $entity_type = (string) ( $candidate['entity_type'] ?? '' );
+        if ( $entity_id > 0 && $this->is_post_backed_type( $entity_type, $own_target_type ) ) {
             $page_ids[ $entity_id ] = true;
         }
 
@@ -348,6 +354,13 @@ class KeywordOwnershipReportService {
         $cross_pool  = count( $batch_pools ) >= 2
             || ( '' !== $intent_type && [] !== $batch_pools && ! isset( $batch_pools[ $intent_type ] ) );
 
+        // Registry ownership is another proven post association, not merely
+        // diagnostic decoration; scan every such page before deriving usage.
+        foreach ( $postmeta_ownership[ $normalized ] ?? [] as $ownership ) {
+            $post_id = (int) ( $ownership['post_id'] ?? 0 );
+            if ( $post_id > 0 ) { $page_ids[ $post_id ] = true; }
+        }
+
         // Page-level Rank Math / content presence.
         $pages          = $this->load_pages( array_keys( $page_ids ) );
         $rankmath       = [];
@@ -357,6 +370,11 @@ class KeywordOwnershipReportService {
         $in_rankmath    = false;
         $in_content     = false;
         $active_unsupported = false;
+        if ( $entity_id > 0 && ! $this->is_post_backed_type( $entity_type, $own_target_type ) && 0 === $own_target_id ) {
+            // Category/taxonomy entity IDs are term/registry identities, never
+            // guessed to be post IDs when no mapped target page is present.
+            $unresolvable[] = $entity_id;
+        }
         foreach ( array_keys( $page_ids ) as $pid ) {
             $page = $pages[ $pid ] ?? null;
             if ( null === $page ) {
@@ -391,7 +409,7 @@ class KeywordOwnershipReportService {
             'normalized_keyword'                 => $normalized,
             'status'                             => $status,
             'intent_type'                        => $intent_type,
-            'entity_type'                        => (string) ( $candidate['entity_type'] ?? '' ),
+            'entity_type'                        => $entity_type,
             'entity_id'                          => $entity_id,
             'target_type'                        => $own_target_type,
             'target_id'                          => $own_target_id,
@@ -540,6 +558,13 @@ class KeywordOwnershipReportService {
         }
         return false !== strpos( ' ' . $normalized_content . ' ', ' ' . $normalized_keyword . ' ' )
             || false !== strpos( $normalized_content, $normalized_keyword );
+    }
+
+    /** Entity IDs are page IDs only when the stored type proves post backing. */
+    private function is_post_backed_type( string $entity_type, string $target_type ): bool {
+        $post_backed = [ 'model', 'model_page', 'video', 'video_page', 'post', 'page' ];
+        return in_array( strtolower( trim( $entity_type ) ), $post_backed, true )
+            || in_array( strtolower( trim( $target_type ) ), $post_backed, true );
     }
 
     private function cluster_key( string $keyword, string $canonical ): string {
@@ -716,8 +741,8 @@ class KeywordOwnershipReportService {
 
     /**
      * Post-meta ownership registry (_tmwseo_keyword primary exact matches in
-     * SQL; _tmwseo_secondary_keywords fetched once per chunk and matched in
-     * PHP because it stores CSV/JSON).
+     * SQL; _tmwseo_secondary_keywords normalized once per report run because
+     * it stores CSV/JSON).
      *
      * @param array<int,string> $keywords
      * @return array<string,array<int,array<string,mixed>>>
@@ -735,23 +760,44 @@ class KeywordOwnershipReportService {
             $normalized = $this->normalizer->normalize_keyword( (string) $row['meta_value'] );
             $indexed[ $normalized ][] = [ 'post_id' => (int) $row['post_id'], 'role' => 'primary' ];
         }
-        $secondaries = $wpdb->get_results(
+        $keyword_set = array_flip( $keywords );
+        foreach ( $this->secondary_ownership_index() as $normalized => $owners ) {
+            if ( isset( $keyword_set[ $normalized ] ) ) {
+                $indexed[ $normalized ] = array_merge( $indexed[ $normalized ] ?? [], $owners );
+            }
+        }
+        return $indexed;
+    }
+
+    /**
+     * Load the secondary registry once, retaining only its compact normalized
+     * keyword-to-post index. This trades one run-bounded index for avoiding a
+     * full postmeta result set and query on every 500-candidate chunk.
+     *
+     * @return array<string,array<int,array{post_id:int,role:string}>>
+     */
+    protected function secondary_ownership_index(): array {
+        if ( null !== $this->secondary_ownership_index ) {
+            return $this->secondary_ownership_index;
+        }
+        global $wpdb;
+        $this->secondary_ownership_index = [];
+        $rows = $wpdb->get_results(
             "SELECT post_id, meta_value FROM {$wpdb->postmeta} WHERE meta_key = '_tmwseo_secondary_keywords' AND meta_value != ''",
             ARRAY_A
         );
-        $keyword_set = array_flip( $keywords );
-        foreach ( is_array( $secondaries ) ? $secondaries : [] as $row ) {
+        foreach ( is_array( $rows ) ? $rows : [] as $row ) {
             $decoded = json_decode( (string) $row['meta_value'], true );
             $terms   = is_array( $decoded ) ? $decoded : explode( ',', (string) $row['meta_value'] );
             foreach ( $terms as $term ) {
                 if ( ! is_scalar( $term ) ) { continue; }
                 $normalized = $this->normalizer->normalize_keyword( (string) $term );
-                if ( isset( $keyword_set[ $normalized ] ) ) {
-                    $indexed[ $normalized ][] = [ 'post_id' => (int) $row['post_id'], 'role' => 'secondary' ];
+                if ( '' !== $normalized ) {
+                    $this->secondary_ownership_index[ $normalized ][] = [ 'post_id' => (int) $row['post_id'], 'role' => 'secondary' ];
                 }
             }
         }
-        return $indexed;
+        return $this->secondary_ownership_index;
     }
 
     /** @param array<int,string> $keywords @return array<string,array<int,array<string,mixed>>> */
