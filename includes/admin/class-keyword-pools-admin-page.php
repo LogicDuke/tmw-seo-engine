@@ -413,26 +413,31 @@ class KeywordPoolsAdminPage {
                 ]);
             }
         } else {
-            $can_reject = true;
-            if ($candidate_id > 0) {
-                $can_reject = $repository->update_candidate_status($candidate_id, 'ignored');
-            }
-            if ($can_reject) {
-                $repository->update_import_row($row_id, [
-                    'status' => 'rejected',
-                    'result_action' => 'rejected',
-                    'result_reason' => 'manually_rejected',
-                    'reviewed_by' => get_current_user_id(),
-                    'reviewed_at' => $now,
-                ]);
-            } else {
-                $repository->update_import_row($row_id, [
-                    'result_action' => 'manual_rejection_failed',
-                    'result_reason' => 'candidate_status_update_failed',
-                    'reviewed_by' => get_current_user_id(),
-                    'reviewed_at' => $now,
-                ]);
-            }
+            // [TMW-KW-SCOPED-REJECT] begin row-only rejection
+            // The candidate table holds one globally unique row per keyword,
+            // and that row can be referenced by other import rows, batches,
+            // pools, targets, and page types. The previous implementation
+            // demoted that shared candidate row here, which rejected the
+            // keyword everywhere it is consumed. Manual Reject is therefore
+            // scoped to the selected import row only; the linked candidate is
+            // intentionally never read or written.
+            $prior_row_status = (string) ($row['status'] ?? '');
+            $row_updated = $repository->update_import_row($row_id, [
+                'status' => 'rejected',
+                'result_action' => 'rejected',
+                'result_reason' => 'manually_rejected_row_only',
+                'reviewed_by' => get_current_user_id(),
+                'reviewed_at' => $now,
+            ]);
+            error_log(sprintf(
+                '[TMW-KW-SCOPED-REJECT] row=%d batch=%d prior_status=%s new_status=%s candidate_id=%d candidate_mutation=skipped',
+                $row_id,
+                $batch_id,
+                '' !== $prior_row_status ? $prior_row_status : 'unknown',
+                $row_updated ? 'rejected' : 'unchanged_row_update_failed',
+                $candidate_id
+            ));
+            // [TMW-KW-SCOPED-REJECT] end row-only rejection
         }
         $repository->recalculate_batch_counts($batch_id);
 
@@ -1082,6 +1087,8 @@ class KeywordPoolsAdminPage {
         $rows = $repository->query_rows($batch_id, $status_query, $page_size, $offset, $sort['orderby'], $sort['order'], $search);
         echo '<hr /><h2>' . esc_html__('Import Batch', 'tmwseo') . ': ' . esc_html((string) ($batch['source_file'] ?: $batch['source_batch'] ?: $batch['import_batch_id'])) . '</h2>';
         echo '<p>' . esc_html(sprintf('Target: %s. Imported: %s. Total rows: %d. Page %d of %d.', (string) ($batch['target_name'] ?? ''), (string) ($batch['imported_at'] ?? ''), $total_rows, $current_page, $total_pages)) . '</p>';
+        // [TMW-KW-SCOPED-REJECT] Reject scope disclosure for reviewers.
+        echo '<p class="description">' . esc_html__('Rejecting an import row affects this review row only. It does not remove or demote the keyword from other targets or pools.', 'tmwseo') . '</p>';
         // [TMW-BATCH-FILTER-ROW] Search controls and persisted-status filters share one
         // horizontal flex row; filters are emitted after the Search Keywords button.
         echo '<div class="tmwseo-batch-controls" style="display:flex;align-items:center;flex-wrap:wrap;gap:10px;margin:8px 0 12px;">';
