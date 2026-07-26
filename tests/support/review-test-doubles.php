@@ -54,6 +54,10 @@ final class ReviewFakeAssignmentRepository extends KeywordAssignmentRepository {
     public int $next_id = 1;
     public int $fail_after_inserts = PHP_INT_MAX;
     private int $insert_count = 0;
+    /** Any candidate-row mutation attempted by this workflow is recorded. */
+    public array $candidate_writes = [];
+    /** @var array<int,int> Assignment IDs sent through the dedicated owner path. */
+    public array $primary_owner_transitions = [];
     public function table_exists(): bool { return true; }
 
     public function find_assignments_for_candidate( int $candidate_id ): array {
@@ -96,7 +100,7 @@ final class ReviewFakeAssignmentRepository extends KeywordAssignmentRepository {
         if ( isset( $normalized['error'] ) ) { return [ 'ok' => false, 'error' => (string) $normalized['error'] ]; }
         foreach ( $this->rows as $id => $row ) {
             if ( $row['assignment_key'] === $normalized['assignment_key'] ) {
-                foreach ( [ 'target_name', 'target_slug', 'role', 'canonical_owner', 'status', 'shared_secondary_allowed', 'conflict_reason', 'approval_reason', 'source_batch_id', 'source_import_row_id', 'source_type', 'source_reference', 'active_in_rank_math', 'present_in_content', 'last_verified_at' ] as $field ) {
+                foreach ( [ 'target_name', 'target_slug', 'status', 'shared_secondary_allowed', 'conflict_reason', 'approval_reason', 'source_batch_id', 'source_import_row_id', 'source_type', 'source_reference', 'active_in_rank_math', 'present_in_content', 'last_verified_at' ] as $field ) {
                     if ( array_key_exists( $field, $data ) ) { $this->rows[ $id ][ $field ] = $normalized[ $field ]; }
                 }
                 $this->rows[ $id ]['updated_at'] = '2026-07-26 12:30:00';
@@ -105,6 +109,29 @@ final class ReviewFakeAssignmentRepository extends KeywordAssignmentRepository {
         }
         $created = $this->create_assignment( $data );
         return ! empty( $created['ok'] ) ? [ 'ok' => true, 'id' => (int) $created['id'], 'action' => 'created' ] : $created;
+    }
+
+    public function set_primary_owner( int $assignment_id ): bool {
+        $this->primary_owner_transitions[] = $assignment_id;
+        if ( ! isset( $this->rows[ $assignment_id ] ) ) { return false; }
+        $candidate_id = (int) $this->rows[ $assignment_id ]['keyword_candidate_id'];
+        foreach ( $this->rows as $id => $row ) {
+            if ( $id !== $assignment_id && (int) $row['keyword_candidate_id'] === $candidate_id
+                && 'primary' === $row['role'] && 1 === (int) $row['canonical_owner']
+                && in_array( $row['status'], self::ACTIVE_STATUSES, true ) ) {
+                return false;
+            }
+        }
+        $this->rows[ $assignment_id ]['role'] = 'primary';
+        $this->rows[ $assignment_id ]['canonical_owner'] = 1;
+        return true;
+    }
+
+    public function clear_primary_owner( int $assignment_id ): bool {
+        if ( ! isset( $this->rows[ $assignment_id ] ) ) { return false; }
+        $this->rows[ $assignment_id ]['role'] = 'secondary';
+        $this->rows[ $assignment_id ]['canonical_owner'] = 0;
+        return true;
     }
 
     public function find_assignments_by_source( array $source_types, string $source_reference = '' ): array {

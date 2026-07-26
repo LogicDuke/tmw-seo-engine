@@ -107,6 +107,7 @@ final class KeywordAssignmentReviewExecutionTest extends TestCase {
         $this->reviews->transition_review_state( (int) $this->reviewFor( 2 )['id'], 'rejected', 'op-a', '', 'test' );
         $this->reviews->transition_review_state( (int) $this->reviewFor( 3 )['id'], 'deferred', 'op-a', '', 'test' );
         // candidate 4 stays pending
+        $candidate_rows_before = $this->evidence->rows;
 
         $report = $this->executor->execute_approved( [], true );
 
@@ -120,6 +121,35 @@ final class KeywordAssignmentReviewExecutionTest extends TestCase {
         $this->assertSame( 'executed', $this->reviews->rows[ (int) $this->reviewFor( 1 )['id'] ]['execution_state'] );
         $this->assertSame( 'not_executed', $this->reviews->rows[ (int) $this->reviewFor( 4 )['id'] ]['execution_state'] );
         $this->assertSame( [], $this->assignments->candidate_writes, 'Execution never touches candidate rows.' );
+        $this->assertSame( $candidate_rows_before, $this->evidence->rows, 'Execution leaves the candidate evidence rows byte-identical.' );
+    }
+
+    public function test_reviewed_primary_change_uses_dedicated_owner_transition(): void {
+        $this->evidence->rows = [ $this->evidenceRow( 1, 'alpha phrase' ) ];
+        $existing = $this->assignments->create_assignment( [
+            'keyword_candidate_id' => 1,
+            'pool'                 => 'category',
+            'page_type'            => 'tmw_category_page',
+            'target_type'          => 'tmw_category_page',
+            'target_id'            => 501,
+            'target_key'           => 'tmw_category_page:501',
+            'role'                 => 'secondary',
+            'status'               => 'approved',
+            'canonical_owner'      => 0,
+            'source_type'          => 'migration_candidate',
+        ] );
+        $this->assertTrue( $existing['ok'] );
+        $this->sync->sync();
+        $review_id = (int) $this->reviewFor( 1 )['id'];
+        $this->approve( $review_id );
+
+        $report = $this->executor->execute_approved( [], true );
+
+        $this->assertSame( 1, $report['counts']['executed'] );
+        $this->assertSame( [ (int) $existing['id'] ], $this->assignments->primary_owner_transitions );
+        $this->assertSame( 'primary', $this->assignments->rows[ (int) $existing['id'] ]['role'] );
+        $this->assertSame( 1, (int) $this->assignments->rows[ (int) $existing['id'] ]['canonical_owner'] );
+        $this->assertSame( [], $this->assignments->candidate_writes );
     }
 
     public function test_stale_records_never_execute(): void {

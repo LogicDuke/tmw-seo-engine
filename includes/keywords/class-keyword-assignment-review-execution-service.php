@@ -284,6 +284,18 @@ class KeywordAssignmentReviewExecutionService {
                 $this->reviews->mark_execution( $review_id, 'failed', $error, $actor, $source );
                 return [ 'bucket' => 'failed', 'outcome' => 'failed', 'error' => $error ];
             }
+            $changed_fields = array_map( 'strval', (array) ( $action['changed_fields'] ?? [] ) );
+            if ( in_array( 'role', $changed_fields, true ) || in_array( 'canonical_owner', $changed_fields, true ) ) {
+                $make_primary = 'primary' === (string) ( $payload['role'] ?? '' ) && 1 === (int) ( $payload['canonical_owner'] ?? 0 );
+                $ownership_ok = $make_primary
+                    ? $this->assignments->set_primary_owner( (int) $result['id'] )
+                    : $this->assignments->clear_primary_owner( (int) $result['id'] );
+                if ( ! $ownership_ok ) {
+                    $error = $make_primary ? 'primary_owner_transition_failed' : 'primary_owner_clear_failed';
+                    $this->reviews->mark_execution( $review_id, 'failed', $error, $actor, $source );
+                    return [ 'bucket' => 'failed', 'outcome' => 'failed', 'error' => $error ];
+                }
+            }
             $this->reviews->mark_execution( $review_id, 'executed', 'updated_assignment_' . (int) $result['id'], $actor, $source );
             return [ 'bucket' => 'executed', 'outcome' => 'executed_updated' ];
         }
