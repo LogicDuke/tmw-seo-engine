@@ -373,7 +373,9 @@ class KeywordAssignmentRepository {
         }
 
         // Only fields explicitly supplied by the caller are mutable. Identity
-        // and stored ownership fields are always preserved.
+        // and ownership fields are preserved. Ownership transitions must use
+        // set_primary_owner()/clear_primary_owner(), which enforce the
+        // transactional single-primary invariant.
         $mutable = [];
         foreach ( [
             'target_name', 'target_slug', 'status', 'shared_secondary_allowed',

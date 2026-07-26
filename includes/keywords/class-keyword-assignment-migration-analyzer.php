@@ -417,7 +417,7 @@ class KeywordAssignmentMigrationAnalyzer {
     }
 
     /** Fields the migration may refresh on rows it owns. */
-    private const MIGRATION_MUTABLE = [ 'status', 'active_in_rank_math', 'present_in_content', 'conflict_reason', 'approval_reason', 'target_name' ];
+    private const MIGRATION_MUTABLE = [ 'role', 'canonical_owner', 'status', 'active_in_rank_math', 'present_in_content', 'conflict_reason', 'approval_reason', 'target_name' ];
 
     /** @return array<int,string> */
     private function changed_fields( array $existing, array $payload ): array {

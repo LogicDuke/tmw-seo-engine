@@ -217,6 +217,11 @@ final class KeywordAssignmentSchemaStaticTest extends TestCase {
             // PR-D: migration infrastructure (dry-run default; no production cutover).
             'includes/keywords/class-keyword-assignment-migration-analyzer.php',
             'includes/keywords/class-keyword-assignment-migration-service.php',
+            // PR-E: reviewed rollout workflow (CLI-only; no production cutover).
+            'includes/keywords/class-keyword-assignment-review-repository.php',
+            'includes/keywords/class-keyword-assignment-review-sync-service.php',
+            'includes/keywords/class-keyword-assignment-review-execution-service.php',
+            'includes/keywords/class-keyword-assignment-review-export-service.php',
             'includes/cli/class-cli.php',
         ];
         $offenders = [];

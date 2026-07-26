@@ -526,6 +526,12 @@ final class KeywordAssignmentMigrationServiceTest extends TestCase {
         $migration_files = [
             'includes/keywords/class-keyword-assignment-migration-analyzer.php',
             'includes/keywords/class-keyword-assignment-migration-service.php',
+            // PR-E: reviewed rollout workflow (CLI-only consumers of the
+            // migration analyzer; still no production cutover).
+            'includes/keywords/class-keyword-assignment-review-repository.php',
+            'includes/keywords/class-keyword-assignment-review-sync-service.php',
+            'includes/keywords/class-keyword-assignment-review-execution-service.php',
+            'includes/keywords/class-keyword-assignment-review-export-service.php',
         ];
         $sanctioned_referrers = array_merge( $migration_files, [ 'includes/class-loader.php', 'includes/cli/class-cli.php' ] );
         $offenders = [];

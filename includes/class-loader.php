@@ -138,6 +138,10 @@ class Loader {
         tmwseo_safe_require( $p . 'class-keyword-assignment-repository.php' ); // PR-C assignment layer (no production callers yet)
         tmwseo_safe_require( $p . 'class-keyword-assignment-migration-analyzer.php' ); // PR-D migration analysis (read-only classifier)
         tmwseo_safe_require( $p . 'class-keyword-assignment-migration-service.php' ); // PR-D migration orchestrator (dry-run default)
+        tmwseo_safe_require( $p . 'class-keyword-assignment-review-repository.php' ); // PR-E review state + audit (CLI workflow only)
+        tmwseo_safe_require( $p . 'class-keyword-assignment-review-sync-service.php' ); // PR-E review sync (read-only analyzer input)
+        tmwseo_safe_require( $p . 'class-keyword-assignment-review-execution-service.php' ); // PR-E approved-only executor (dry-run default)
+        tmwseo_safe_require( $p . 'class-keyword-assignment-review-export-service.php' ); // PR-E JSON/CSV export
         tmwseo_safe_require( $p . 'class-keyword-pool-import-batch-repository.php' );
         tmwseo_safe_require( $p . 'class-keyword-pool-import-row-repair-service.php' );
         tmwseo_safe_require( $p . 'class-classified-model-keyword-provider.php' );
