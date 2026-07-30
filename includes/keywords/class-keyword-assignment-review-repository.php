@@ -286,7 +286,42 @@ class KeywordAssignmentReviewRepository {
         return false !== $wpdb->update( $this->table(), $fields, [ 'id' => $review_id ] );
     }
 
+    /**
+     * PR-F rev 3 — external-transaction participation flag (validation
+     * orchestration ONLY; see join_external_transaction()). Instance-scoped,
+     * default false, cleared by the orchestrator in finally on every path.
+     */
+    private bool $external_transaction = false;
+
+    /**
+     * PR-F rev 3 — let the keyword-assignment-validation orchestrator wrap
+     * a review transition (and its review-audit row) in ONE outer
+     * cross-repository transaction together with the validation-fixture
+     * audit insertion, so they commit together or not at all.
+     *
+     * A MySQL START TRANSACTION issued inside an open transaction implicitly
+     * COMMITS it, so nesting is unsafe. While participation is enabled this
+     * repository's own transaction verbs become no-ops and the EXTERNAL
+     * owner controls the single real boundary (start/commit/rollback on the
+     * shared $wpdb connection). Row/audit failure semantics inside
+     * update_with_audit are unchanged — a failed update or audit still
+     * returns false, and the owner translates that into its ROLLBACK.
+     *
+     * NEVER enabled by any normal PR-E caller: sync, approve/reject,
+     * mark_stale, mark_execution, execute-approved, and every CLI command
+     * keep their own per-operation atomicity exactly as before (their inner
+     * transactions stay real because this flag stays false).
+     */
+    public function join_external_transaction(): void { $this->external_transaction = true; }
+
+    /** End external-transaction participation (call in finally, idempotent). */
+    public function leave_external_transaction(): void { $this->external_transaction = false; }
+
+    /** True while an external owner controls the transaction boundary. */
+    protected function in_external_transaction(): bool { return $this->external_transaction; }
+
     protected function transaction( string $command ): bool {
+        if ( $this->external_transaction ) { return true; } // the external owner issues the real verbs
         global $wpdb;
         return false !== $wpdb->query( $command );
     }

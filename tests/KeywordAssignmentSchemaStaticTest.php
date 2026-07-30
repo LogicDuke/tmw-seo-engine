@@ -222,6 +222,9 @@ final class KeywordAssignmentSchemaStaticTest extends TestCase {
             'includes/keywords/class-keyword-assignment-review-sync-service.php',
             'includes/keywords/class-keyword-assignment-review-execution-service.php',
             'includes/keywords/class-keyword-assignment-review-export-service.php',
+            // PR-F: production-validation tooling (CLI-only; no production cutover).
+            'includes/keywords/class-keyword-assignment-validation-fixture-repository.php',
+            'includes/keywords/class-keyword-assignment-validation-service.php',
             'includes/cli/class-cli.php',
         ];
         $offenders = [];
@@ -355,8 +358,20 @@ $GLOBALS['_tmw_assignment_dbdelta_calls'] = 0;
 if ( ! function_exists( 'dbDelta' ) ) {
     function dbDelta( $queries = '', $execute = true ) {
         $GLOBALS['_tmw_assignment_dbdelta_calls']++;
+        $GLOBALS['_tmw_review_dbdelta_calls'] = ( $GLOBALS['_tmw_review_dbdelta_calls'] ?? 0 ) + 1;
+        $GLOBALS['_tmw_validation_dbdelta_calls'] = ( $GLOBALS['_tmw_validation_dbdelta_calls'] ?? 0 ) + 1;
         if ( isset( $GLOBALS['wpdb'] ) && $GLOBALS['wpdb'] instanceof AssignmentSchemaGuardWpdb ) {
             $GLOBALS['wpdb']->assignments_table_exists = true;
+        }
+        if ( isset( $GLOBALS['wpdb'] ) && class_exists( 'ReviewSchemaGuardWpdb', false ) && $GLOBALS['wpdb'] instanceof ReviewSchemaGuardWpdb ) {
+            $GLOBALS['wpdb']->review_tables_exist = true;
+        }
+        if ( isset( $GLOBALS['wpdb'] ) && class_exists( 'ValidationSchemaGuardWpdb', false ) && $GLOBALS['wpdb'] instanceof ValidationSchemaGuardWpdb ) {
+            if ( is_string( $queries ) && false !== stripos( $queries, 'tmw_keyword_assignment_validation_fixture_audit' ) ) {
+                $GLOBALS['wpdb']->audit_table_exists = true;
+            } else {
+                $GLOBALS['wpdb']->validation_table_exists = true;
+            }
         }
         return [];
     }

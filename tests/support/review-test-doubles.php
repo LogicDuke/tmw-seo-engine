@@ -214,6 +214,10 @@ final class ReviewFakeRepository extends KeywordAssignmentReviewRepository {
     }
 
     protected function transaction( string $command ): bool {
+        // PR-F rev 3: while an external owner (the validation orchestration)
+        // controls the transaction boundary, inner verbs are no-ops here
+        // too — mirroring the real repository's participation gate.
+        if ( $this->in_external_transaction() ) { return true; }
         if ( 'START TRANSACTION' === $command ) {
             $this->transaction_snapshot = [ 'rows' => $this->rows, 'audit_rows' => $this->audit_rows, 'next_id' => $this->next_id ];
         } elseif ( 'ROLLBACK' === $command && null !== $this->transaction_snapshot ) {

@@ -68,11 +68,20 @@ class KeywordAssignmentReviewExecutionService {
      * no review-record mutation, no audit rows) — the report states exactly
      * what a real run would do.
      *
+     * PR-F (validation tooling): $validation_stale_overrides is a STRICTLY
+     * OPT-IN, PER-CALL analyzer-input transform supplied ONLY by the explicit
+     * `keyword-assignment-validation run-stale-validation` workflow after it
+     * has verified the full validation context (token + review ID +
+     * candidate ID) against an ACTIVE stale fixture. Ordinary
+     * execute-approved calls pass nothing and behave byte-identically
+     * whether or not validation fixtures exist anywhere.
+     *
      * @param array<string,mixed> $filters candidate_id, pool, target_id,
      *        keyword, classification, review_ids (array of explicit IDs)
+     * @param array<int,array<string,mixed>> $validation_stale_overrides
      * @return array<string,mixed> execution report
      */
-    public function execute_approved( array $filters = [], bool $execute = false, string $actor = 'cli', string $source = 'review-execute' ): array {
+    public function execute_approved( array $filters = [], bool $execute = false, string $actor = 'cli', string $source = 'review-execute', array $validation_stale_overrides = [] ): array {
         $selection = $this->select_records( $filters );
         $records = $selection['records'];
         $counts = [ 'selected' => count( $records ), 'executed' => 0, 'noop' => 0, 'skipped' => 0, 'stale' => 0, 'refused_classification' => 0, 'failed' => 0 ];
@@ -82,7 +91,7 @@ class KeywordAssignmentReviewExecutionService {
         // passed through when provided; explicit review-ID selections verify
         // against the full analysis so no identity escapes re-checking.
         $evidence_filters = array_intersect_key( $filters, array_flip( self::EVIDENCE_FILTERS ) );
-        $analysis = $this->migration->analyze( $evidence_filters );
+        $analysis = $this->migration->analyze( $evidence_filters, $validation_stale_overrides );
         $fresh_actions = $this->index_fresh_actions( $analysis );
 
         foreach ( $records as $stored ) {

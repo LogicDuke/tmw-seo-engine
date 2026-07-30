@@ -116,6 +116,11 @@ namespace {
 
         foreach ($test_classes as $class) {
             $ref = new ReflectionClass($class);
+            // Mirror real PHPUnit: run static class-level fixtures once per
+            // class (the *SchemaStaticTest suites extract shared sources here).
+            if ($ref->hasMethod('setUpBeforeClass')) {
+                $class::setUpBeforeClass();
+            }
             foreach ($ref->getMethods(ReflectionMethod::IS_PUBLIC) as $method) {
                 if (strncmp($method->getName(), 'test', 4) !== 0) { continue; }
                 $instance = $ref->newInstanceWithoutConstructor();
@@ -143,6 +148,9 @@ namespace {
                 } finally {
                     $tearDown = $ref->getMethod('tearDown'); $tearDown->setAccessible(true); $tearDown->invoke($instance);
                 }
+            }
+            if ($ref->hasMethod('tearDownAfterClass')) {
+                $class::tearDownAfterClass();
             }
         }
     }

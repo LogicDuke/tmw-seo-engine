@@ -62,10 +62,21 @@ class KeywordAssignmentMigrationService {
      * Supported generic filters (local testing only): keyword, candidate_id,
      * target_id, pool (passed through to the evidence report), limit.
      *
-     * @param array<string,mixed> $filters
+     * PR-F (validation tooling): $validation_stale_overrides is a STRICTLY
+     * OPT-IN, PER-CALL evidence transform (candidate_id => override) used
+     * ONLY by the explicit `keyword-assignment-validation` workflow after it
+     * has verified the full validation context (token + review ID +
+     * candidate ID) against an ACTIVE stale fixture. It is never loaded from
+     * the database here, never stored on the service, and never survives
+     * this one call — every ordinary caller (migration commands, review
+     * sync, execute-approved) passes nothing and is byte-identical whether
+     * or not validation fixtures exist anywhere.
+     *
+     * @param array<string,mixed>            $filters
+     * @param array<int,array<string,mixed>> $validation_stale_overrides
      * @return array<string,mixed> report model (see build_report()).
      */
-    public function analyze( array $filters = [] ): array {
+    public function analyze( array $filters = [], array $validation_stale_overrides = [] ): array {
         $limit = max( 0, (int) ( $filters['limit'] ?? 0 ) );
         unset( $filters['limit'] );
 
@@ -75,10 +86,17 @@ class KeywordAssignmentMigrationService {
         $duplicate_source_rows = [];
         $processed = 0;
 
+        // PR-F: explicit per-call stale-plan overrides only. [] (the default
+        // for every ordinary caller) makes the loop below a strict no-op.
+        $stale_overrides = $validation_stale_overrides;
+
         foreach ( $this->evidence->run( $filters ) as $evidence_row ) {
             // Keep consuming the generator after the decision limit so the
             // ownership service can finish its full-source summary counters.
             if ( $limit > 0 && $processed >= $limit ) { continue; }
+            if ( [] !== $stale_overrides ) {
+                $evidence_row = KeywordAssignmentValidationFixtureRepository::apply_stale_overrides_to_row( $evidence_row, $stale_overrides );
+            }
             $candidate_id = (int) ( $evidence_row['candidate_id'] ?? 0 );
             $existing = $this->assignments->find_assignments_for_candidate( $candidate_id );
             $existing_encountered += count( $existing );
