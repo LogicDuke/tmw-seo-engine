@@ -810,6 +810,164 @@ class Schema {
         return is_array($status) && 'innodb' === strtolower((string) ($status['Engine'] ?? ''));
     }
 
+    /**
+     * PR-F — single DDL source for {$prefix}tmw_keyword_assignment_validation_fixtures (schema v2).
+     *
+     * Bookkeeping for PRODUCTION-VALIDATION FIXTURES ONLY (manual-assignment
+     * preservation and stale-plan mismatch validation of the PR-E executor).
+     * One row per explicit operator-created fixture: validation token,
+     * fixture type, candidate/review/assignment references, original and
+     * override values as JSON, lifecycle state, creator, and timestamps.
+     * Rows are inserted and state-transitioned (active -> removed/restored)
+     * but never deleted.
+     *
+     * CONCURRENCY (schema v2): two nullable identity columns carry a value
+     * ONLY while the fixture is active and are set to NULL on the terminal
+     * transition, so their UNIQUE indexes enforce, at the database level and
+     * independently of any pre-insert SELECT:
+     *   - active_token_key  — at most ONE active fixture per validation token;
+     *   - active_scope_key  — at most ONE active stale fixture per candidate
+     *     scope / ONE active manual fixture per exact assignment identity.
+     * A concurrent duplicate insert therefore fails deterministically at the
+     * index. v1 -> v2 upgrades add the columns with NULL values and never
+     * backfill rows (the runbook requires no fixture to remain active).
+     *
+     * Additive only — no existing table is touched, no data is read or
+     * written here, no backfill occurs. No foreign keys, matching every
+     * existing keyword table.
+     */
+    public static function get_keyword_assignment_validation_fixtures_schema_sql(string $table, string $charset_collate): string {
+        return "CREATE TABLE $table (
+            id BIGINT(20) UNSIGNED NOT NULL AUTO_INCREMENT,
+            validation_token VARCHAR(64) NOT NULL,
+            fixture_type VARCHAR(30) NOT NULL,
+            keyword_candidate_id BIGINT(20) UNSIGNED NOT NULL,
+            review_id BIGINT(20) UNSIGNED NOT NULL DEFAULT 0,
+            assignment_id BIGINT(20) UNSIGNED NOT NULL DEFAULT 0,
+            original_values LONGTEXT NULL,
+            override_values LONGTEXT NULL,
+            state VARCHAR(20) NOT NULL DEFAULT 'active',
+            active_token_key VARCHAR(64) NULL,
+            active_scope_key VARCHAR(191) NULL,
+            created_by VARCHAR(191) NOT NULL DEFAULT '',
+            created_at DATETIME NOT NULL,
+            restored_at DATETIME NULL,
+            PRIMARY KEY (id),
+            UNIQUE KEY active_token_key (active_token_key),
+            UNIQUE KEY active_scope_key (active_scope_key),
+            KEY validation_token (validation_token),
+            KEY fixture_state (fixture_type, state),
+            KEY candidate (keyword_candidate_id),
+            KEY review_id (review_id)
+        ) ENGINE=InnoDB $charset_collate;";
+    }
+
+    /**
+     * PR-F — single DDL source for
+     * {$prefix}tmw_keyword_assignment_validation_fixture_audit.
+     *
+     * APPEND-ONLY audit trail for every validation-fixture lifecycle event:
+     * creation/activation, removal, restoration, manual-review recovery, and
+     * (in execute mode) refused recovery. One row per event with the fixture
+     * reference, token, action, state transition, actor, note, command
+     * source, a sha1 payload hash of the normalized metadata snapshot, and a
+     * timestamp. No update or delete path exists for these rows anywhere in
+     * the plugin; lifecycle state transitions and their audit insertion are
+     * committed atomically by the repository/service transaction. Additive
+     * only, no foreign keys, no backfill.
+     */
+    public static function get_keyword_assignment_validation_fixture_audit_schema_sql(string $table, string $charset_collate): string {
+        return "CREATE TABLE $table (
+            id BIGINT(20) UNSIGNED NOT NULL AUTO_INCREMENT,
+            fixture_id BIGINT(20) UNSIGNED NOT NULL,
+            validation_token VARCHAR(64) NOT NULL,
+            fixture_type VARCHAR(30) NOT NULL,
+            action VARCHAR(40) NOT NULL,
+            old_state VARCHAR(20) NOT NULL DEFAULT '',
+            new_state VARCHAR(20) NOT NULL DEFAULT '',
+            actor VARCHAR(191) NOT NULL DEFAULT '',
+            note VARCHAR(500) NOT NULL DEFAULT '',
+            command_source VARCHAR(100) NOT NULL DEFAULT '',
+            payload_hash VARCHAR(40) NOT NULL DEFAULT '',
+            created_at DATETIME NOT NULL,
+            PRIMARY KEY (id),
+            KEY fixture_id (fixture_id),
+            KEY validation_token (validation_token),
+            KEY fixture_action (action)
+        ) ENGINE=InnoDB $charset_collate;";
+    }
+
+    /** PR-F — validation logging is opt-in (WP_DEBUG or the dedicated constant). */
+    private static function keyword_validation_debug_enabled(): bool {
+        return (defined('WP_DEBUG') && WP_DEBUG)
+            || (defined('TMWSEO_KW_VALIDATION_DEBUG') && TMWSEO_KW_VALIDATION_DEBUG);
+    }
+
+    private static function keyword_validation_schema_log(string $message): void {
+        if (self::keyword_validation_debug_enabled()) {
+            error_log('[TMW-KW-ASSIGN-VALIDATE-SCHEMA] ' . $message);
+        }
+    }
+
+    /**
+     * PR-F — ensure the validation fixture + fixture-audit tables exist on
+     * upgraded installs (schema v2).
+     *
+     * Mirrors ensure_keyword_assignment_review_schema(): WP Pusher and
+     * file-drop updates do not re-run activation hooks, so this runtime
+     * guard creates/upgrades both tables additively when missing or behind.
+     * Idempotent: once both tables exist and the version option is current,
+     * it returns without touching the database beyond the existence check.
+     * Never reads or writes candidate rows, assignment rows, review data, or
+     * fixture data, and never creates, activates, or restores any fixture.
+     * Called ONLY from the explicit keyword-assignment-validation CLI
+     * workflow — never on plugin load. All logging here is gated behind
+     * WP_DEBUG / TMWSEO_KW_VALIDATION_DEBUG; failures surface through the
+     * boolean return (the CLI turns them into a hard error).
+     */
+    public static function ensure_keyword_assignment_validation_fixture_schema(): bool {
+        global $wpdb;
+
+        $target_version = 2;
+        $version_option = 'tmw_kw_assignment_validation_schema_version';
+        $table = $wpdb->prefix . 'tmw_keyword_assignment_validation_fixtures';
+        $audit_table = $wpdb->prefix . 'tmw_keyword_assignment_validation_fixture_audit';
+
+        if (empty(self::missing_tables([ $table, $audit_table ]))
+            && self::keyword_review_table_is_innodb($table)
+            && self::keyword_review_table_is_innodb($audit_table)
+            && (int) get_option($version_option, 0) >= $target_version) {
+            return true;
+        }
+
+        if (!function_exists('dbDelta')) {
+            if (!defined('ABSPATH') || !is_readable(ABSPATH . 'wp-admin/includes/upgrade.php')) {
+                self::keyword_validation_schema_log('dbDelta unavailable; validation fixture tables not created.');
+                return false;
+            }
+            require_once ABSPATH . 'wp-admin/includes/upgrade.php';
+        }
+
+        dbDelta(self::get_keyword_assignment_validation_fixtures_schema_sql($table, $wpdb->get_charset_collate()));
+        dbDelta(self::get_keyword_assignment_validation_fixture_audit_schema_sql($audit_table, $wpdb->get_charset_collate()));
+        self::clear_table_exists_cache([ $table, $audit_table ]);
+
+        if (!empty(self::missing_tables([ $table, $audit_table ]))) {
+            self::keyword_validation_schema_log('Validation fixture tables missing after dbDelta.');
+            return false;
+        }
+
+        if (!self::convert_keyword_review_table_to_innodb($table)
+            || !self::convert_keyword_review_table_to_innodb($audit_table)) {
+            self::keyword_validation_schema_log('Validation fixture tables are not InnoDB; schema version not advanced.');
+            return false;
+        }
+
+        update_option($version_option, $target_version, false);
+        self::keyword_validation_schema_log('Validation fixture tables verified/created (schema v' . $target_version . ').');
+        return true;
+    }
+
     private static function safe_sql_hash(string $sql): string {
         return hash('sha256', $sql);
     }
@@ -900,6 +1058,8 @@ class Schema {
         $keyword_assignments = $wpdb->prefix . 'tmw_keyword_assignments';
         $keyword_assignment_review = $wpdb->prefix . 'tmw_keyword_assignment_review';
         $keyword_assignment_review_audit = $wpdb->prefix . 'tmw_keyword_assignment_review_audit';
+        $keyword_assignment_validation_fixtures = $wpdb->prefix . 'tmw_keyword_assignment_validation_fixtures';
+        $keyword_assignment_validation_fixture_audit = $wpdb->prefix . 'tmw_keyword_assignment_validation_fixture_audit';
         $keyword_import_batches = $wpdb->prefix . 'tmw_keyword_import_batches';
         $keyword_import_rows = $wpdb->prefix . 'tmw_keyword_import_rows';
         $keyword_blacklist = $wpdb->prefix . 'tmw_keyword_blacklist';
@@ -1840,6 +2000,9 @@ $sql_legacy_rank = "CREATE TABLE $legacy_rank (
         dbDelta(self::get_keyword_assignments_schema_sql($keyword_assignments, $charset_collate));
         dbDelta(self::get_keyword_assignment_review_schema_sql($keyword_assignment_review, $charset_collate));
         dbDelta(self::get_keyword_assignment_review_audit_schema_sql($keyword_assignment_review_audit, $charset_collate));
+        // PR-F: production-validation fixture bookkeeping + append-only fixture audit (additive; CLI-only writes).
+        dbDelta(self::get_keyword_assignment_validation_fixtures_schema_sql($keyword_assignment_validation_fixtures, $charset_collate));
+        dbDelta(self::get_keyword_assignment_validation_fixture_audit_schema_sql($keyword_assignment_validation_fixture_audit, $charset_collate));
         dbDelta($sql_keyword_import_batches);
         self::run_keyword_import_rows_dbdelta($sql_keyword_import_rows, $keyword_import_rows);
         dbDelta($sql_keyword_blacklist);

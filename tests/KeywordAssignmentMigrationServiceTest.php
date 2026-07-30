@@ -532,6 +532,10 @@ final class KeywordAssignmentMigrationServiceTest extends TestCase {
             'includes/keywords/class-keyword-assignment-review-sync-service.php',
             'includes/keywords/class-keyword-assignment-review-execution-service.php',
             'includes/keywords/class-keyword-assignment-review-export-service.php',
+            // PR-F: production-validation tooling (CLI-only consumers of the
+            // migration analyzer; still no production cutover).
+            'includes/keywords/class-keyword-assignment-validation-fixture-repository.php',
+            'includes/keywords/class-keyword-assignment-validation-service.php',
         ];
         $sanctioned_referrers = array_merge( $migration_files, [ 'includes/class-loader.php', 'includes/cli/class-cli.php' ] );
         $offenders = [];

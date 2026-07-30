@@ -2055,6 +2055,278 @@ class TMWSEOCommand extends \WP_CLI_Command {
         \WP_CLI::success( '[TMW-KW-ASSIGN-REVIEW] status complete.' );
     }
 
+    // ── Keyword assignment production-validation tooling (PR-F) ───────────
+
+    /**
+     * PRODUCTION-VALIDATION TOOLING ONLY for the PR-E review workflow. This
+     * command is NOT part of normal assignment operation and performs no
+     * production cutover: approval, Rank Math, generation, publishing,
+     * indexing, and ownership resolution are untouched. It exists solely to
+     * safely prove, one explicit command at a time, that (A) the executor
+     * preserves a genuine manual assignment as skipped and (B) a real
+     * fresh-plan mismatch marks an approved review stale before any write.
+     * Candidate rows, Rank Math metadata, page content, postmeta, import
+     * evidence, and review snapshot hashes are never mutated by any action
+     * here. Tag: [TMW-KW-ASSIGN-VALIDATE].
+     *
+     * EVERY action is explicit; every write requires --mode=execute
+     * (dry-run is the default) plus an explicit validation token, and the
+     * stale workflow additionally requires one explicit review ID. There is
+     * no broad or unbounded action in this command.
+     *
+     * ## OPTIONS
+     *
+     * <action>
+     * : One of: create-manual-fixture, inspect-manual-fixture,
+     * remove-manual-fixture, recover-manual-review, create-stale-fixture,
+     * run-stale-validation, restore-stale-fixture, status.
+     *
+     * [--token=<token>]
+     * : Validation token / fixture name (4-64 chars of A-Za-z0-9._-).
+     * Required by every action except status.
+     *
+     * [--target-type=<type>]
+     * : create-manual-fixture — assignment target type (required).
+     *
+     * [--target-id=<id>]
+     * : create-manual-fixture — numeric target ID (required unless
+     * --target-key is given).
+     *
+     * [--target-key=<key>]
+     * : create-manual-fixture — explicit target key (required when no
+     * numeric target ID exists).
+     *
+     * [--pool=<pool>]
+     * : create-manual-fixture — assignment pool (required).
+     *
+     * [--page-type=<type>]
+     * : create-manual-fixture — page type (defaults to the target type).
+     *
+     * [--role=<role>]
+     * : create-manual-fixture — secondary ONLY (required). primary and every
+     * other role are rejected here and again in the service. Ownership is
+     * never granted: canonical_owner and active_in_rank_math are always 0
+     * on a fixture.
+     *
+     * [--status=<status>]
+     * : create-manual-fixture — review_required (default) or inactive.
+     *
+     * [--review-id=<id>]
+     * : create-stale-fixture / run-stale-validation / recover-manual-review —
+     * ONE explicit review record ID (required by all three).
+     *
+     * [--candidate-id=<id>]
+     * : run-stale-validation — the exact candidate ID of the fixture
+     * (required; part of the validation context, verified against the
+     * active fixture). Also required by create-manual-fixture.
+     *
+     * [--mode=<mode>]
+     * : dry-run (default) or execute for the four mutating actions.
+     *
+     * [--reviewer=<identity>]
+     * : Operator identity recorded on the fixture (defaults to the WP-CLI user).
+     *
+     * ## EXAMPLES
+     *
+     *     wp tmwseo keyword-assignment-validation status
+     *     wp tmwseo keyword-assignment-validation create-manual-fixture --token=prval-manual-1 --candidate-id=1795 --pool=category --target-type=category_page --target-id=4557 --role=secondary
+     *     wp tmwseo keyword-assignment-validation create-manual-fixture --token=prval-manual-1 --candidate-id=1795 --pool=category --target-type=category_page --target-id=4557 --role=secondary --mode=execute
+     *     wp tmwseo keyword-assignment-validation inspect-manual-fixture --token=prval-manual-1
+     *     wp tmwseo keyword-assignment-validation remove-manual-fixture --token=prval-manual-1 --mode=execute
+     *     wp tmwseo keyword-assignment-validation recover-manual-review --token=prval-manual-1 --review-id=12 --mode=execute
+     *     wp tmwseo keyword-assignment-validation create-stale-fixture --token=prval-stale-1 --review-id=12
+     *     wp tmwseo keyword-assignment-validation create-stale-fixture --token=prval-stale-1 --review-id=12 --mode=execute
+     *     wp tmwseo keyword-assignment-validation run-stale-validation --token=prval-stale-1 --review-id=12 --candidate-id=1795
+     *     wp tmwseo keyword-assignment-validation run-stale-validation --token=prval-stale-1 --review-id=12 --candidate-id=1795 --mode=execute
+     *     wp tmwseo keyword-assignment-validation restore-stale-fixture --token=prval-stale-1 --mode=execute
+     *
+     * @subcommand keyword-assignment-validation
+     */
+    public function keyword_assignment_validation( $args, $assoc ) {
+        $this->require_review_classes();
+        $this->require_validation_classes();
+
+        $action = (string) ( $args[0] ?? '' );
+        $allowed_actions = [ 'create-manual-fixture', 'inspect-manual-fixture', 'remove-manual-fixture', 'recover-manual-review', 'create-stale-fixture', 'run-stale-validation', 'restore-stale-fixture', 'status' ];
+        if ( ! in_array( $action, $allowed_actions, true ) ) {
+            \WP_CLI::error( '[TMW-KW-ASSIGN-VALIDATE] Explicit action required. One of: ' . implode( ', ', $allowed_actions ) . '.' );
+        }
+
+        $fixtures = new \TMWSEO\Engine\Keywords\KeywordAssignmentValidationFixtureRepository();
+        if ( ! $fixtures->table_exists() && ! \TMWSEO\Engine\Schema::ensure_keyword_assignment_validation_fixture_schema() ) {
+            \WP_CLI::error( '[TMW-KW-ASSIGN-VALIDATE] Validation fixtures table is missing and could not be created.' );
+        }
+        $assignment_repository = new \TMWSEO\Engine\Keywords\KeywordAssignmentRepository();
+        if ( ! $assignment_repository->table_exists() && ! \TMWSEO\Engine\Schema::ensure_keyword_assignments_schema() ) {
+            \WP_CLI::error( '[TMW-KW-ASSIGN-VALIDATE] Assignments table is missing and could not be created.' );
+        }
+        if ( in_array( $action, [ 'create-stale-fixture', 'run-stale-validation', 'restore-stale-fixture', 'recover-manual-review' ], true ) ) {
+            $review_repository = new \TMWSEO\Engine\Keywords\KeywordAssignmentReviewRepository();
+            if ( ! $review_repository->tables_exist() ) {
+                \WP_CLI::error( '[TMW-KW-ASSIGN-VALIDATE] Review tables are missing — run the keyword-assignment-review workflow first.' );
+            }
+        }
+
+        $mode = (string) ( $assoc['mode'] ?? 'dry-run' );
+        if ( ! in_array( $mode, [ 'dry-run', 'execute' ], true ) ) {
+            \WP_CLI::error( '[TMW-KW-ASSIGN-VALIDATE] --mode must be dry-run or execute.' );
+        }
+        $execute = 'execute' === $mode;
+        $actor = (string) ( $assoc['reviewer'] ?? '' );
+        if ( '' === $actor ) {
+            $user_id = function_exists( 'get_current_user_id' ) ? (int) get_current_user_id() : 0;
+            $actor = $user_id > 0 ? 'user:' . $user_id : 'cli';
+        }
+        $token = (string) ( $assoc['token'] ?? '' );
+        $service = new \TMWSEO\Engine\Keywords\KeywordAssignmentValidationService( $fixtures, $assignment_repository );
+
+        switch ( $action ) {
+            case 'create-manual-fixture':
+                // Issue-7 hard gate: primary (and every non-secondary role)
+                // is rejected at the CLI before the service sees it.
+                $cli_role = strtolower( trim( (string) ( $assoc['role'] ?? '' ) ) );
+                if ( 'secondary' !== $cli_role ) {
+                    \WP_CLI::error( '[TMW-KW-ASSIGN-VALIDATE] --role must be secondary — manual validation fixtures support no other role (primary is rejected).' );
+                }
+                $report = $service->create_manual_fixture( [
+                    'token'        => $token,
+                    'candidate_id' => (int) ( $assoc['candidate-id'] ?? 0 ),
+                    'target_type'  => (string) ( $assoc['target-type'] ?? '' ),
+                    'target_id'    => (int) ( $assoc['target-id'] ?? 0 ),
+                    'target_key'   => (string) ( $assoc['target-key'] ?? '' ),
+                    'pool'         => (string) ( $assoc['pool'] ?? '' ),
+                    'page_type'    => (string) ( $assoc['page-type'] ?? '' ),
+                    'role'         => (string) ( $assoc['role'] ?? '' ),
+                    'status'       => (string) ( $assoc['status'] ?? 'review_required' ),
+                ], $execute, $actor );
+                break;
+            case 'inspect-manual-fixture':
+                $report = $service->inspect_manual_fixture( $token );
+                break;
+            case 'remove-manual-fixture':
+                $report = $service->remove_manual_fixture( $token, $execute, $actor );
+                break;
+            case 'recover-manual-review':
+                $report = $service->recover_manual_review( (int) ( $assoc['review-id'] ?? 0 ), $token, $execute, $actor );
+                break;
+            case 'create-stale-fixture':
+                $report = $service->create_stale_fixture( (int) ( $assoc['review-id'] ?? 0 ), $token, $execute, $actor );
+                break;
+            case 'run-stale-validation':
+                $report = $service->run_stale_validation( [
+                    'token'        => $token,
+                    'review_id'    => (int) ( $assoc['review-id'] ?? 0 ),
+                    'candidate_id' => (int) ( $assoc['candidate-id'] ?? 0 ),
+                ], $execute, $actor );
+                break;
+            case 'restore-stale-fixture':
+                $report = $service->restore_stale_fixture( $token, $execute, $actor );
+                break;
+            case 'status':
+            default:
+                $report = $service->status();
+                break;
+        }
+        $this->print_validation_report( $report );
+    }
+
+    private function require_validation_classes(): void {
+        if ( ! class_exists( '\TMWSEO\Engine\Keywords\KeywordAssignmentValidationService' ) ) {
+            require_once dirname( __DIR__ ) . '/keywords/class-keyword-assignment-validation-fixture-repository.php';
+            require_once dirname( __DIR__ ) . '/keywords/class-keyword-assignment-validation-service.php';
+        }
+    }
+
+    /** @param array<string,mixed> $report */
+    private function print_validation_report( array $report ): void {
+        $action = (string) ( $report['action'] ?? '' );
+        \WP_CLI::log( '[TMW-KW-ASSIGN-VALIDATE] action=' . $action . ' mode=' . (string) ( $report['mode'] ?? '' ) );
+        if ( 'status' === $action ) {
+            $counts = (array) ( $report['counts'] ?? [] );
+            \WP_CLI::log( '  fixtures by type/state:' . ( [] === $counts ? ' none' : '' ) );
+            foreach ( $counts as $bucket => $count ) {
+                \WP_CLI::log( '    ' . (string) $bucket . ': ' . (string) $count );
+            }
+            $active = (array) ( $report['active_fixtures'] ?? [] );
+            if ( [] === $active ) {
+                \WP_CLI::log( '  ACTIVE fixtures: none — no validation override or fixture assignment is in force.' );
+            } else {
+                \WP_CLI::log( '  ACTIVE fixtures (' . count( $active ) . ') — restore/remove these when validation is done:' );
+                foreach ( $active as $fixture ) {
+                    \WP_CLI::log( sprintf(
+                        '    #%d token=%s type=%s candidate=%d review=%d assignment=%d created_by=%s created_at=%s',
+                        (int) $fixture['id'],
+                        (string) $fixture['validation_token'],
+                        (string) $fixture['fixture_type'],
+                        (int) $fixture['keyword_candidate_id'],
+                        (int) $fixture['review_id'],
+                        (int) $fixture['assignment_id'],
+                        (string) $fixture['created_by'],
+                        (string) $fixture['created_at']
+                    ) );
+                }
+            }
+            \WP_CLI::success( '[TMW-KW-ASSIGN-VALIDATE] status complete.' );
+            return;
+        }
+        foreach ( [ 'outcome', 'assignment_id', 'fixture_id', 'review_id', 'expected_stale_reason', 'executor_mode', 'executor_outcome', 'executor_reason', 'audit_events', 'next_step' ] as $field ) {
+            if ( isset( $report[ $field ] ) && '' !== (string) $report[ $field ] ) {
+                \WP_CLI::log( '  ' . $field . ': ' . (string) $report[ $field ] );
+            }
+        }
+        if ( isset( $report['override'] ) ) {
+            $override = (array) $report['override'];
+            \WP_CLI::log( '  override: kind=' . (string) ( $override['kind'] ?? '' ) . ' post_id=' . (string) ( $override['post_id'] ?? '' ) . ' present=' . ( ! empty( $override['present'] ) ? '1' : '0' ) );
+        }
+        if ( isset( $report['executor_counts'] ) ) {
+            $counts = (array) $report['executor_counts'];
+            \WP_CLI::log( '  executor counts: ' . implode( ' ', array_map(
+                static fn ( $key ) => $key . '=' . (int) $counts[ $key ],
+                array_keys( $counts )
+            ) ) );
+        }
+        foreach ( (array) ( $report['sibling_effects'] ?? [] ) as $effect ) {
+            \WP_CLI::log( sprintf(
+                '  sibling review #%d target=%s -> %s',
+                (int) $effect['review_id'],
+                (string) $effect['target_key'],
+                (string) $effect['effect']
+            ) );
+        }
+        if ( isset( $report['planned_assignment'] ) ) {
+            $planned = (array) $report['planned_assignment'];
+            \WP_CLI::log( sprintf(
+                '  planned assignment: candidate=%d %s/%s target=%s role=%s status=%s source=%s ref=%s canonical=0 rankmath=0',
+                (int) $planned['keyword_candidate_id'],
+                (string) $planned['pool'],
+                (string) $planned['page_type'],
+                (string) $planned['target_key'],
+                (string) $planned['role'],
+                (string) $planned['status'],
+                (string) $planned['source_type'],
+                (string) $planned['source_reference']
+            ) );
+        }
+        if ( isset( $report['assignment'] ) && is_array( $report['assignment'] ) ) {
+            $row = (array) $report['assignment'];
+            \WP_CLI::log( sprintf(
+                '  assignment #%d: candidate=%d target=%s role=%s status=%s source=%s ref=%s intact=%s',
+                (int) $row['id'],
+                (int) $row['keyword_candidate_id'],
+                (string) $row['target_key'],
+                (string) $row['role'],
+                (string) $row['status'],
+                (string) ( $row['source_type'] ?? '' ),
+                (string) ( $row['source_reference'] ?? '' ),
+                ! empty( $report['assignment_intact'] ) ? 'yes' : 'NO'
+            ) );
+        }
+        if ( empty( $report['ok'] ) ) {
+            \WP_CLI::error( '[TMW-KW-ASSIGN-VALIDATE] REFUSED: ' . (string) ( $report['error'] ?? 'unknown_error' ) . ' — nothing was written.' );
+        }
+        \WP_CLI::success( '[TMW-KW-ASSIGN-VALIDATE] ' . $action . ' complete.' );
+    }
+
 }
 
 \WP_CLI::add_command( 'tmwseo', 'TMWSEO\Engine\CLI\TMWSEOCommand' );
