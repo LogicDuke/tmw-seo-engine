@@ -5,35 +5,57 @@
 **Implementation branch (planned):** `claude/v5.9.26-manual-approval-assignment-cutover`
 **Version target:** `5.9.26-manual-approval-assignment-cutover-v1.0.0`
 
-## 0. Why this replaces the previous bundle
+## 0. Why this bundle exists and what changed in this revision
 
-The earlier revision of this bundle hard-coded complete PHP method bodies for `KeywordAssignmentRepository::create_active_primary_within_open_transaction()`, `create_secondary_within_open_transaction()`, and `KeywordPoolManualApprovalService::approve_import_row_with_assignment()`, then asked Codex to paste them. Reviews from CodeRabbit and the ChatGPT Codex connector flagged twelve concrete integrity, correctness, and safety defects in those speculative bodies. Every finding is legitimate. Rather than patch each one in place — which would leave the bundle still speculative and still fragile to the next round of discovery — this rebuild changes the delivery model:
+The very first version of this bundle hard-coded complete PHP method bodies. CodeRabbit and the ChatGPT Codex connector flagged twelve integrity, correctness, and safety defects in those speculative bodies. The audit-first rebuild that followed (commit `cfd5781`) removed the speculative PHP and replaced it with an audit prompt plus a set of behavioral properties. That rebuild drew a second CodeRabbit review with thirteen additional findings — some genuine contradictions inside the properties, some scope errors in the static guards, some places where the audit demanded evidence the repository cannot supply through static inspection alone.
 
-- **PR-G-AUDIT investigates the repository first** and produces one Markdown audit report plus one pinned-signatures report. It writes no runtime PHP and no PHPUnit code.
-- **PR-G consumes the merged audit report by commit SHA**, gates its own execution on the audit's findings, and specifies the implementation as a set of mandatory behavioral properties and acceptance tests. It does NOT paste full method bodies. Codex is instructed to derive them from the audit evidence and fail closed if the evidence contradicts any property below.
+This revision is a minimal, coherent correction pass on top of `cfd5781`. It preserves the audit-first architecture; it does not reintroduce speculative PHP; and it closes every finding from both review rounds without silently dropping any.
 
-The result is smaller in prescribed PHP, larger in enforced invariants and test coverage, and safer against the class of defects that produced the first review round.
+- **PR-G-AUDIT** still investigates the repository first, but now allows explicit `not established by repository evidence` answers where runtime `$wpdb` behaviour cannot be proven from source, and requires fault-injection or integration coverage in place of invented file:line refs.
+- **PR-G** still gates on the merged audit report by commit SHA, states mandatory behavioral properties, and specifies acceptance tests. Its two most contested properties (authorization/lock revalidation and duplicate-key race handling) are now presented as conditionally applied consequences of one coherent audit-chosen strategy, not two competing ones.
 
 ## 1. Coverage of unresolved findings on PR #784
 
-Every finding from the CodeRabbit and Codex review passes maps to a specific section of the rebuilt prompts. The table below is normative — the acceptance test for this rebuild is that no cell is empty.
+Every finding from both CodeRabbit review passes and the ChatGPT Codex review pass maps to a specific section of the prompts below. The table below is normative — the acceptance test for the revised bundle is that no cell is empty.
+
+### 1a. First-pass findings (still covered)
 
 | # | Finding source | Concern | Addressed by |
 |---|---|---|---|
-| 1 | Codex P1 (line 951) | START TRANSACTION return value not checked; writes may run in autocommit | AUDIT §5, §8; PR-G Property B2; Test T2 |
-| 2 | Codex P1 (line 841) | Authorization reads happen before the transaction; concurrent review can invalidate | AUDIT §4, §10; PR-G Property B3; Test T1 |
-| 3 | Codex P2 (line 1003) | Rollback returns failure only in memory; import row keeps stale fields; operator has no reason | AUDIT §7; PR-G Property B6; Test T4 |
-| 4 | CodeRabbit critical (line 668) | `get_var()` cast to int hides query errors; failed lookup looks like "no row" | AUDIT §5; PR-G Property B4; Test T3 |
-| 5 | CodeRabbit major (line 710) | Secondary creation has no lock; concurrent duplicates can race; `insert_failed` on duplicate is wrong outcome | AUDIT §6; PR-G Property B5; Test T1 |
-| 6 | CodeRabbit major (line 775) | `KeywordPoolsAdminPage` bare reference resolves to wrong namespace from `TMWSEO\Engine\Keywords` | AUDIT §11; PR-G Property B12 |
-| 7 | CodeRabbit minor (line 827) | Empty normalized keyword and missing candidate both become `null` from `find_row_by_keyword` | AUDIT §2; PR-G Property B11; Test T11 |
-| 8 | CodeRabbit major (line 844) | Same-target comparison uses only two fields; primary from other pool or different `target_key` misclassified | AUDIT §9; PR-G Property B8; Test T6 |
-| 9 | CodeRabbit major (line 852) | Invalid primary states (blocked/rejected/inactive/pending/non-canonical) fall through to ambiguous | AUDIT §10; PR-G Property B9; Test T7 |
-| 10 | CodeRabbit major (line 918) | "No writes" then "update_import_row" is self-contradictory; operator loses failure reason if implementation reads it literally | PR-G Property B10 |
-| 11 | CodeRabbit critical (line 951, second half) | `false` from COMMIT does not prove not-committed; treating it as definite ROLLBACK can mis-report state | AUDIT §8; PR-G Property B7; Test T5 |
-| 12 | CodeRabbit minor (line 1356) | Rewritten static test contradicts itself: asserts `KeywordAssignmentRepository` in admin region, but region contains `KeywordPoolManualApprovalService` | PR-G Test Spec S2 |
-| 13 | CodeRabbit minor (line 1384) | `<today>` placeholder left in CHANGELOG entry | PR-G Changelog Rule |
-| 14 | CodeRabbit minor (line 1435) | `grep -R "->find_existing_by_keyword("` — pattern starts with `-`, needs `--` | PR-G Validation Grep Rule |
+| 1 | Codex P1 (old line 951) | START TRANSACTION return value not checked; writes may run in autocommit | AUDIT §5, §8; PR-G Property B2; Test T2 |
+| 2 | Codex P1 (old line 841) | Authorization reads happen before the transaction; concurrent review can invalidate | AUDIT §4, §6 (unified); PR-G Property B3; Test T1 |
+| 3 | Codex P2 (old line 1003) | Rollback returns failure only in memory; import row keeps stale fields; operator has no reason | AUDIT §7; PR-G Property B6; Test T4 |
+| 4 | CodeRabbit critical (old line 668) | `get_var()` cast to int hides query errors; failed lookup looks like "no row" | AUDIT §5; PR-G Property B4; Test T3 |
+| 5 | CodeRabbit major (old line 710) | Secondary creation has no lock; concurrent duplicates can race; `insert_failed` on duplicate is wrong outcome | AUDIT §4 + §6 (unified); PR-G Property B5; Test T1 |
+| 6 | CodeRabbit major (old line 775) | `KeywordPoolsAdminPage` bare reference resolves to wrong namespace from `TMWSEO\Engine\Keywords` | AUDIT §11; PR-G Property B12 |
+| 7 | CodeRabbit minor (old line 827) | Empty normalized keyword and missing candidate both become `null` from `find_row_by_keyword` | AUDIT §2; PR-G Property B11; Test T11 |
+| 8 | CodeRabbit major (old line 844) | Same-target comparison uses only two fields; primary from other pool or different `target_key` misclassified | AUDIT §9; PR-G Property B8; Test T6 |
+| 9 | CodeRabbit major (old line 852) | Invalid primary states (blocked/rejected/inactive/pending/non-canonical) fall through to ambiguous | AUDIT §10; PR-G Property B9; Test T7 |
+| 10 | CodeRabbit major (old line 918) | "No writes" then "update_import_row" is self-contradictory | PR-G Property B10 |
+| 11 | CodeRabbit critical (old line 951, 2nd half) | `false` from COMMIT does not prove not-committed | AUDIT §8; PR-G Property B7; Test T5 |
+| 12 | CodeRabbit minor (old line 1356) | Static test contradiction (`KeywordAssignmentRepository` vs `KeywordPoolManualApprovalService`) | PR-G existing-test-updates section |
+| 13 | CodeRabbit minor (old line 1384) | `<today>` placeholder left in CHANGELOG entry | PR-G Changelog Rule |
+| 14 | CodeRabbit minor (old line 1435) | `grep -R "->find_existing_by_keyword("` — pattern starts with `-`, needs `--` | PR-G Validation Grep Rule |
+
+### 1b. Second-pass findings (this revision)
+
+Manual "resolve" clicks on GitHub do not close these threads for our purposes; every finding is verified against the current bundle and closed below.
+
+| # | Concern (CodeRabbit on cfd5781) | Addressed by |
+|---|---|---|
+| L1 | D2 was labelled a pinned-signatures report but still said method names would be "finalized by PR-G". D2 is now an **edit checklist** with a distinct filename; nothing on it is described as a "pin". | AUDIT charter, §12 rename, D2 CONTENT block; PR-G DELETE line; PR-G validation reference |
+| L2 | The audit required static file:line evidence for runtime `$wpdb` transaction return contracts. That evidence does not exist in source. Audit sections now explicitly permit `not established by repository evidence` and require fault-injection or integration coverage instead of invented references. | AUDIT §5 (read-error contract), §6 (duplicate-key contract), §8 (COMMIT return contract) |
+| L3 | Section 4 (locked revalidation) and Section 6 (idempotent-on-dup-key) proposed competing strategies, and B3 imposed lock revalidation unconditionally while B5 offered three unlocked alternatives. Sections 4 and 6 are now one **unified concurrency strategy** question; the audit picks Strategy A (locked revalidation), Strategy B (UNIQUE-KEY duplicate-race idempotency), or Strategy H (hybrid, each part justified). B3 and B5 apply conditionally to the chosen strategy. | AUDIT §4 (unified), §6 (unified); Properties B3, B5; Tests T1, T3 (conditional variants) |
+| L4 | Section 8's COMMIT-audit grep did not include the review repository, so PR-F's own COMMIT usage was invisible to the audit. | AUDIT §8 Verify command |
+| L5 | Mixed-primary states (an active canonical primary co-existing with a blocked/rejected/inactive/pending/non-canonical primary row) were not covered. The audit now decides whether these are valid, impossible, or corruption; PR-G emits a precedence-driven reason; new tests T7f–T7j cover each mixed case. | AUDIT §10 (mixed-primary enumeration + critical semantic question); Property B9; Tests T7f, T7g, T7h, T7i, T7j |
+| L6 | B2's "success" was undefined. It now references the audited or fault-injection-established success result, requires clearing `$wpdb->last_error` before START TRANSACTION, requires validation of that success result plus `$wpdb->last_error` after, and requires connection/transaction-state verification where supported. If the state is uncertain, no out-of-transaction row update runs until state is reconciled. | AUDIT §5 + §8; Property B2 |
+| L7 | B6's ROLLBACK path did not check ROLLBACK's return value or `$wpdb->last_error`. It now checks both, classifies rollback-failure or connection-loss as unresolved, keeps the import row unapproved, and persists a distinct rollback-unreconciled reason only when the persistence write itself is safe. Fault-injection tests cover rollback success, rollback failure, and connection loss. | Property B6; Tests T4b, T4c |
+| L8 | B7's uncertain-COMMIT reconciliation handled only "row present" and "row absent"; if the reconciliation read itself failed, the previous rule conflated failure with zero rows. B7 now adds a third outcome — reconciliation read failure — with a distinct reason (`transaction_commit_uncertain_reconciliation_read_failed`), no row update until safe, and a specific log event. | Property B7; Test T5c |
+| L9 | `update_import_row()` runs outside the transaction, so its failure was never a rollback trigger. T4 no longer treats it as one. A separate durability-failure contract (Property B16) covers post-commit success-row-update failure, post-rollback failure-row-update failure, and the "cannot persist any operator-visible result" case, each with its own logging, reconciliation, and envelope shape. No second retry is required after the same operation fails. | Property B16; Tests T13a, T13b, T13c |
+| L10 | S5 previously prohibited `join_external_transaction` across the whole assignment repository. That would break if PR-F code legitimately introduced or moved the token. S5 is now scoped to PR-G additions only: the new service, and the exact new `within_open_transaction` method bodies. | Static guard S5 |
+| L11 | S6 rejected `KeywordPoolsAdminPage` by raw substring, which also rejects the valid fully-qualified `\TMWSEO\Engine\Admin\KeywordPoolsAdminPage`. S6 is now a token-aware/regex check that permits the FQCN and rejects only bare/unqualified occurrences that would resolve incorrectly, or accepts a validated `use` statement. | Static guard S6 |
+| L12 | The PR-body / bundle validation carried a stale hard-coded line count (`1,563`). This bundle no longer references any fixed line count; validation instead requires reporting the actual current count. Heading line numbers are also not fixed. | §3; validation section |
+| L13 | The old S4 nested-transaction validation used a piped `grep` that could return zero even when a forbidden token appeared inside a new method body. S4 is now a method-body extraction test: extract each `within_open_transaction` body, then assert no `START TRANSACTION`, `COMMIT`, or `ROLLBACK` token appears inside either body. The test fails if any forbidden token appears in either body. | Static guard S4 |
 
 ## 2. Delivery order
 
@@ -60,11 +82,17 @@ This PR is INVESTIGATIVE. It writes NO runtime PHP and NO PHPUnit
 test files. Its two deliverables are Markdown reports:
 
   D1. docs/audit/PR-G-manual-approval-assignment-cutover-audit.md
-  D2. docs/audit/PR-G-manual-approval-assignment-cutover-pinned-signatures.md
+  D2. docs/audit/PR-G-manual-approval-assignment-cutover-edit-checklist.md
 
-D2 is a documentation-only signature checklist for the follow-on PR-G
-implementation PR. It is not an executable test. PR-G will delete D2
-as part of its diff; D1 remains as historical record.
+D2 is a documentation-only edit checklist for the follow-on PR-G
+implementation PR. It is NOT a pinned-signatures artifact and MUST
+NOT be treated as one: no method name, class name, or file path in
+D2 is a normative pin — every entry is a summary of what PR-G's
+diff is expected to add or remove, phrased so that reviewers can
+skim the intended edit surface before reading D1 in full. Method
+signatures, if any, are informative examples; the audit report D1
+is the sole authority for API shapes. PR-G will delete D2 as part
+of its diff; D1 remains as historical record.
 
 The audit MUST answer every question in this prompt using ONLY the
 current state of the branch on which it runs. Every claim in D1 must
@@ -196,23 +224,54 @@ record:
     race for a secondary insert triggered by a concurrent primary
     demotion
 
-CRITICAL SEMANTIC QUESTION — record the answer:
-  Given the observed lock scope, if PR-G's new service holds an outer
-  transaction and calls one of the "within-open-transaction" methods
-  (to be defined by PR-G), what MUST the new method do so that the
-  primary-owner state observed pre-transaction cannot be invalidated
-  before the write commits? Two viable answers exist and PR-G will
-  choose one based on the audit's evidence:
-    (a) The new method re-runs SELECT ... FOR UPDATE on the candidate's
-        entire assignment row set inside the outer transaction, then
-        re-derives primary/secondary decision from the locked rows,
-        and only then inserts.
-    (b) The new method issues an idempotent insert that RELIES on the
-        UNIQUE KEY assignment_key index — on duplicate key error it
-        re-reads the winning row and returns idempotent-noop.
-  Record which of (a) or (b) is safe against every current concurrent
-  writer (migration analyzer/service, review sync/execution, PR-F
-  validation units, admin recovery). Justify.
+CRITICAL SEMANTIC QUESTION — UNIFIED CONCURRENCY STRATEGY
+Section 4 and Section 6 together choose ONE coherent strategy that
+answers both "how is stale authorization prevented" and "how are
+duplicate concurrent inserts handled". Record the choice as exactly
+one of the following (do NOT record a mixture of A and B under two
+different section headers):
+
+  STRATEGY A — LOCKED REVALIDATION / SERIALIZATION
+    The new "within-open-transaction" methods, called by PR-G's
+    service inside its outer $wpdb transaction, re-run
+    SELECT ... FOR UPDATE against the candidate's assignment row
+    set INSIDE the transaction, re-derive the primary/secondary
+    decision from the locked rows, and only then INSERT. The race
+    is prevented by the row-level lock; a duplicate-key error is
+    treated as an unexpected invariant violation, not as an
+    idempotency signal.
+
+  STRATEGY B — UNIQUE-KEY DUPLICATE-RACE IDEMPOTENCY
+    The new "within-open-transaction" methods do not lock the
+    candidate's assignment rows for update. They rely on the
+    UNIQUE KEY assignment_key index to detect duplicate concurrent
+    inserts. On a duplicate-key insert failure, the method
+    re-reads the winning row by assignment_key and returns the
+    idempotent-noop outcome (primary_assignment_already_exists /
+    secondary_assignment_already_exists) with the winning row's id.
+    Stale authorization is accepted as a bounded risk on the basis
+    documented by the audit (record the explicit justification for
+    why every current concurrent writer — migration analyzer /
+    migration service / review sync / review execution / PR-F
+    validation units / admin recovery — cannot cause the observed
+    primary to become invalid between the pre-tx read and the
+    committed write).
+
+  STRATEGY H — AUDITED HYBRID
+    If neither A nor B alone is safe, the audit MAY choose a
+    hybrid. If it does, it MUST justify each part of the hybrid
+    separately and specify the exact combination — for example,
+    "lock for a primary insert, rely on UNIQUE KEY for a secondary
+    insert, and forbid mixed primary/secondary writes in the same
+    transaction". PR-G will implement EXACTLY that combination and
+    no other.
+
+Whichever strategy is chosen, Section 6 records the corresponding
+duplicate-detection contract and Section 4 (this section) records
+the corresponding locking contract; the two sections MUST be
+consistent. PR-G Properties B3 and B5 apply conditionally to the
+chosen strategy — see the "STRATEGY-CONDITIONAL" notes on those
+properties in PROMPT 2.
 
 Verify:
   grep -n "assignment_key\|UNIQUE KEY assignment_key" includes/db/class-schema.php
@@ -233,10 +292,25 @@ Record any existing precedent in the assignment repository, review
 repository, or validation service that demonstrates the correct
 sequence. Quote file:line.
 
+RUNTIME EVIDENCE RULE
+The runtime return contract of $wpdb read helpers under connection
+loss, timeout, or driver-level failure CANNOT be proven from static
+source inspection alone. Where static inspection does not establish
+the actual runtime return contract for a specific failure mode,
+record the answer as:
+  "not established by repository evidence — fault-injection test
+   required"
+and enumerate the fault-injection or integration test PR-G MUST add
+to establish that mode. Do NOT invent file:line references for
+runtime behaviors like connection loss.
+
 CRITICAL SEMANTIC QUESTION — record the answer:
   What is the precise sentinel/return-value contract for the audit's
   proposed guarded read helper? PR-G will require every read to use
-  it (Property B4); the audit specifies its shape.
+  it (Property B4). For every failure mode where the source cannot
+  establish the contract, the audit lists the exact fault-injection
+  test PR-G must run to establish it before Property B4 is applied
+  to that mode.
 
 Verify:
   grep -n "\$wpdb->last_error\|get_var\|get_row\|get_results" includes/keywords/class-keyword-assignment-repository.php includes/keywords/class-keyword-assignment-review-repository.php includes/keywords/class-keyword-assignment-validation-service.php
@@ -248,19 +322,54 @@ convention for translating a duplicate-key insert failure into a
 domain-level idempotency result (or state that no such convention
 exists).
 
-CRITICAL SEMANTIC QUESTION — record the answer:
-  For a concurrent race where two callers both decide "create
-  secondary" for the same identity, one INSERT will succeed and the
-  other will fail. The audit MUST specify which detection mechanism is
-  authoritative in THIS codebase:
-    (i)  $wpdb->last_error string match on the duplicate-key error
-    (ii) explicit re-SELECT of the winning row by assignment_key
-         AFTER the failed insert, and idempotency inferred by the
-         re-read succeeding
-    (iii) a SELECT ... FOR UPDATE serialization strategy that avoids
-         the race entirely
-  Pick (i), (ii), or (iii) and justify it against the observed
-  $wpdb behavior. PR-G will implement exactly the chosen path.
+RUNTIME EVIDENCE RULE
+The exact error string / error code / return value produced by
+$wpdb->insert() on a duplicate-key rejection CANNOT be proven from
+static source inspection alone. Where the audit needs to distinguish
+"insert failed because of a UNIQUE KEY collision" from "insert failed
+for any other reason", and static inspection does not establish that
+distinction, record the answer as:
+  "not established by repository evidence — fault-injection test
+   required"
+and enumerate the exact fault-injection test PR-G MUST add to
+establish it. Do NOT invent file:line references for the duplicate-
+key error surface.
+
+CRITICAL SEMANTIC QUESTION — record the answer (STRATEGY-CONDITIONAL)
+This section's answer follows directly from Section 4's chosen
+strategy. Do NOT record a strategy here that contradicts Section 4.
+
+  IF Section 4 chose STRATEGY A (locked revalidation):
+    The duplicate-key path is a FAIL-CLOSED assertion. Under the
+    lock, a duplicate-key error at INSERT time indicates a
+    concurrent writer that bypassed the lock scope — record the
+    exact detection mechanism (last_error match, error code, or
+    audited fault-injection outcome) and specify that PR-G treats
+    such an error as a hard failure (result_reason='authorization_
+    evidence_changed_under_lock' or an audit-chosen equivalent).
+    No idempotent-noop mapping applies.
+
+  IF Section 4 chose STRATEGY B (UNIQUE-KEY duplicate-race idempotency):
+    The duplicate-key path IS the idempotency mechanism. The audit
+    MUST specify:
+      (a) the exact detection: last_error string match, error code,
+          or (recommended) a post-failure re-SELECT of the row by
+          assignment_key that succeeds; and
+      (b) the exact mapping to result_reason values:
+          primary_assignment_already_exists / secondary_assignment_already_exists.
+    Do NOT rely on a last_error string match unless the audit or
+    the required fault-injection test proves the string is stable
+    across all supported MySQL / MariaDB versions and $wpdb
+    versions the site runs. Prefer the re-SELECT approach when the
+    string is not established.
+
+  IF Section 4 chose STRATEGY H (hybrid):
+    Record separately for each primary/secondary insert path what
+    the duplicate-key contract is under that path, matching the
+    audit's hybrid rules.
+
+PR-G will implement EXACTLY the strategy-conditioned path recorded
+here. See PR-G Property B5 for the mapping to test T1.
 
 ## Section 7 — Durable failure-result behavior
 Trace the current admin approval branch AND the current reject branch:
@@ -300,21 +409,47 @@ as (a) definitely rolled back, (b) definitely committed, or
 (c) UNCERTAIN and reconciles by re-reading state. Quote file:line
 for each case.
 
+RUNTIME EVIDENCE RULE
+The precise return value of $wpdb->query('COMMIT') under connection
+loss, timeout, or a mid-COMMIT server error CANNOT be established
+from static source inspection. Do NOT invent file:line references
+for these failure modes. Where static inspection does not establish
+the runtime contract for a specific failure mode, record the answer
+as:
+  "not established by repository evidence — fault-injection or
+   integration test required"
+and enumerate the specific fault-injection tests PR-G MUST add to
+establish that behavior before Property B7 is applied to that mode.
+Property B7's reconciliation sequence remains normative regardless
+of whether the source establishes the exact COMMIT return contract
+— the sequence is fail-closed by design.
+
 CRITICAL SEMANTIC QUESTION — record the answer:
   What is the safest reconciliation sequence PR-G must implement
-  after a false COMMIT return? At minimum:
+  after a COMMIT that did not report definite success? At minimum:
     - re-read the assignment row by identity (assignment_key)
-    - if present with the expected payload: the transaction actually
-      committed; log 'uncertain_commit_reconciled_committed' and
-      treat as success (still call update_import_row OUTSIDE any
-      transaction with the success fields)
-    - if not present: the transaction actually rolled back; call
-      update_import_row OUTSIDE any transaction with
+    - if the re-read succeeds and returns the expected row: the
+      transaction actually committed; log
+      'uncertain_commit_reconciled_committed' and treat as success
+      (still call update_import_row OUTSIDE any transaction with
+      the success fields, subject to Property B16 for durability
+      failures)
+    - if the re-read succeeds and returns no row: the transaction
+      actually rolled back; call update_import_row OUTSIDE any
+      transaction with
       result_reason='transaction_commit_uncertain_rolled_back'
-    - never mark the row newly approved while state is unreconciled
+    - if the re-read ITSELF fails (guarded-read shape from
+      Section 5 reports query error): the outcome is unresolved;
+      log 'uncertain_commit_reconciliation_read_failed'; call
+      update_import_row OUTSIDE any transaction with
+      result_reason='transaction_commit_uncertain_reconciliation_read_failed'
+      ONLY IF the audit establishes that call is safe under an
+      uncertain connection state — otherwise defer the persistence
+      write per Property B16
+    - never mark the row newly approved while state is unresolved
 
 Verify:
-  grep -n "'COMMIT'" includes/keywords/class-keyword-assignment-repository.php includes/keywords/class-keyword-assignment-validation-service.php
+  grep -n "'COMMIT'" includes/keywords/class-keyword-assignment-repository.php includes/keywords/class-keyword-assignment-review-repository.php includes/keywords/class-keyword-assignment-validation-service.php
 
 ## Section 9 — Full assignment identity tuple
 List the components of the assignment identity as observed in
@@ -350,15 +485,7 @@ canonical_owner ∈ {0,1}, record whether that combination:
     blocked reason string
   - is prohibited by normalize_assignment (list the error string)
 
-Record the exact string PR-G will emit for each invalid state:
-  invalid_primary_state:blocked
-  invalid_primary_state:rejected
-  invalid_primary_state:inactive
-  invalid_primary_state:non_canonical
-  primary_pending_review
-  same_target_assignment_not_active:<observed_status>/<observed_role>
-
-CRITICAL SEMANTIC QUESTION — record the answer:
+CRITICAL SEMANTIC QUESTION 1 — single-primary invalid states
   Does find_primary_owner() return null for a candidate whose only
   primary is status='blocked'? For status='rejected'? For
   status='inactive'? For canonical_owner=0? Confirm by reading its
@@ -367,6 +494,65 @@ CRITICAL SEMANTIC QUESTION — record the answer:
   find_assignments_for_candidate() for role='primary' rows in
   non-active states and emit the specific reason. Confirm this is
   the correct pattern.
+
+CRITICAL SEMANTIC QUESTION 2 — MIXED-PRIMARY PRECEDENCE
+Enumerate every combination in which a candidate has MULTIPLE
+role='primary' rows simultaneously — for example an active canonical
+primary co-existing with any of:
+  - a blocked primary
+  - a rejected primary
+  - an inactive primary
+  - a review_required (pending) primary
+  - a non-canonical (canonical_owner=0) primary
+For each combination, the audit MUST determine which of the
+following applies (quote schema constraints, existing invariants, or
+existing repository behavior — do NOT guess):
+  (i)  the combination is IMPOSSIBLE because a schema constraint or
+       repository invariant prevents it (state the constraint)
+  (ii) the combination is VALID HISTORICAL DATA that can appear
+       (state a plausible way it arises: legacy migration, prior
+       cutover, admin recovery — quote code where the audit can
+       observe the writing path)
+  (iii) the combination is CORRUPTION (no legitimate writer produces
+        it; if observed, PR-G's behaviour is a precedence-driven
+        fail-closed decision)
+
+For combinations that are VALID HISTORICAL DATA or CORRUPTION, the
+audit records the exact PRECEDENCE RULE PR-G will apply. The default
+precedence PR-G will implement (unless the audit records a stricter
+one) is:
+  Precedence order for deciding "is there a valid active primary":
+    P1. If ANY row has role='primary' AND canonical_owner=1 AND
+        status='approved', that row is the valid active primary.
+    P2. Otherwise, if ANY row has role='primary' AND status='blocked',
+        emit invalid_primary_state:blocked.
+    P3. Otherwise, if ANY row has role='primary' AND status='rejected',
+        emit invalid_primary_state:rejected.
+    P4. Otherwise, if ANY row has role='primary' AND status='inactive',
+        emit invalid_primary_state:inactive.
+    P5. Otherwise, if ANY row has role='primary' AND status='review_required',
+        emit primary_pending_review.
+    P6. Otherwise, if ANY row has role='primary' AND canonical_owner=0,
+        emit invalid_primary_state:non_canonical.
+    P7. Otherwise, no role='primary' row exists — fall through to
+        role_inference_ambiguous_no_primary_evidence per B9.
+  Under P1, the presence of any other role='primary' row in a
+  non-active state DOES NOT override the valid active primary — the
+  service continues as if the invalid rows were absent, and logs the
+  observed mixed-primary state under [TMW-KW-MANUAL-APPROVE] for
+  operator triage (mixed_primary_observed_with_active_canonical:<states>).
+
+Record the exact string PR-G will emit for each single-primary invalid
+state:
+  invalid_primary_state:blocked
+  invalid_primary_state:rejected
+  invalid_primary_state:inactive
+  invalid_primary_state:non_canonical
+  primary_pending_review
+  same_target_assignment_not_active:<observed_status>/<observed_role>
+  mixed_primary_observed_with_active_canonical:<states>
+    (logged, not emitted as result_reason; success path proceeds
+     under P1)
 
 Verify:
   grep -n "find_primary_owner\|find_assignments_for_candidate\|find_assignment\b" includes/keywords/class-keyword-assignment-repository.php
@@ -431,37 +617,43 @@ Verify:
   grep -Hn "update_candidate_status\|approve_import_row_as_candidate_result\|manually_approved\|manual_approval_failed" tests/ | grep -v "\.md:"
 
 ═════════════════════════════════════════════════════════════════
-D2 CONTENT — docs/audit/PR-G-manual-approval-assignment-cutover-pinned-signatures.md
+D2 CONTENT — docs/audit/PR-G-manual-approval-assignment-cutover-edit-checklist.md
 ═════════════════════════════════════════════════════════════════
-A documentation-only checklist of the exact substrings PR-G will
-remove and add. Sections:
+A documentation-only edit checklist of PR-G's expected edit surface.
+This document is NOT a pinned-signatures artifact. Every entry is a
+summary; the audit report D1 is the sole authority for exact method
+names, exact signatures, and exact file:line references. Any conflict
+between D2 and D1 is decided in favour of D1.
 
 ## MUST REMOVE from includes/admin/class-keyword-pools-admin-page.php
   (list the exact substrings observed today in the approve branch —
    e.g. update_candidate_status(...), approve_import_row_as_candidate_result(...),
    'manually_approved' — with the line numbers observed in this
-   commit)
+   commit; these are informative extracts, not pinned signatures)
 
 ## MUST ADD to includes/admin/class-keyword-pools-admin-page.php
   - the exact markers // [TMW-KW-MANUAL-APPROVE] begin / end
-  - the exact fully-qualified class name of the new service, as
-    chosen by Section 11
-  - a call to the service that observes and handles the returned
-    failure envelope (do not discard)
+  - a reference to the new service (name and namespace confirmed by
+    D1 Section 11)
+  - a call site that observes and handles the returned failure
+    envelope (do not discard)
 
 ## MUST ADD to includes/keywords/
-  - the new service file
-  - two additive public methods on the assignment repository (names
-    to be finalized by PR-G, but must include "within_open_transaction"
-    in their identifiers so grep tools can enumerate them)
+  - the new service file (path confirmed by D1 Section 11)
+  - two additive public methods on the assignment repository whose
+    identifiers include the token "within_open_transaction" — D1 is
+    the sole authority for their final names and signatures; the
+    identifier convention above is included so that later grep-based
+    guards can enumerate them
   - the smallest safe additive public read wrapper on the candidate
-    repository, if Section 2 concluded one is needed
+    repository, if D1 Section 2 concluded one is needed
   - (no changes to any other existing keywords file)
 
 ## MUST NOT REMOVE
   - the markers // [TMW-KW-SCOPED-REJECT] begin row-only rejection /
     end row-only rejection
-  - the reject-branch body between them — SHA1 must match Section 12
+  - the reject-branch body between them — SHA1 must match D1
+    Section 12
 
 ═════════════════════════════════════════════════════════════════
 VALIDATION FOR THIS AUDIT PR
@@ -491,8 +683,10 @@ PR-G-AUDIT: manual approval → assignment cutover audit (no runtime code)
   deterministic invalid-primary detection pattern, the admin-class
   namespace and loader-dependency choice, and the exact edit surface
   for the follow-on PR-G implementation PR.
-- docs/audit/PR-G-manual-approval-assignment-cutover-pinned-signatures.md
-  is a documentation checklist of substrings PR-G must remove or add.
+- docs/audit/PR-G-manual-approval-assignment-cutover-edit-checklist.md
+  is a documentation checklist of PR-G's expected edit surface; it is
+  informative only and NOT a pinned-signatures artifact — D1 is the
+  sole authority for exact API shapes.
 - No runtime code changed. No PHPUnit test file added or removed.
 
 ═════════════════════════════════════════════════════════════════
@@ -502,7 +696,7 @@ PR BODY
 - One-paragraph summary of the current call graph with file:line refs.
 - Explicit statement that no runtime code or PHPUnit test file changed.
 - Link to both Markdown deliverables.
-- Explicit statement that PR-G will delete the pinned-signatures
+- Explicit statement that PR-G will delete D2, the edit-checklist
   Markdown (D1 stays as historical record).
 - Do NOT auto-merge.
 ````
@@ -633,7 +827,7 @@ EDIT (surgical):
   - CHANGELOG.md — new top entry only (see Changelog Rule below).
 
 DELETE:
-  - docs/audit/PR-G-manual-approval-assignment-cutover-pinned-signatures.md
+  - docs/audit/PR-G-manual-approval-assignment-cutover-edit-checklist.md
 
 ═════════════════════════════════════════════════════════════════
 MANDATORY BEHAVIORAL PROPERTIES
@@ -654,27 +848,83 @@ B1. SINGLE TRANSACTION OWNER
     be asserted in the guard test.
 
 B2. TRANSACTION-START FAILURE ABORTS BEFORE ANY WRITE
+    "Success" for START TRANSACTION MUST be defined by the audit's
+    Section 5 + Section 8 evidence, or by the fault-injection tests
+    the audit required in place of missing static evidence. Never
+    treat "not exactly false" as success.
+
     Before ANY $wpdb write, the service:
       - clears $wpdb->last_error
       - runs $wpdb->query('START TRANSACTION')
-      - checks the return value AND $wpdb->last_error
-      - if either indicates failure, performs no writes inside the
-        (non-existent) transaction; then calls update_import_row()
-        OUTSIDE any transaction with result_action='manual_approval_failed'
-        and result_reason='transaction_start_failed' and returns
-        the structured failure envelope
+      - validates the return value against the audited success
+        contract (do NOT use an undefined "if not false")
+      - checks $wpdb->last_error is empty
+      - where the audit established a way to verify connection or
+        transaction state (for example a session-variable probe),
+        performs that verification and confirms the connection is
+        alive AND in-transaction
+
+    Outcomes:
+      SUCCESS       — proceed with the atomic write.
+      DEFINITE      — the audit's contract clearly indicates failure
+      FAILURE         (e.g. false return AND non-empty last_error
+                      indicating a rejected statement). Perform NO
+                      writes; call update_import_row() OUTSIDE any
+                      transaction with result_action='manual_approval_failed'
+                      and result_reason='transaction_start_failed';
+                      return the structured failure envelope.
+      UNCERTAIN     — the return, last_error, or state probe do not
+                      unambiguously indicate success or failure
+                      (connection loss suspected, ambiguous driver
+                      response). Perform NO writes. Do NOT
+                      immediately call update_import_row() OUTSIDE
+                      any transaction — reconcile connection/
+                      transaction state first per Property B16. Only
+                      after reconciliation has established a safe
+                      persistence state may the service persist
+                      result_reason='transaction_start_uncertain'
+                      via update_import_row(); if the persistence
+                      write is not safe, defer per B16 and return
+                      an envelope indicating the deferred state.
+
     The admin caller consumes the envelope and does not overwrite it.
 
-B3. AUTHORIZATION EVIDENCE UNDER LOCK
-    Any candidate/assignment inspection used to authorize a write
-    MUST be re-run inside the outer transaction, under SELECT ...
-    FOR UPDATE of the candidate's assignment row set, before the
-    insert is issued. Pre-transaction reads may occur only for the
-    decision-table PATH SELECTION (e.g. "which of create_primary /
-    create_secondary / noop / blocked to attempt"). The final
-    authorization state MUST match the locked re-read; if it does
-    not, the service ROLLBACKs and returns failure with
-    result_reason='authorization_evidence_changed_under_lock'.
+B3. AUTHORIZATION EVIDENCE — STRATEGY-CONDITIONAL
+    STRATEGY-CONDITIONAL: this property applies as follows depending
+    on the audit's Section 4 unified concurrency strategy choice.
+
+    IF Section 4 chose STRATEGY A (locked revalidation):
+      Any candidate/assignment inspection used to authorize a write
+      MUST be re-run inside the outer transaction, under SELECT ...
+      FOR UPDATE of the candidate's assignment row set, before the
+      INSERT is issued. Pre-transaction reads may occur only for the
+      decision-table PATH SELECTION. The final authorization state
+      MUST match the locked re-read; if it does not, the service
+      ROLLBACKs and returns failure with
+      result_reason='authorization_evidence_changed_under_lock'.
+
+    IF Section 4 chose STRATEGY B (UNIQUE-KEY duplicate-race idempotency):
+      Authorization reads (find_primary_owner,
+      find_assignments_for_candidate, find_assignment for same-target)
+      MAY be performed pre-transaction for path selection. Because
+      no lock is held, the primary state observed pre-transaction is
+      considered a bounded-risk decision input; the audit's Section 4
+      recorded WHY this risk is acceptable given every current
+      concurrent writer. A brief non-locking re-read inside the outer
+      transaction (before the INSERT) is REQUIRED to catch obvious
+      changes (for example, the primary observed pre-tx has since
+      been demoted to secondary or its status has changed); if the
+      re-read differs materially from the pre-tx read, the service
+      ROLLBACKs and returns failure with
+      result_reason='authorization_evidence_changed_before_insert'.
+      A UNIQUE KEY collision at insert time is handled per B5, not
+      as an authorization failure.
+
+    IF Section 4 chose STRATEGY H (hybrid):
+      Apply the STRATEGY A rules to any write path the hybrid marks
+      as locked, and the STRATEGY B rules to any write path the
+      hybrid marks as UNIQUE-KEY-based. Do NOT mix on a single write
+      path.
 
 B4. READ-QUERY FAILURE IS DISTINCT FROM ZERO ROWS
     Every $wpdb read MUST use the guarded-read shape specified in
@@ -685,55 +935,149 @@ B4. READ-QUERY FAILURE IS DISTINCT FROM ZERO ROWS
     lookup, all-assignments-for-candidate lookup, and any active-
     owner counting the two new assignment-repo methods perform.
 
-B5. CONCURRENCY-SAFE SECONDARY (AND PRIMARY) INSERT
-    Duplicate concurrent approvals MUST NOT produce duplicate rows
-    and MUST NOT report insert_failed when the DB rejected a
-    duplicate. The audit's Section 6 has chosen (i), (ii), or
-    (iii); implement exactly the chosen path:
-      (i)  detect duplicate-key from $wpdb->last_error, re-SELECT
-           the winning row by assignment_key, and return
-           secondary_assignment_already_exists / primary_assignment_already_exists
-           with its id
-      (ii) unconditional re-SELECT by assignment_key after any
-           insert failure, and treat successful re-read as the
-           idempotent no-op result
-      (iii) serialize the decision behind SELECT ... FOR UPDATE
-           on the candidate's assignment set (already required by
-           B3) and rely on that serialization to prevent the race
-    Do not implement more than one of these; do not mix (i) with
-    (ii) unless the audit explicitly required both.
+B5. CONCURRENCY-SAFE INSERT — STRATEGY-CONDITIONAL
+    Duplicate concurrent approvals MUST NOT produce duplicate rows.
+    STRATEGY-CONDITIONAL: this property applies as follows depending
+    on the audit's Section 4 unified concurrency strategy choice.
 
-B6. DURABLE FAILURE-RESULT PERSISTENCE
-    On ANY rollback path, the service MUST call
-    update_import_row() OUTSIDE the transaction with:
-      result_action = 'manual_approval_failed'
-        (or 'manual_approval_blocked' — see B10)
-      result_reason = the specific failure reason string
-      reviewed_by = get_current_user_id()
-      reviewed_at = current_time('mysql')
-    The status field MUST NOT be flipped to 'approved' on any
-    failure. The admin caller MUST consume the service's returned
-    envelope; it MUST NOT discard or overwrite the persisted
-    failure reason.
+    IF Section 4 chose STRATEGY A (locked revalidation):
+      The SELECT ... FOR UPDATE lock required by B3 serialises the
+      race. A duplicate-key error at INSERT time indicates an
+      invariant violation (a writer bypassed the lock scope) and is
+      handled as a HARD FAILURE: ROLLBACK, log the incident, return
+      failure with the audit-recorded reason (typically
+      'authorization_evidence_changed_under_lock' or an audit
+      equivalent — see Section 6). Do NOT map the collision to an
+      idempotent-noop result under Strategy A.
+
+    IF Section 4 chose STRATEGY B (UNIQUE-KEY duplicate-race idempotency):
+      On INSERT failure, use the exact detection recorded in
+      Section 6. Where Section 6 records "post-failure re-SELECT by
+      assignment_key" (the recommended default): perform the
+      guarded re-SELECT (per Section 5); if the re-SELECT succeeds
+      and returns a row, return the idempotent-noop result with
+      the winning row's id, mapped to result_reason:
+        - 'primary_assignment_already_exists' for a primary insert
+        - 'secondary_assignment_already_exists' for a secondary insert
+      If the re-SELECT succeeds and returns no row, the INSERT
+      failure was NOT a duplicate collision — return failure with
+      result_reason='assignment_write_failed:<repo_error>'.
+      If the re-SELECT itself fails (query error per B4), do NOT
+      guess an idempotency outcome — return failure with
+      result_reason='concurrency_reconciliation_read_failed'.
+      MUST NOT report a bare 'insert_failed' when the audit's
+      chosen detection can distinguish duplicate-key from other
+      insert failures.
+
+    IF Section 4 chose STRATEGY H (hybrid):
+      Apply the Strategy A rules to any write path the hybrid marks
+      as locked, and the Strategy B rules to any write path the
+      hybrid marks as UNIQUE-KEY-based. Do NOT implement more than
+      one behaviour per write path.
+
+    Under any strategy, the "within-open-transaction" methods on
+    KeywordAssignmentRepository — regardless of chosen name — DO
+    NOT preserve SELECT ... FOR UPDATE on their own unless the
+    strategy is A or the hybrid explicitly requires it for that
+    path. Any "these methods preserve FOR UPDATE" claim in the
+    audit or in PR-G's specification MUST be strategy-conditional
+    and match the chosen strategy.
+
+B6. DURABLE FAILURE-RESULT PERSISTENCE + ROLLBACK FAILURE HANDLING
+    On any rollback path, before calling update_import_row():
+
+    ROLLBACK EXECUTION
+      - clear $wpdb->last_error
+      - run $wpdb->query('ROLLBACK')
+      - validate the return value against the audited success
+        contract (Section 8; never treat "not exactly false" as
+        success)
+      - check $wpdb->last_error is empty
+
+    OUTCOME CLASSIFICATION
+      ROLLBACK OK      — the transaction is definitely reverted.
+                         Proceed to the durable failure-persistence
+                         write below.
+      ROLLBACK FAILED  — return value indicates definite failure
+                         (per Section 8 evidence). Classify the
+                         outcome as UNRESOLVED. Do NOT report a
+                         normal successful rollback envelope. Do
+                         NOT immediately update_import_row() —
+                         reconcile per B16 first (re-read the
+                         assignment row by assignment_key). Persist
+                         result_reason='transaction_rollback_failed'
+                         ONLY if reconciliation established a safe
+                         persistence state; otherwise defer per B16.
+      CONNECTION LOST  — return value / last_error / state probe
+                         indicate the connection is dead (per
+                         Section 8 evidence, or a fault-injection
+                         test the audit required). Classify as
+                         UNRESOLVED. Do NOT retry ROLLBACK
+                         indefinitely. Do NOT overwrite the import
+                         row's fields until reconciliation is
+                         performed per B16 on a new/recovered
+                         connection. Persist
+                         result_reason='transaction_rollback_connection_lost'
+                         ONLY when a safe persistence write becomes
+                         possible.
+
+    DURABLE FAILURE PERSISTENCE (when ROLLBACK OK)
+      Call update_import_row() OUTSIDE the transaction with:
+        result_action = 'manual_approval_failed'
+          (or 'manual_approval_blocked' — see B10)
+        result_reason = the specific failure reason string
+        reviewed_by   = get_current_user_id()
+        reviewed_at   = current_time('mysql')
+
+    In every rollback classification, the status field MUST NOT be
+    flipped to 'approved'; the import row MUST remain unapproved
+    until reconciliation completes. The admin caller MUST consume
+    the service's returned envelope; it MUST NOT discard or
+    overwrite the persisted failure reason. The envelope MUST
+    surface the UNRESOLVED classification so the admin caller can
+    render an operator-triage banner when persistence is deferred.
 
 B7. UNCERTAIN-COMMIT RECONCILIATION
-    If $wpdb->query('COMMIT') returns false OR $wpdb->last_error is
-    non-empty after the COMMIT call, the outcome is UNCERTAIN, not
-    definite. Implement exactly the reconciliation sequence
-    documented in the audit's Section 8:
-      - re-read the just-attempted assignment row by its
-        assignment_key
-      - if present with the expected payload: log
-        'uncertain_commit_reconciled_committed', update the import
-        row OUTSIDE any transaction with the success fields, return
-        success with a note in the log tag
-      - if not present: log
-        'uncertain_commit_reconciled_rolled_back', update the
-        import row OUTSIDE any transaction with
-        result_reason='transaction_commit_uncertain_rolled_back',
-        return failure
-    The service MUST NOT set the import row to 'approved' while the
-    commit outcome is unreconciled.
+    If $wpdb->query('COMMIT') does not report definite success (per
+    the audited or fault-injected success contract from Section 8),
+    or if $wpdb->last_error is non-empty after the COMMIT call, the
+    outcome is UNCERTAIN, not definite. Implement exactly the
+    reconciliation sequence documented in the audit's Section 8,
+    which MUST include all three outcomes below:
+
+      (a) RECONCILIATION READ SUCCESS + ROW PRESENT
+          The re-read of the just-attempted assignment row by its
+          assignment_key succeeds and returns the expected row.
+          Log 'uncertain_commit_reconciled_committed'. Update the
+          import row OUTSIDE any transaction with the success
+          fields (subject to Property B16 for durability failures).
+          Return success with a note in the log tag.
+
+      (b) RECONCILIATION READ SUCCESS + NO ROW
+          The re-read succeeds and returns no row. The transaction
+          actually rolled back. Log
+          'uncertain_commit_reconciled_rolled_back'. Update the
+          import row OUTSIDE any transaction with
+          result_reason='transaction_commit_uncertain_rolled_back'.
+          Return failure.
+
+      (c) RECONCILIATION READ FAILURE
+          The re-read ITSELF fails (per the guarded-read shape from
+          Section 5: $wpdb->last_error non-empty after the read, or
+          the audited failure sentinel is returned). This outcome
+          MUST NOT be conflated with (b). Log
+          'uncertain_commit_reconciliation_read_failed'. The commit
+          outcome is UNRESOLVED. Persist
+          result_reason='transaction_commit_uncertain_reconciliation_read_failed'
+          via update_import_row() OUTSIDE any transaction ONLY IF
+          Property B16's safety gate allows it; otherwise defer
+          persistence per B16 and return an envelope indicating
+          the deferred state. Do NOT retry the reconciliation read
+          indefinitely.
+
+    Under any outcome, the service MUST NOT set the import row to
+    'approved' while the commit outcome is unresolved. The admin
+    caller MUST surface the unresolved state to the operator.
 
 B8. FULL IDENTITY TUPLE COMPARISON
     Every same-target / different-target / same-identity comparison
@@ -827,6 +1171,69 @@ B15. NO WRITES OUTSIDE SANCTIONED TABLES
     taxonomy, or any WordPress publish/set-terms function. Enforced
     by Test T10 (scope-regression).
 
+B16. IMPORT-ROW UPDATE DURABILITY CONTRACT
+    update_import_row() runs OUTSIDE the outer transaction, so its
+    failure is NOT a rollback trigger. This property specifies the
+    contract when update_import_row() itself fails.
+
+    Three cases:
+
+      (a) POST-COMMIT SUCCESS-STATE UPDATE FAILURE
+          The atomic write committed successfully (either the
+          normal path or a B7(a) reconciliation converged on
+          committed). The service then attempts to write the
+          success fields to the import row and update_import_row()
+          returns false or reports an error.
+          The assignment write remains committed (this is correct;
+          rolling it back afterwards is not possible). Log
+          'import_row_success_update_failed'. Do NOT retry
+          update_import_row() a second time within the same
+          service call — return an envelope carrying:
+            ok = true (the assignment write is durable)
+            result_action = 'approved'
+            result_reason = <the emitted success reason>
+            persistence = 'row_update_failed'
+          The admin caller MUST render an operator-triage banner
+          from this envelope; retry policy is delegated to an
+          out-of-band mechanism (a reconciler cron / admin
+          action) — this service does not orchestrate it.
+
+      (b) POST-ROLLBACK FAILURE-STATE UPDATE FAILURE
+          The atomic write rolled back (either directly, per B6, or
+          via B7(b) reconciliation converging on rolled-back). The
+          service then attempts to write the failure fields to the
+          import row and update_import_row() returns false.
+          Log 'import_row_failure_update_failed'. Do NOT retry
+          update_import_row() a second time within the same
+          service call. Return an envelope carrying:
+            ok = false
+            result_action = 'manual_approval_failed'
+            result_reason = <the specific failure reason>
+            persistence = 'row_update_failed'
+          The admin caller MUST render an operator-triage banner.
+
+      (c) PERSISTENCE-DEFERRED PATH
+          When B2 (transaction start uncertain), B6 (rollback
+          failed / connection lost), or B7(c) (reconciliation read
+          failed) has classified the outcome as UNRESOLVED and
+          persisted nothing, this service call MUST NOT attempt
+          update_import_row() at all until the audit-recorded
+          safety gate is satisfied (typically: connection has been
+          proven alive by a subsequent probe). If the safety gate
+          is not met by the end of the service call, return an
+          envelope carrying:
+            ok = false
+            result_action = <unchanged from the caller's input>
+            result_reason = <the specific unresolved reason>
+            persistence = 'deferred_pending_reconciliation'
+          The admin caller MUST NOT overwrite the row's fields
+          based on this envelope. An out-of-band reconciler is
+          responsible for eventual persistence.
+
+    Under (a), (b), and (c), the service NEVER performs a second
+    update_import_row() call after the same operation has already
+    failed to persist. Test T13 covers each case.
+
 ═════════════════════════════════════════════════════════════════
 DECISION TABLE (audit-derived — do not invent additional rows)
 ═════════════════════════════════════════════════════════════════
@@ -889,9 +1296,14 @@ Cover EVERY test letter below. Report exact test/assertion counts.
           ROLLBACK observed; update_import_row() called ONCE
           OUTSIDE any transaction with the same reason
 
-  T4. ROLLBACK DURABILITY
-      For each rollback trigger (candidate save failure, assignment
-      insert failure, import-row update failure), assert:
+  T4. ROLLBACK DURABILITY (INSIDE-TRANSACTION FAILURES ONLY)
+      IMPORTANT: update_import_row() runs OUTSIDE the transaction
+      and its failure is NOT a rollback trigger (see B16 / T13).
+      T4 covers only failures that occur INSIDE the transaction.
+
+      T4a — For each inside-transaction rollback trigger
+            (candidate save failure, assignment insert failure),
+            assert:
         - ROLLBACK observed
         - NO orphan candidate row survives
         - NO orphan assignment row survives
@@ -901,22 +1313,67 @@ Cover EVERY test letter below. Report exact test/assertion counts.
         - the admin caller consumes the envelope and does not
           overwrite it
 
+      T4b — ROLLBACK ITSELF FAILS (fault injection)
+            Configure the fake $wpdb so an inside-transaction
+            failure triggers ROLLBACK, but ROLLBACK returns the
+            audited failure sentinel and sets $wpdb->last_error.
+            Assert per B6:
+        - outcome is classified UNRESOLVED
+        - update_import_row() is NOT called until B16(c) safety
+          gate is satisfied; if not satisfied in this call, the
+          envelope carries persistence='deferred_pending_reconciliation'
+        - the row's status field is NOT 'approved'
+        - the row's operator-visible fields are NOT overwritten
+          from prior state
+
+      T4c — CONNECTION LOST DURING ROLLBACK (fault injection)
+            Configure the fake $wpdb so ROLLBACK reports a
+            connection-loss outcome (per the audit's Section 8
+            evidence or the fault-injection contract). Assert per
+            B6:
+        - outcome is classified UNRESOLVED with
+          result_reason='transaction_rollback_connection_lost'
+        - update_import_row() is NOT called until the safety gate
+          is satisfied
+        - the envelope carries persistence='deferred_pending_reconciliation'
+        - the row's status field is NOT 'approved'
+
   T5. UNCERTAIN-COMMIT RECONCILIATION
-      Two sub-cases:
-        T5a — COMMIT returns false BUT the fake $wpdb records the
-              assignment insert as visible (server actually
+      Three sub-cases:
+        T5a — COMMIT reports uncertain (per Section 8's audited or
+              fault-injected contract) BUT the fake $wpdb records
+              the assignment insert as visible (server actually
               committed): assert reconciliation converges to
               SUCCESS (import row updated OUTSIDE any transaction
-              with the success fields), and log contains
-              'uncertain_commit_reconciled_committed'.
-        T5b — COMMIT returns false AND the fake $wpdb does not
+              with the success fields, subject to B16), and log
+              contains 'uncertain_commit_reconciled_committed'.
+        T5b — COMMIT reports uncertain AND the fake $wpdb does not
               record the assignment insert as visible (server
               actually rolled back): assert reconciliation converges
               to FAILURE (import row updated OUTSIDE any transaction
-              with result_reason='transaction_commit_uncertain_rolled_back'),
-              and log contains 'uncertain_commit_reconciled_rolled_back'.
-      In BOTH cases the row's status field is not 'approved' until
-      reconciliation converges on committed.
+              with result_reason='transaction_commit_uncertain_rolled_back',
+              subject to B16), and log contains
+              'uncertain_commit_reconciled_rolled_back'.
+        T5c — RECONCILIATION READ FAILURE
+              COMMIT reports uncertain. The reconciliation read of
+              the assignment row by assignment_key ITSELF fails
+              (fake $wpdb returns the audited failure sentinel and
+              sets $wpdb->last_error). Assert per B7(c) and B16(c):
+                - log contains
+                  'uncertain_commit_reconciliation_read_failed'
+                - result_reason is
+                  'transaction_commit_uncertain_reconciliation_read_failed'
+                - if the B16(c) safety gate is met: the reason IS
+                  persisted via update_import_row() OUTSIDE any
+                  transaction, and the envelope carries
+                  persistence='row_update_ok'
+                - if the safety gate is NOT met: NO
+                  update_import_row() is called; the envelope
+                  carries persistence='deferred_pending_reconciliation'
+                - the row's status field is NOT 'approved' in
+                  either sub-outcome
+      In all sub-cases the row's status field is not 'approved'
+      until reconciliation converges on committed.
 
   T6. FULL IDENTITY COMPARISON
       Seed candidate with a valid approved primary on
@@ -931,10 +1388,10 @@ Cover EVERY test letter below. Report exact test/assertion counts.
           identity
         - the model primary is byte-identical after the write
 
-  T7. DETERMINISTIC INVALID-PRIMARY
-      For each combination in the audit's Section 10 invalid-primary
-      table, seed the candidate accordingly and assert the exact
-      reason string:
+  T7. DETERMINISTIC INVALID-PRIMARY (single-primary + mixed-primary)
+      For each single-primary combination in the audit's Section 10
+      invalid-primary table, seed the candidate accordingly and
+      assert the exact reason string:
         T7a status='blocked'    -> invalid_primary_state:blocked
         T7b status='rejected'   -> invalid_primary_state:rejected
         T7c status='inactive'   -> invalid_primary_state:inactive
@@ -943,6 +1400,32 @@ Cover EVERY test letter below. Report exact test/assertion counts.
       In every case: decision=blocked; NO writes to any assignment
       or candidate table; exactly ONE update_import_row() with
       result_action='manual_approval_blocked' and the exact reason.
+
+      For each mixed-primary combination in the audit's Section 10
+      precedence table, seed the candidate with BOTH primary rows
+      and assert per the audited precedence:
+        T7f active canonical primary + blocked primary
+            -> P1 wins: decision proceeds as if no invalid row
+               existed; log contains
+               'mixed_primary_observed_with_active_canonical:blocked'.
+        T7g active canonical primary + rejected primary
+            -> P1 wins; log contains
+               '...:rejected'.
+        T7h active canonical primary + inactive primary
+            -> P1 wins; log contains
+               '...:inactive'.
+        T7i active canonical primary + review_required primary
+            -> P1 wins; log contains
+               '...:review_required'.
+        T7j active canonical primary + non-canonical primary
+            -> P1 wins; log contains
+               '...:non_canonical'.
+      For each T7f–T7j, also assert the emitted result_reason
+      matches the write path expected by the underlying decision
+      (e.g. same-target no-op emits primary_assignment_already_exists;
+      different-target proceeds under B5's chosen strategy). If the
+      audit records a stricter precedence than the default P1–P7 in
+      Section 10, replace T7f–T7j accordingly.
 
   T8. IDEMPOTENCY (baseline)
       Approve the confirmed production case (free-cam-chat with
@@ -1002,6 +1485,50 @@ Cover EVERY test letter below. Report exact test/assertion counts.
         - update_import_row() called OUTSIDE the rolled-back
           transaction with result_reason='assignment_write_failed:<...>'
 
+  T13. IMPORT-ROW UPDATE DURABILITY (per Property B16)
+      Three sub-cases:
+        T13a — POST-COMMIT SUCCESS-STATE UPDATE FAILURE
+               Successful atomic write (COMMIT reports definite
+               success). Force the subsequent update_import_row()
+               call to return false. Assert:
+                 - the assignment row remains committed (visible
+                   after the test)
+                 - log contains 'import_row_success_update_failed'
+                 - update_import_row() called EXACTLY ONCE (no
+                   second retry within the same service call)
+                 - envelope carries ok=true, result_action='approved',
+                   the emitted success reason, and
+                   persistence='row_update_failed'
+        T13b — POST-ROLLBACK FAILURE-STATE UPDATE FAILURE
+               Inside-transaction failure triggers ROLLBACK (ROLLBACK
+               reports success). Force the subsequent
+               update_import_row() call to return false. Assert:
+                 - log contains 'import_row_failure_update_failed'
+                 - update_import_row() called EXACTLY ONCE (no
+                   second retry within the same service call)
+                 - envelope carries ok=false,
+                   result_action='manual_approval_failed', the
+                   specific failure reason, and
+                   persistence='row_update_failed'
+                 - the row's status field is NOT 'approved'
+        T13c — PERSISTENCE-DEFERRED PATH
+               An UNRESOLVED classification from B2 (transaction
+               start uncertain), B6 (rollback failed / connection
+               lost), or B7(c) (reconciliation read failed) with
+               the audited safety gate NOT met. Assert:
+                 - update_import_row() is NOT called
+                 - envelope carries persistence='deferred_pending_reconciliation'
+                 - the row's operator-visible fields are UNCHANGED
+                   from prior state
+                 - the admin caller does not overwrite the row
+               Run separate variants for each of the three
+               unresolved paths and assert the specific
+               result_reason matches:
+                 transaction_start_uncertain
+                 transaction_rollback_failed
+                 transaction_rollback_connection_lost
+                 transaction_commit_uncertain_reconciliation_read_failed
+
 ═════════════════════════════════════════════════════════════════
 STATIC GUARD TEST — tests/KeywordPoolManualApprovalGuardTest.php
 ═════════════════════════════════════════════════════════════════
@@ -1049,26 +1576,70 @@ Pure file_get_contents + regex. No wpdb. No service instantiation.
       appears ZERO times in
       includes/keywords/class-keyword-pool-manual-approval-service.php.
 
-  S4. Assert
-        'START TRANSACTION' and 'COMMIT' and 'ROLLBACK'
-      each appear ZERO times in the two new methods added to
-      includes/keywords/class-keyword-assignment-repository.php (as
-      identified by their names containing 'within_open_transaction').
-      Assert 'START TRANSACTION' appears EXACTLY ONCE in the new
-      service file (the single service-owned outer transaction).
-      Assert 'COMMIT' appears EXACTLY ONCE in the service file, and
-      'ROLLBACK' appears at least once (on every failure branch).
+  S4. NESTED-TRANSACTION VALIDATION (method-body extraction)
+      Do NOT use a whole-file grep: a whole-file grep can return
+      zero when a forbidden token exists inside a new method body,
+      or non-zero when the token exists in an unrelated existing
+      method. Instead:
+        (1) Parse or regex-extract each new method whose identifier
+            contains 'within_open_transaction' from
+            includes/keywords/class-keyword-assignment-repository.php.
+            Use a brace-matching regex OR nikic/php-parser to obtain
+            the exact method body between the opening '{' after the
+            signature and its matching closing '}'.
+        (2) Assert EACH extracted body contains ZERO occurrences of
+            each of 'START TRANSACTION', 'COMMIT', and 'ROLLBACK'.
+            The test MUST fail if any forbidden token appears in
+            EITHER body (do not aggregate; per-method assertion).
+        (3) In the new service file
+            includes/keywords/class-keyword-pool-manual-approval-service.php,
+            assert 'START TRANSACTION' appears EXACTLY ONCE (the
+            single service-owned outer transaction), 'COMMIT'
+            appears EXACTLY ONCE, and 'ROLLBACK' appears at least
+            once (on every failure branch).
 
-  S5. Assert 'join_external_transaction' appears ZERO times in the
-      new service file AND ZERO times in the assignment repository
-      (PR-F's mechanism is not extended).
+  S5. SCOPED PROHIBITION ON join_external_transaction
+      This guard applies ONLY to PR-G additions. Assert:
+        (a) 'join_external_transaction' appears ZERO times in the
+            new service file
+            includes/keywords/class-keyword-pool-manual-approval-service.php.
+        (b) 'join_external_transaction' appears ZERO times inside
+            EACH extracted 'within_open_transaction' method body on
+            includes/keywords/class-keyword-assignment-repository.php
+            (extraction per S4).
+      Do NOT assert 'join_external_transaction' appears ZERO times
+      across the whole assignment repository — existing PR-F code
+      or later refactors may legitimately reference the token
+      outside PR-G's additions.
 
-  S6. Assert 'KeywordPoolsAdminPage' unqualified does NOT appear in
-      the new service file: any reference must be through
-      '\TMWSEO\Engine\Admin\KeywordPoolsAdminPage' (option a) or via
-      a constructor-injected variable (option b, in which case the
-      symbol does not appear at all in the service body outside
-      the constructor signature).
+  S6. QUALIFIED-CLASS GUARD (token-aware)
+      A raw substring check on 'KeywordPoolsAdminPage' would
+      wrongly reject the valid fully-qualified form
+      '\TMWSEO\Engine\Admin\KeywordPoolsAdminPage'. Use a
+      token-aware check on
+      includes/keywords/class-keyword-pool-manual-approval-service.php:
+        Option (A) — nikic/php-parser class-name resolver:
+          Parse the file, resolve every 'Name' node to its
+          fully-qualified form, and assert every resolved
+          'KeywordPoolsAdminPage' reference is
+          'TMWSEO\Engine\Admin\KeywordPoolsAdminPage'.
+        Option (B) — regex with lookbehind + use-statement check:
+          - If a 'use TMWSEO\Engine\Admin\KeywordPoolsAdminPage;'
+            statement exists in the file's use-block, bare
+            'KeywordPoolsAdminPage' references are ACCEPTED (they
+            resolve to the aliased FQCN).
+          - Otherwise, assert that every occurrence of
+            'KeywordPoolsAdminPage' in the file is IMMEDIATELY
+            preceded by '\Admin\' (i.e. the fully-qualified form
+            '\TMWSEO\Engine\Admin\KeywordPoolsAdminPage'). Use a
+            regex such as (in PHPUnit-friendly form):
+              PCRE: (?<!\\Admin\\)KeywordPoolsAdminPage
+            and assert ZERO matches, i.e. every occurrence IS
+            preceded by '\Admin\'.
+      Whichever option the audit selected in Section 11, implement
+      the corresponding form here. Bare 'KeywordPoolsAdminPage'
+      that would resolve into the current 'TMWSEO\Engine\Keywords'
+      namespace is forbidden and MUST fail this guard.
 
 ═════════════════════════════════════════════════════════════════
 EXISTING TEST FILE UPDATES (per audit Section 12)
@@ -1151,7 +1722,7 @@ VALIDATION
 - Full PHPUnit sweep — report exact delta vs the pre-PR baseline.
 - git diff --check clean.
 - Preflight archive scan clean.
-- docs/audit/PR-G-manual-approval-assignment-cutover-pinned-signatures.md
+- docs/audit/PR-G-manual-approval-assignment-cutover-edit-checklist.md
   DELETED (git status shows D).
 - Post-PR grep asserts (note the '--' before patterns starting
   with '-'):
@@ -1163,7 +1734,14 @@ VALIDATION
     grep -c "START TRANSACTION" includes/keywords/class-keyword-pool-manual-approval-service.php   -> 1
     grep -c "COMMIT" includes/keywords/class-keyword-pool-manual-approval-service.php   -> 1
     grep -R -- "within_open_transaction" includes/keywords/class-keyword-assignment-repository.php   -> at least 2 hits
-    grep -R "START TRANSACTION\|COMMIT" includes/keywords/class-keyword-assignment-repository.php | grep -c "within_open_transaction"   -> 0
+    (Do NOT use a piped `grep ... | grep -c "within_open_transaction"`
+     to check for nested-transaction tokens inside the new methods —
+     the pipe can return zero when a forbidden token appears elsewhere
+     in the same file OR when a forbidden token appears inside a new
+     method body but on a line that does not also contain
+     'within_open_transaction'. The nested-transaction check is
+     performed by static guard S4, which extracts each new method
+     body and asserts each body contains ZERO forbidden tokens.)
 - Reject-branch SHA1 verification:
     awk '/\[TMW-KW-SCOPED-REJECT\] begin row-only rejection/,/\[TMW-KW-SCOPED-REJECT\] end row-only rejection/' includes/admin/class-keyword-pools-admin-page.php | sha1sum
     MUST equal the value recorded in the audit's Section 12.
@@ -1260,11 +1838,13 @@ PR BODY — MUST INCLUDE, IN ORDER
 
 ## 3. Bundle self-consistency
 
-The rebuild removes every full PHP method body that the earlier revision hard-coded. It replaces those bodies with:
+This revision preserves the audit-first architecture of the previous revision and closes every second-pass CodeRabbit finding without silently dropping any first-pass coverage:
 
-- an audit prompt that documents the real API surface, transaction shapes, locking behavior, read-query error semantics, duplicate-key concurrency, durable failure persistence, uncertain-commit reconciliation, and the full 5-tuple assignment identity;
-- an implementation prompt that gates on the audit's evidence, states fifteen mandatory behavioral properties (B1–B15) with test IDs, specifies twelve acceptance tests (T1–T12) and six static guards (S1–S6), fixes the changelog placeholder rule to require an ISO 8601 landing date, and terminates every `grep` option-parsing hazard.
+- The audit prompt documents the real API surface, transaction shapes, locking behavior, read-query error semantics, duplicate-key concurrency, durable failure persistence, uncertain-commit reconciliation (including the reconciliation-read-failure sub-outcome), the full 5-tuple assignment identity, and mixed-primary precedence. Where runtime `$wpdb` behaviour cannot be proven from source, the audit explicitly records "not established by repository evidence" and requires a fault-injection or integration test instead of an invented reference.
+- The implementation prompt gates on the audit's evidence, states sixteen mandatory behavioral properties (B1–B16), specifies thirteen acceptance tests (T1–T13) — some with strategy-conditional or fault-injection sub-cases — and six static guards (S1–S6). Static guard S4 is a method-body extraction test rather than a piped grep; S5 is scoped to PR-G additions only; S6 is token-aware and accepts the fully-qualified form.
+- The changelog rule requires an ISO 8601 landing date, not a placeholder. Grep validations use `grep -R --` when the pattern begins with `-`.
+- No fixed line count is claimed by this bundle. The bundle's validation section requires reviewers to report the actual current line count and does not depend on fixed heading line numbers. If PR #784's description body still references an older line count, that is a PR-description edit, not a bundle-file edit — the bundle itself contains no such claim.
 
-No CodeRabbit finding, no Codex finding, and no reviewer directive from the request that produced this rebuild is silently discarded. Every one is either directly addressed by an audit section, an audit critical semantic question, a behavioral property, an acceptance test, or a static guard. See §1's coverage matrix.
+No CodeRabbit finding, no Codex finding, and no reviewer directive from any of the three review rounds that produced this bundle is silently discarded. Every one is either directly addressed by an audit section, an audit critical semantic question, a behavioral property, an acceptance test, or a static guard. See §1's coverage matrix.
 
 End of bundle.
