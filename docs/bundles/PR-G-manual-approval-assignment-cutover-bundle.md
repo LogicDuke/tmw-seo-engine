@@ -7,7 +7,8 @@ This bundle contains two paste-ready prompts, in delivery order:
 
 The audit is deliberately authoritative. The implementation must use the APIs,
 status semantics, and **one-owner transaction design selected by the audit**, not
-assumptions in this bundle. In particular, it must never call a private method,
+assumptions in this bundle. In particular, it must never call a private candidate
+lookup method or call any other private helper outside its legally callable scope,
 nest independent transactions, persist a new candidate before the atomic
 boundary, accept an inactive assignment as idempotent evidence, or call a method
 that does not exist on the audited base.
@@ -67,8 +68,15 @@ approve paths, `KeywordPoolSelectedImportService`, and
 candidate is not multi-target ownership and why the different-target guard must
 remain intact. Record the existing approval eligibility checks used by the
 approve branch, including their exact helper name, signature, visibility, and
-body/callees. Explicitly verify whether `import_row_approval_contract()` exists
-on the audited base; never propose a call to an undefined helper.
+body/callees. Do not assume `import_row_approval_contract()` exists. Explicitly
+verify whether any approval-contract helper exists on the audited base and, for
+each such helper, record its exact class, visibility, static/instance form,
+signature, and valid caller scope. Select it only if it is legally callable from
+the proposed caller. If no suitable helper exists, require PR-G either to preserve
+the exact audited eligibility checks already present in
+`handle_import_row_action()` or to add a specifically named helper to the exact
+edit surface, with its exact signature, behavior, valid caller scope, and tests.
+Never propose an undefined-method call or an illegal private-method call.
 
 2. Candidate read API and creation path
 
@@ -89,7 +97,7 @@ on the audited base; never propose a call to an undefined helper.
   creation within the selected atomic boundary. It must retain the existing
   different-target guard; do not loosen or bypass uniqueness or normalization.
 
-No generated production code may call a private method.
+No generated production code may call a private candidate lookup method.
 
 3. Assignment identity, states, and transitions
 
@@ -97,9 +105,14 @@ No generated production code may call a private method.
   match `KeywordAssignmentRepository::assignment_key()` and
   `normalize_assignment()`.
 - Enumerate `ROLES`, `STATUSES`, `ACTIVE_STATUSES`, `canonical_owner`, and all
-  combinations that production treats as an approved/active primary or
+  combinations that production treats as an approved, active, canonical primary or
   approved/active secondary. Do not equate `review_required` with approved merely
   because it participates in the primary-owner invariant.
+- Determine the authoritative fields and exact values for assignment status,
+  active state, primary role, canonical ownership, and every superseded, blocked,
+  rejected, disabled, or inactive state. Define the exact production predicate
+  for a valid approved, active, canonical primary; validity must never be inferred
+  from role or status alone.
 - Document that `find_assignment()` returns identity matches without filtering
   status.
 - Enumerate every repository-mediated status/ownership transition API and its
@@ -155,7 +168,8 @@ Produce the final table using the audited exact status semantics:
 | Same-target primary in exact approved/active canonical state | Idempotent `primary_assignment_already_exists`; approve row inside the atomic operation. |
 | Same-target secondary in exact approved/active state | Idempotent `secondary_assignment_already_exists`; approve row inside the atomic operation. |
 | Same-target assignment in any other state | Use the audited validated transition, or fail closed with the audited precise reason; never treat as a no-op. |
-| Approved/active primary on another target | Create approved secondary for the new target. |
+| Primary on another target satisfying the exact audited production predicate for an approved, active, canonical primary | Create approved secondary for the new target. |
+| Primary on another target outside that exact predicate, including approved-but-inactive, non-canonical, superseded, rejected, blocked, disabled, or otherwise inactive | Use an audited repository-mediated transition, or fail closed with a precise reason; do not create a secondary. |
 | No primary; candidate legacy target exactly matches | Create approved canonical primary. |
 | No primary; candidate legacy target differs or is indeterminate | Fail closed: `role_inference_ambiguous_no_primary_evidence`. |
 | Candidate absent | Begin the one-owner transaction, create candidate within it, then create approved canonical primary and approve the row. |
@@ -200,6 +214,12 @@ Name the exact test files and fixtures that will prove:
 - rollback removes a newly created assignment;
 - the import row remains unapproved on every failure;
 - approved/active same-target primary and secondary are idempotent;
+- an approved, active, canonical primary on another target creates a secondary;
+- an approved but inactive or non-canonical primary does not authorize a
+  secondary;
+- a superseded, rejected, or blocked primary does not authorize a secondary;
+- failure of the audited primary transition leaves the row unapproved and writes
+  no secondary;
 - inactive same-target and rejected/blocked same-target assignments are not
   accepted as idempotent;
 - the selected status transition succeeds safely, or the chosen fail-closed
@@ -208,7 +228,8 @@ Name the exact test files and fixtures that will prove:
   `import_row_approval_contract()` invocation is introduced;
 - the existing `[TMW-KW-SCOPED-REJECT]` region remains byte-identical;
 - no Rank Math, content, publishing, taxonomy, canonical, or indexing writes;
-- case D rollback leaves no candidate, assignment, or approved import row.
+- case E's newly created candidate rollback fixture leaves no candidate,
+  assignment, or approved import row.
 
 List all affected repository regression suites and their current test/assertion
 counts from an actual run; do not invent counts.
@@ -218,8 +239,9 @@ counts from an actual run; do not invent counts.
 The new static test must pass before PR-G. Pin the two legacy admin calls, the
 different-target guard, private visibility of the keyword-only lookup, the
 observed public candidate APIs, all assignment transaction commands/helpers,
-assignment statuses, and the actual approval-contract helper found on main. It
-must contain no database writes.
+assignment statuses, and the actual approval-contract helper only if one is found
+on main; otherwise pin the observed inline eligibility checks and the explicitly
+proposed helper contract, if any. It must contain no database writes.
 
 VALIDATION AND DELIVERY
 
@@ -227,9 +249,15 @@ VALIDATION AND DELIVERY
 - Run `git diff --check` and the archive scan.
 - Confirm exactly the two audit files changed.
 - Report exact commands and counts.
-- Commit with: `PR-G-AUDIT: audit manual approval atomic cutover`
+- Grep for `find_existing_by_keyword`, `import_row_approval_contract`, incomplete
+  approved-primary wording, and a `case [D].*candidate` rollback reference;
+  inspect every match and reject any proposed
+  private candidate lookup, assumed approval helper, incomplete primary predicate,
+  or inconsistent case reference.
+- Commit with: `PR-G-AUDIT: audit approved active canonical primary cutover`
 - PR body must summarize candidate API selection, status decision, transaction
-  owner, resolved edit surface, tests, and scope exclusions.
+  owner, the exact approved/active/canonical primary predicate and invalid-state
+  behavior, resolved edit surface, tests, and scope exclusions.
 - Request CodeRabbit review. Do not auto-merge.
 ```
 
@@ -249,8 +277,10 @@ GOAL
 
 Replace only the ordinary WordPress admin import-row Approve path with the
 assignment architecture. Implement the reviewed audit literally. Same-keyword,
-different-target approval preserves the approved primary and creates an approved
-secondary. Every successful approval has an exact approved/active assignment.
+different-target approval preserves a primary that satisfies the exact audited
+production predicate for an approved, active, canonical primary and creates an
+approved secondary. Every successful approval has an exact approved/active
+assignment.
 
 PRECONDITIONS
 
@@ -280,11 +310,15 @@ IMPLEMENTATION REQUIREMENTS
 
 - Preserve and reuse the actual approval eligibility checks already present in
   `handle_import_row_action()` on the implementation base.
-- The audited base is expected to contain a private static
-  `import_row_approval_contract(array $row): array`; call it only from its valid
-  class scope and do not rename or duplicate it. If the merged audit found a
-  different helper, use that exact helper. Never emit a call to an undefined
-  method.
+- Do not assume `import_row_approval_contract()` exists. If the audit proves a
+  suitable approval-contract helper exists, use its recorded exact class,
+  visibility, static/instance form, signature, and valid caller scope, and call it
+  only from that legally callable scope.
+- If no suitable helper exists, either preserve the exact audited eligibility
+  checks already present in `handle_import_row_action()`, or add the specifically
+  named helper authorized by the audit to the allowed edit surface with its exact
+  signature, behavior, caller scope, and tests. Never emit an undefined-method
+  call or an illegal private-method call.
 - Replace both legacy candidate-only approve subpaths with one call to
   `KeywordPoolManualApprovalService` inside a clearly marked
   `[TMW-KW-MANUAL-APPROVE]` region. Preserve redirects, notices, authorization,
@@ -342,11 +376,20 @@ idempotent. For such a same-target assignment, perform only the audited
 repository-mediated validated transition, or fail closed with the audited reason.
 Transition failure rolls back and the import row remains unapproved.
 
-For an approved primary on a different target, create an approved secondary. If
-there is no primary and the existing candidate's legacy target exactly matches,
-create an approved canonical primary. If evidence is ambiguous, fail closed with
-`role_inference_ambiguous_no_primary_evidence`. Never rewrite an existing
-candidate's legacy target to manufacture a match.
+Create a secondary for a different target only when the existing primary
+satisfies the exact audited production predicate for an approved, active,
+canonical primary. At minimum, evaluate the authoritative audited fields and
+values for assignment status, active state, primary role, canonical ownership,
+and every superseded, blocked, rejected, disabled, or inactive state. A primary
+that is merely `status = approved` but is inactive, non-canonical, superseded,
+rejected, blocked, disabled, or otherwise outside the exact predicate must not
+authorize secondary creation. Use an audited repository-mediated transition for
+such a primary, or fail closed with a precise reason; transition failure leaves
+the import row unapproved and writes no secondary. Never infer validity from role
+or status alone. If there is no primary and the existing candidate's legacy
+target exactly matches, create an approved canonical primary. If evidence is
+ambiguous, fail closed with `role_inference_ambiguous_no_primary_evidence`.
+Never rewrite an existing candidate's legacy target to manufacture a match.
 
 5. Writes and result contract
 
@@ -365,7 +408,9 @@ REQUIRED TESTS
 Use real repositories with an in-memory `$wpdb` state model; do not fake away the
 transaction behavior. Add transaction command tracing. Cover at least:
 
-A. Existing approved primary on another target creates one approved secondary;
+A. Existing primary on another target satisfying the exact audited production
+   predicate for an approved, active, canonical primary creates one approved
+   secondary;
    original candidate and primary remain byte-identical.
 B. Repeating A is idempotent and creates no duplicate.
 C. Approved/active same-target canonical primary is idempotent.
@@ -373,7 +418,7 @@ D. Approved/active same-target secondary is idempotent.
 E. New candidate and primary succeed inside the one atomic boundary.
 F. Assignment failure rolls back; no new candidate or assignment remains and the
    row remains unapproved.
-G. Import-row failure after new candidate/assignment rolls both back; case D's
+G. Import-row failure after new candidate/assignment rolls both back; case E's
    candidate does not remain.
 H. Secondary creation uses the same transaction strategy and rollback guarantee.
 I. Inactive same-target assignment is not accepted as idempotent.
@@ -382,16 +427,23 @@ K. Audited transition success is validated, or audited fail-closed behavior is
    returned precisely; transition failure rolls back.
 L. Ambiguous no-primary evidence fails closed with no writes.
 M. Sibling rows, batches, candidates, and assignments remain unchanged.
-N. Eligibility blocks are preserved using the actual existing helper; static
-   scan proves no undefined `import_row_approval_contract()` call.
+N. Eligibility blocks are preserved using the exact audited inline checks or a
+   suitable audited helper when one exists; static scan proves no undefined or
+   illegally scoped `import_row_approval_contract()` call.
 O. Candidate lookup is public/callable and normalized; static scan proves the
-   service invokes no private method.
+   service invokes no private candidate lookup method or illegally scoped private
+   helper.
 P. Primary tracing shows one transaction owner and no nested start/commit;
    secondary tracing proves the same.
 Q. `[TMW-KW-SCOPED-REJECT]` is byte-identical to main.
 R. The complete approve trace writes only candidate (new-candidate case),
    assignment, selected import-row, and selected batch tables; no Rank Math,
    content, publishing, taxonomy, canonical, or indexing writes occur.
+S. An approved but inactive primary does not authorize a secondary.
+T. An approved but non-canonical primary does not authorize a secondary.
+U. Superseded, rejected, and blocked primaries do not authorize a secondary.
+V. Primary transition failure leaves the import row unapproved and writes no
+   secondary.
 
 Also run every assignment, import-batch, admin-page, CSV approval, scoped-reject,
 migration, review, and validation regression suite named in the audit. Report
@@ -408,6 +460,10 @@ no candidate or assignment.
 
 Document idempotency as applying only to exact approved/active same-target state;
 document the audited transition or fail-closed behavior for non-approved rows.
+State consistently that secondary creation requires the exact audited production
+predicate for an approved, active, canonical primary, not role or approved status
+alone, and that every other primary state transitions through an audited
+repository API or fails closed without writing a secondary or approving the row.
 List the exhaustive changed files and scope exclusions without contradiction.
 
 VALIDATION AND DELIVERY
@@ -418,13 +474,22 @@ VALIDATION AND DELIVERY
 - Repeat the archive/binary scan.
 - Confirm the pinned audit test is deleted.
 - Confirm transaction traces prove one owner for primary and secondary paths.
-- Confirm static guards prove no private candidate call, no legacy admin approve
-  calls, no undefined helper call, and byte-identical rejection code.
+- Confirm static guards prove no private candidate lookup call, no illegal private
+  approval-helper call, no legacy admin approve calls, no undefined helper call,
+  no secondary authorization from merely an approved primary, and byte-identical
+  rejection code. Grep explicitly for `find_existing_by_keyword`,
+  `import_row_approval_contract`, incomplete approved-primary wording, and a
+  `case [D].*candidate` rollback reference; inspect every match and fail
+  validation if it prescribes a prohibited call,
+  assumes the helper exists, permits the incomplete predicate, or retains the
+  incorrect rollback reference.
 - Confirm the changed-file list exactly equals the audited exhaustive surface.
-- Commit with: `PR-G: cut manual approval over to atomic assignments`
+- Commit with: `PR-G: require approved active canonical primary for secondary cutover`
 - PR body must include the defect, old/new call graph, selected transaction
-  design, corrected state table, rollback guarantees, changed files, tests/counts,
-  production validation plan, and scope exclusions.
+  design, the exact audited approved/active/canonical primary predicate, corrected
+  state table, fail-closed behavior for every invalid primary state, rollback
+  guarantees, changed files, tests/counts, production validation plan, and scope
+  exclusions.
 - Request a fresh CodeRabbit review. Do not auto-merge.
 ```
 
