@@ -1,78 +1,49 @@
-# PR-G Bundle — Manual Keyword Approval → Assignment Cutover
+# PR-G Bundle — Manual Keyword Approval → Assignment Cutover (audit-first rebuild)
 
 **Repository:** `LogicDuke/tmw-seo-engine`
-**Base evidence:** freshly extracted upload (`archive__41_.zip`) — `tmw-seo-engine.php` header still shows `5.9.19-content-polish-v1.0.0` but `CHANGELOG.md` top entry is `5.9.25-assignment-validation-v1.1.1` (assignment layer PRs #779–#782 and PR-F rev 3 are all present in code — the header string is a known drift, corrected by this cutover).
+**Bundle branch:** `docs/pr-g-final-bundle` (this PR is documentation-only)
+**Implementation branch (planned):** `claude/v5.9.26-manual-approval-assignment-cutover`
 **Version target:** `5.9.26-manual-approval-assignment-cutover-v1.0.0`
-**Branch:** `claude/v5.9.26-manual-approval-assignment-cutover`
-**Delivery:** two Codex prompts below, in delivery order — paste **PR-G-AUDIT** first, review its markdown output against production, then paste **PR-G**.
+
+## 0. Why this replaces the previous bundle
+
+The earlier revision of this bundle hard-coded complete PHP method bodies for `KeywordAssignmentRepository::create_active_primary_within_open_transaction()`, `create_secondary_within_open_transaction()`, and `KeywordPoolManualApprovalService::approve_import_row_with_assignment()`, then asked Codex to paste them. Reviews from CodeRabbit and the ChatGPT Codex connector flagged twelve concrete integrity, correctness, and safety defects in those speculative bodies. Every finding is legitimate. Rather than patch each one in place — which would leave the bundle still speculative and still fragile to the next round of discovery — this rebuild changes the delivery model:
+
+- **PR-G-AUDIT investigates the repository first** and produces one Markdown audit report plus one pinned-signatures report. It writes no runtime PHP and no PHPUnit code.
+- **PR-G consumes the merged audit report by commit SHA**, gates its own execution on the audit's findings, and specifies the implementation as a set of mandatory behavioral properties and acceptance tests. It does NOT paste full method bodies. Codex is instructed to derive them from the audit evidence and fail closed if the evidence contradicts any property below.
+
+The result is smaller in prescribed PHP, larger in enforced invariants and test coverage, and safer against the class of defects that produced the first review round.
+
+## 1. Coverage of unresolved findings on PR #784
+
+Every finding from the CodeRabbit and Codex review passes maps to a specific section of the rebuilt prompts. The table below is normative — the acceptance test for this rebuild is that no cell is empty.
+
+| # | Finding source | Concern | Addressed by |
+|---|---|---|---|
+| 1 | Codex P1 (line 951) | START TRANSACTION return value not checked; writes may run in autocommit | AUDIT §5, §8; PR-G Property B2; Test T2 |
+| 2 | Codex P1 (line 841) | Authorization reads happen before the transaction; concurrent review can invalidate | AUDIT §4, §10; PR-G Property B3; Test T1 |
+| 3 | Codex P2 (line 1003) | Rollback returns failure only in memory; import row keeps stale fields; operator has no reason | AUDIT §7; PR-G Property B6; Test T4 |
+| 4 | CodeRabbit critical (line 668) | `get_var()` cast to int hides query errors; failed lookup looks like "no row" | AUDIT §5; PR-G Property B4; Test T3 |
+| 5 | CodeRabbit major (line 710) | Secondary creation has no lock; concurrent duplicates can race; `insert_failed` on duplicate is wrong outcome | AUDIT §6; PR-G Property B5; Test T1 |
+| 6 | CodeRabbit major (line 775) | `KeywordPoolsAdminPage` bare reference resolves to wrong namespace from `TMWSEO\Engine\Keywords` | AUDIT §11; PR-G Property B12 |
+| 7 | CodeRabbit minor (line 827) | Empty normalized keyword and missing candidate both become `null` from `find_row_by_keyword` | AUDIT §2; PR-G Property B11; Test T11 |
+| 8 | CodeRabbit major (line 844) | Same-target comparison uses only two fields; primary from other pool or different `target_key` misclassified | AUDIT §9; PR-G Property B8; Test T6 |
+| 9 | CodeRabbit major (line 852) | Invalid primary states (blocked/rejected/inactive/pending/non-canonical) fall through to ambiguous | AUDIT §10; PR-G Property B9; Test T7 |
+| 10 | CodeRabbit major (line 918) | "No writes" then "update_import_row" is self-contradictory; operator loses failure reason if implementation reads it literally | PR-G Property B10 |
+| 11 | CodeRabbit critical (line 951, second half) | `false` from COMMIT does not prove not-committed; treating it as definite ROLLBACK can mis-report state | AUDIT §8; PR-G Property B7; Test T5 |
+| 12 | CodeRabbit minor (line 1356) | Rewritten static test contradicts itself: asserts `KeywordAssignmentRepository` in admin region, but region contains `KeywordPoolManualApprovalService` | PR-G Test Spec S2 |
+| 13 | CodeRabbit minor (line 1384) | `<today>` placeholder left in CHANGELOG entry | PR-G Changelog Rule |
+| 14 | CodeRabbit minor (line 1435) | `grep -R "->find_existing_by_keyword("` — pattern starts with `-`, needs `--` | PR-G Validation Grep Rule |
+
+## 2. Delivery order
+
+Paste **PROMPT 1 (PR-G-AUDIT)** into Codex first. When its resulting audit report has been reviewed and its PR merged, paste **PROMPT 2 (PR-G)** into Codex, referencing the merged audit commit SHA in the placeholder marked `<AUDIT_COMMIT_SHA>`. Do not paste PROMPT 2 before PROMPT 1 is merged.
 
 ---
 
-## 0. Real defect path proven from the uploaded ZIP
+# PROMPT 1 of 2 — PR-G-AUDIT
 
-Manual approval hook: `add_action('admin_post_tmwseo_keyword_import_row_action', [__CLASS__, 'handle_import_row_action'])` in `includes/admin/class-keyword-pools-admin-page.php:62`.
-
-Handler: `KeywordPoolsAdminPage::handle_import_row_action()` in the same file at **lines 353–471**. Approve branch is **lines 382–414**. It runs three sub-paths:
-
-1. **Contract check** (line 383): `self::import_row_approval_contract($row)` — a `private static` helper defined at **line 1317** of the same class. It returns `['can_approve'=>bool, 'approval_block_reason'=>string, …]`. Confirmed to exist. Confirmed reachable via `self::` from `handle_import_row_action()`. Confirmed pinned by `tests/KeywordPoolsAdminPageTest.php` line 570 (`test_server_side_approve_path_enforces_same_approval_contract_before_persistence`).
-2. **LEGACY-A** (line 390): `$repository->update_candidate_status($candidate_id, 'approved')` on `KeywordPoolImportBatchRepository`. Flips the globally unique candidate row to `status='approved'` — **no assignment write anywhere**. The "approved" import row is left with no corresponding assignment.
-3. **LEGACY-B** (line 393): `(new KeywordPoolSelectedImportService())->approve_import_row_as_candidate_result($row, $batch)` → `KeywordPoolCandidateRepository::save()` → `find_existing_by_keyword()` (private, line 344) → `target_scope_matches_existing()` (private, line 352) → returns `['conflict', 'existing_keyword_has_different_target']` (line 93 of `class-keyword-pool-candidate-repository.php`). This is the exact production error string. The guard is correct — do not relax it.
-
-Confirmed target identity format for a category batch (derived from ZIP):
-
-- `pool = 'category'` (from `KeywordPoolsAdminPage::sanitize_pool()`)
-- `target_type = 'category_page'` (from `KeywordPoolsAdminPage::target_type_for_pool('category')` at **line 846**, currently `private static`)
-- `target_id = (int) $batch['target_id']`
-- `target_key = 'category_page:' . $target_id` (matches `KeywordAssignmentMigrationAnalyzer` lines 385–389 verbatim)
-- `page_type = target_type` (matches migration analyzer)
-
-Assignment repository API surface (all present in this ZIP, `includes/keywords/class-keyword-assignment-repository.php`):
-
-- Read: `find_by_id`, `find_assignments_for_candidate`, `find_assignments_for_target`, `find_primary_owner`, `find_secondary_assignments`, `find_assignment(int, array)`, `find_assignments_by_source`, `count_assignments_for_candidate`, `candidate_has_other_assignments`, `assignment_key`, `normalize_assignment`, `table`, `table_exists`
-- Write: `create_assignment` (line 316), `upsert_assignment` (line 352), `update_assignment_status` (line 414), `set_primary_owner` (line 451), `clear_primary_owner` (line 533), `delete_assignment` (line 551)
-- Constants: `ROLES` = `['primary','secondary','discovery','excluded']`; `STATUSES` = `['approved','review_required','blocked','rejected','inactive']`; `ACTIVE_STATUSES` = `['approved','review_required']`
-- `find_primary_owner()` (line 224) filters `WHERE role='primary' AND canonical_owner=1 AND status IN ('approved','review_required')` — that is the repository's own valid-active-primary predicate
-
-## 1. Real transaction architecture proven from the ZIP
-
-**Critical finding.** `KeywordAssignmentRepository::create_assignment()` at line 322–323 dispatches:
-
-> `if ( $this->is_active_canonical_primary( $normalized ) ) { return $this->create_active_primary_atomically( $normalized ); }`
-
-`create_active_primary_atomically()` (line 570) opens its own `START TRANSACTION` at **line 575** and `COMMIT`s at **line 600**. MySQL implicitly commits any outer transaction on nested `START TRANSACTION`, so wrapping this call in a service-owned outer transaction silently loses atomicity.
-
-`KeywordAssignmentReviewRepository::join_external_transaction()` / `leave_external_transaction()` (lines 315/318 of `class-keyword-assignment-review-repository.php`) is a viable participation gate, **but** `tests/KeywordAssignmentValidationSchemaStaticTest.php` line 313 asserts `assertStringNotContainsString('join_external_transaction', $other_source)` for every production file except the two validation atomic units — extending that mechanism to the assignment repository would break PR-F's own static guard.
-
-Secondary and non-canonical writes inside `create_assignment()` (lines 325–341) do **not** open a transaction — they are plain `$wpdb->get_var` + `$wpdb->insert`. Safe inside an outer transaction.
-
-`KeywordPoolCandidateRepository::save()` (line 54) uses plain `$wpdb->insert` / `$wpdb->update` at lines 180 and 191. **No transaction of its own.** Safe inside an outer transaction.
-
-`KeywordPoolImportBatchRepository::update_import_row()` (line 485) uses plain `$wpdb->update` at line 503. Safe inside an outer transaction. `recalculate_batch_counts()` (line 518) issues one aggregated UPDATE — kept outside the outer transaction to match the existing reject-branch convention (rejection path calls it after the row update).
-
-**Chosen architecture: Option A — service-owned outer transaction with two new participation-safe methods on the assignment repository.** Two additive public methods are added to `KeywordAssignmentRepository`; existing `create_assignment` / `set_primary_owner` / `update_assignment_status` / `upsert_assignment` remain byte-identical; all existing callers of the repository (migration, review sync, review execution, validation) are unaffected.
-
-New methods:
-
-- `KeywordAssignmentRepository::create_active_primary_within_open_transaction(array $data): array` — identical logic to `create_active_primary_atomically()` **minus** its `START TRANSACTION` and `COMMIT` verbs. `FOR UPDATE` lock, identity-exists check, active-owner-count precondition, insert, post-verification of active-owner-count=1 all preserved. On any invariant failure returns `['ok'=>false, 'error'=>...]` and does **not** ROLLBACK — the caller owns the boundary and rolls back.
-- `KeywordAssignmentRepository::create_secondary_within_open_transaction(array $data): array` — identical logic to the non-primary branch inside `create_assignment()` (identity-exists check + insert) but as an explicit method for symmetry and testability.
-
-New candidate-repository method:
-
-- `KeywordPoolCandidateRepository::find_row_by_keyword(string $keyword): ?array` — a public read-only wrapper delegating to the existing private `find_existing_by_keyword($this->normalize_keyword($keyword))`. Never writes.
-
-New surgical visibility change:
-
-- `KeywordPoolsAdminPage::target_type_for_pool()` bumped from `private static` to `public static`. One source of truth for the pool→target_type map — reused by the new service.
-
-## 2. Deliverable
-
-A single Markdown bundle file with both Codex prompts, ready to save at `docs/bundles/PR-G-manual-approval-assignment-cutover-FINAL-bundle.md`. **This document is that deliverable.**
-
----
-
-# PROMPT 1 of 2 — PR-G-AUDIT (audit-only, no runtime code changes)
-
-Paste this whole prompt into Codex first. Merge its markdown output. Only then paste PROMPT 2.
+Paste this whole prompt into Codex first. Merge the resulting audit PR before pasting PROMPT 2.
 
 ````text
 @codex
@@ -80,32 +51,41 @@ Paste this whole prompt into Codex first. Merge its markdown output. Only then p
 Repository: LogicDuke/tmw-seo-engine
 Base: main
 Branch: claude/v5.9.26-manual-approval-assignment-cutover-AUDIT
-Version target: v5.9.26-manual-approval-assignment-cutover-v1.0.0-audit
 PR title: PR-G-AUDIT: Manual keyword approval → assignment cutover — audit only
 
-GOAL
-Produce a written, reviewable audit of the manual WordPress import-row
-approval defect and the exact cutover surface. This PR writes NO runtime
-code and NO PHPUnit test files. Its two deliverables are:
+═════════════════════════════════════════════════════════════════
+CHARTER
+═════════════════════════════════════════════════════════════════
+This PR is INVESTIGATIVE. It writes NO runtime PHP and NO PHPUnit
+test files. Its two deliverables are Markdown reports:
 
   D1. docs/audit/PR-G-manual-approval-assignment-cutover-audit.md
   D2. docs/audit/PR-G-manual-approval-assignment-cutover-pinned-signatures.md
 
-D2 is a plain-text "pinned defect signatures" report — a fingerprint list
-of exact code substrings and file:line references that PR-G must remove
-or add. It is a documentation artifact, not a running test. PR-G will
-delete D2 as part of its diff.
+D2 is a documentation-only signature checklist for the follow-on PR-G
+implementation PR. It is not an executable test. PR-G will delete D2
+as part of its diff; D1 remains as historical record.
 
-STRICT SCOPE — audit PR MUST NOT:
-- change any file under includes/, services/, templates/, assets/, data/,
-  tools/, tests/
-- bump the plugin Version header, TMWSEO_ENGINE_VERSION, or CHANGELOG
-- create, edit, or delete any *.zip, *.tar, *.gz, *.rar, *.7z, *.jar,
-  *.exe, *.dll, *.so, *.dylib anywhere in the repo
-- add any @codex-mention outside the PR description text itself
+The audit MUST answer every question in this prompt using ONLY the
+current state of the branch on which it runs. Every claim in D1 must
+carry a file:line reference validated by running the command shown for
+that section. Do not invent line numbers. Do not carry over evidence
+from earlier bundles or memory. If the observed answer differs from an
+expected answer stated in this prompt, record BOTH and mark the
+divergence explicitly — PR-G will refuse to proceed on divergent
+evidence.
 
 ═════════════════════════════════════════════════════════════════
-PREFLIGHT — MANDATORY, RUN FIRST, FAIL THE PR IF ANY HIT
+STRICT SCOPE — audit PR MUST NOT
+═════════════════════════════════════════════════════════════════
+- change any file under includes/, services/, templates/, assets/,
+  data/, tools/, or tests/
+- bump plugin Version, TMWSEO_ENGINE_VERSION, or CHANGELOG
+- create, edit, or delete any *.zip, *.tar, *.gz, *.rar, *.7z, *.jar,
+  *.exe, *.dll, *.so, *.dylib
+
+═════════════════════════════════════════════════════════════════
+PREFLIGHT
 ═════════════════════════════════════════════════════════════════
 From repo root:
 
@@ -118,444 +98,480 @@ From repo root:
     echo "[PREFLIGHT-FAIL] archive/binary artifacts present:"
     echo "$ARCHIVE_HITS"; exit 1
   fi
-  git ls-files -- '*.zip' '*.tar' '*.gz' '*.rar' '*.7z' '*.jar' '*.exe' '*.dll' '*.so' '*.dylib' | wc -l   # must be 0
+  git ls-files -- '*.zip' '*.tar' '*.gz' '*.rar' '*.7z' '*.jar' \
+    '*.exe' '*.dll' '*.so' '*.dylib' | wc -l    # must be 0
   git diff --check
 
 ═════════════════════════════════════════════════════════════════
 D1 CONTENT — docs/audit/PR-G-manual-approval-assignment-cutover-audit.md
 ═════════════════════════════════════════════════════════════════
-Write every quoted line number by opening the file in this commit. Do
-not invent line numbers. If any line number in your quote drifts by even
-one line from what you observe, the audit is invalid.
+Write it as a single Markdown document with the twelve sections
+below. Each section ends with a verifying command; run that command
+and record its output verbatim, including hash sums where requested.
 
-  # PR-G Audit — Manual Keyword Approval → Assignment Cutover
+## Reproduction of the production defect
+  Keyword: free cam chat
+  Existing target: an existing valid primary assignment on the
+    keyword's original category (in the confirmed live case,
+    Free Cam Chat)
+  New target: Live Cam Chat
+  Current UI outcome:
+    result_action = manual_approval_failed
+    result_reason = existing_keyword_has_different_target
 
-  ## 1. Reproduction of the production defect
-     Keyword: free cam chat
-     Existing owner/target: an existing valid primary assignment on the
-       original category (in the confirmed live case, Free Cam Chat)
-     New target: Live Cam Chat
-     Current UI outcome:
-       result_action = manual_approval_failed
-       result_reason = existing_keyword_has_different_target
+## Section 1 — Manual-approval call graph
+Trace, top-down, with file:line quoted from THIS commit:
+  - the admin_post hook registration
+  - the controller method that runs on the approve branch
+  - the current LEGACY-A sub-path (candidate-status flip via the batch
+    repository) — quote the exact line
+  - the current LEGACY-B sub-path (delegation into the selected-import
+    service) — quote the exact line
+  - the downstream candidate-repo save call that produces the
+    'existing_keyword_has_different_target' conflict result — quote
+    the exact result-array line
+  - the current approval-eligibility helper, its class, its exact
+    visibility keyword, and its exact declared signature
 
-  ## 2. Current admin approval call graph
-     Trace, top-down, with file:line quoted from THIS commit:
-       - admin_post hook registration in
-         includes/admin/class-keyword-pools-admin-page.php
-       - KeywordPoolsAdminPage::handle_import_row_action() approve branch
-       - Approval eligibility helper:
-           * Method: KeywordPoolsAdminPage::import_row_approval_contract($row)
-           * Visibility: private static
-           * File: includes/admin/class-keyword-pools-admin-page.php
-           * Called from within the same class only, via self::
-       - LEGACY-A sub-path: $repository->update_candidate_status($candidate_id, 'approved')
-         on KeywordPoolImportBatchRepository
-       - LEGACY-B sub-path: (new KeywordPoolSelectedImportService())
-           ->approve_import_row_as_candidate_result($row, $batch)
-       - Downstream in LEGACY-B: KeywordPoolSelectedImportService
-           ::approve_import_row_as_candidate_result() -> repository->save()
-       - Downstream in save(): KeywordPoolCandidateRepository
-           ::find_existing_by_keyword() [PRIVATE] + target_scope_matches_existing()
-           [PRIVATE] -> conflict result 'existing_keyword_has_different_target'
+Verify:
+  grep -n "admin_post_tmwseo_keyword_import_row_action" includes/admin/class-keyword-pools-admin-page.php
+  grep -n "handle_import_row_action\|import_row_approval_contract\|update_candidate_status\|approve_import_row_as_candidate_result" includes/admin/class-keyword-pools-admin-page.php
+  grep -n "existing_keyword_has_different_target" includes/keywords/class-keyword-pool-candidate-repository.php
 
-  ## 3. Why the legacy path is defective by design
-     Explain in prose grounded in the code:
-       - LEGACY-A silently flips the globally unique candidate row's
-         status to 'approved' WITHOUT any assignment write. A newly
-         "approved" category is left with no assignment record.
-       - LEGACY-B surfaces the production error. The candidate repo is
-         keyed by keyword alone and correctly refuses to rewrite the
-         candidate's legacy target fields when the incoming target
-         differs. The correct architectural response is NOT to relax
-         that guard; it is to stop asking the candidate row to
-         represent multi-target ownership and to represent the second
-         target as an assignment row instead.
+## Section 2 — Candidate repository public/private API
+For KeywordPoolCandidateRepository, list every PUBLIC method and
+every PRIVATE method with file:line. Explicitly record:
+  - the visibility keyword of find_existing_by_keyword()
+  - the visibility keyword of target_scope_matches_existing()
+  - the return-value semantics of normalize_keyword() when the input
+    is empty, whitespace-only, or contains only stripped characters
+  - whether any PUBLIC read-only lookup by normalized keyword already
+    exists that is NOT filtered by entity_id
+  - the exact array shape returned by save() (keys, action strings,
+    reason strings, id location)
 
-  ## 4. Authoritative assignment identity for a category import
-     Quote file:line to prove:
-       - KeywordPoolsAdminPage::target_type_for_pool('category') returns
-         the exact string 'category_page'.
-       - KeywordAssignmentMigrationAnalyzer builds category assignment
-         payloads with pool='category', page_type=<target_type>,
-         target_type='category_page', target_id=<int>,
-         target_key='category_page:<target_id>'.
-       - KeywordAssignmentRepository::assignment_key() and
-         normalize_assignment() key the identity on
-         (keyword_candidate_id, pool, page_type, target_type, target_id,
-          target_key).
+For any lookup path PR-G will use, state whether the current API
+suffices; if not, name the smallest safe additive public wrapper.
 
-  ## 5. Candidate repository — public read API
-     List every PUBLIC method of KeywordPoolCandidateRepository observed
-     in this commit (with file:line). Explicitly note that
-     find_existing_by_keyword() is PRIVATE at line 344 and MUST NOT be
-     called from any external service. Explicitly note that
-     find_existing_by_canonical_and_entity() is PUBLIC but requires an
-     entity_id filter and is NOT a substitute for a globally unique
-     candidate lookup by normalized keyword.
+CRITICAL SEMANTIC QUESTION — record the answer:
+  Does an empty normalized keyword pass through the existing lookup
+  as (a) a null result indistinguishable from "no candidate", or
+  (b) a distinct rejection at the API boundary? PR-G MUST distinguish
+  these two paths (Property B11); the audit determines which mechanism
+  serves that distinction.
 
-     RECOMMENDED SMALLEST SAFE ADDITION FOR PR-G:
-       new public method KeywordPoolCandidateRepository::find_row_by_keyword(
-         string $keyword ): ?array
-         which delegates to the existing private
-         find_existing_by_keyword( $this->normalize_keyword( $keyword ) )
-         and returns the raw DB row array or null.
-         Read-only, never writes.
+Verify:
+  grep -n "public function\|private function" includes/keywords/class-keyword-pool-candidate-repository.php
 
-  ## 6. Assignment repository — API surface for PR-G
-     List every PUBLIC method with signature and file:line. Explicitly
-     state which methods start their own transactions and which do not:
-       - create_assignment() dispatches to
-         create_active_primary_atomically() when the payload is an
-         active canonical primary. That helper opens its own
-         START TRANSACTION and COMMIT (line 575 and 600 in this
-         commit). CALLING create_assignment() FOR AN ACTIVE PRIMARY
-         PAYLOAD FROM INSIDE AN OUTER SERVICE TRANSACTION SILENTLY
-         COMMITS THE OUTER TRANSACTION.
-       - The secondary/non-primary branch of create_assignment()
-         (lines 325 onwards) does NOT open a transaction. Safe inside
-         an outer transaction.
-       - set_primary_owner() opens its own transaction (line 457).
-       - update_activating_primary_atomically() opens its own
-         transaction (line 613). Called by upsert_assignment() only
-         when the update transition activates a primary.
-       - update_assignment_status() has no transaction of its own but
-         dispatches to update_activating_primary_atomically() when the
-         transition activates a primary.
+## Section 3 — Assignment repository public/private API
+For KeywordAssignmentRepository, list every PUBLIC method with
+signature and file:line. For every write method, record:
+  - whether it opens its own transaction (START/COMMIT/ROLLBACK)
+  - whether it acquires SELECT ... FOR UPDATE locks and on what rows
+  - what predicate it uses to identify "active canonical primary"
+    (record the exact SQL fragment and the exact PHP predicate helper)
+  - the exact error strings it returns via its ['ok'=>false,'error'=>...]
+    envelope
 
-     Constants observed:
-       - ROLES = ['primary','secondary','discovery','excluded']
-       - STATUSES = ['approved','review_required','blocked','rejected','inactive']
-       - ACTIVE_STATUSES = ['approved','review_required']
-       - RANK_MATH_FORBIDDEN_STATUSES = ['blocked','rejected','inactive']
+List every occurrence of START TRANSACTION, COMMIT, ROLLBACK, and
+SELECT ... FOR UPDATE in this file with line numbers.
 
-     find_primary_owner() (line 224) filters
-       WHERE role='primary' AND canonical_owner=1
-             AND status IN ('approved','review_required').
+Record the values of:
+  - ROLES constant
+  - STATUSES constant
+  - ACTIVE_STATUSES constant
+  - RANK_MATH_FORBIDDEN_STATUSES constant
 
-  ## 7. Transaction ownership model chosen for PR-G
-     Chosen: OPTION A — service-owned outer transaction with two new
-     PARTICIPATION-SAFE public methods on the assignment repository:
+Verify:
+  grep -n "public function\|private function\|const [A-Z]" includes/keywords/class-keyword-assignment-repository.php
+  grep -n "START TRANSACTION\|COMMIT\|ROLLBACK\|FOR UPDATE" includes/keywords/class-keyword-assignment-repository.php
 
-       - KeywordAssignmentRepository::create_active_primary_within_open_transaction(
-           array $data ): array
-         Same body as create_active_primary_atomically() MINUS its
-         START TRANSACTION and COMMIT verbs. Assumes the caller owns
-         the transaction. On any invariant violation returns
-         [ 'ok' => false, 'error' => '<precise-reason>' ] and does NOT
-         ROLLBACK — the caller decides.
+## Section 4 — Locking behavior and revalidation
+For each of the assignment repository's transactional write paths,
+record:
+  - the exact SELECT ... FOR UPDATE query and which rows it locks
+  - what state it re-verifies AFTER acquiring the lock and BEFORE
+    the final write
+  - whether that re-verification would prevent a stale-authorization
+    race for a secondary insert triggered by a concurrent primary
+    demotion
 
-       - KeywordAssignmentRepository::create_secondary_within_open_transaction(
-           array $data ): array
-         Same body as the non-primary branch of create_assignment() —
-         identity-exists precheck + $wpdb->insert. No transaction.
+CRITICAL SEMANTIC QUESTION — record the answer:
+  Given the observed lock scope, if PR-G's new service holds an outer
+  transaction and calls one of the "within-open-transaction" methods
+  (to be defined by PR-G), what MUST the new method do so that the
+  primary-owner state observed pre-transaction cannot be invalidated
+  before the write commits? Two viable answers exist and PR-G will
+  choose one based on the audit's evidence:
+    (a) The new method re-runs SELECT ... FOR UPDATE on the candidate's
+        entire assignment row set inside the outer transaction, then
+        re-derives primary/secondary decision from the locked rows,
+        and only then inserts.
+    (b) The new method issues an idempotent insert that RELIES on the
+        UNIQUE KEY assignment_key index — on duplicate key error it
+        re-reads the winning row and returns idempotent-noop.
+  Record which of (a) or (b) is safe against every current concurrent
+  writer (migration analyzer/service, review sync/execution, PR-F
+  validation units, admin recovery). Justify.
 
-     REJECTED — Option A via join_external_transaction on the assignment
-     repository. Rejected because tests/KeywordAssignmentValidationSchemaStaticTest.php
-     asserts that no production file other than the validation service
-     calls join_external_transaction; extending that mechanism to the
-     assignment repository would break PR-F's own guard.
+Verify:
+  grep -n "assignment_key\|UNIQUE KEY assignment_key" includes/db/class-schema.php
+  grep -n "FOR UPDATE" includes/keywords/class-keyword-assignment-repository.php
 
-     REJECTED — Option B, repository-owned atomic orchestration. Rejected
-     because it couples the assignment repository with import-row update
-     semantics and produces a caller-supplied closure API that is harder
-     to test than two additive participation-safe methods.
+## Section 5 — Read-query error behavior
+Document, from THIS codebase's helper conventions, how a read query
+error is distinguished from a valid empty result:
+  - what $wpdb->get_var() returns on error vs when the query returned
+    no rows
+  - what $wpdb->get_row() returns on error vs no rows
+  - what $wpdb->get_results() returns on error vs no rows
+  - the correct sequence for guarded reads: clear $wpdb->last_error,
+    run the query, THEN check $wpdb->last_error AND the return value
+    against a specific "no-data" sentinel
 
-     Non-assignment writes inside the outer transaction remain safe
-     without any repository change:
-       - KeywordPoolCandidateRepository::save() uses plain $wpdb->insert
-         / $wpdb->update; no transaction of its own.
-       - KeywordPoolImportBatchRepository::update_import_row() uses
-         plain $wpdb->update; no transaction of its own.
+Record any existing precedent in the assignment repository, review
+repository, or validation service that demonstrates the correct
+sequence. Quote file:line.
 
-     recalculate_batch_counts() is invoked AFTER the outer commit, to
-     match the existing reject-branch convention.
+CRITICAL SEMANTIC QUESTION — record the answer:
+  What is the precise sentinel/return-value contract for the audit's
+  proposed guarded read helper? PR-G will require every read to use
+  it (Property B4); the audit specifies its shape.
 
-  ## 8. Fail-closed role decision table for PR-G (definitive)
-     Every "valid primary" predicate below means:
-       role='primary' AND canonical_owner=1 AND status='approved'
-     (strictly 'approved' — 'review_required' primaries are NOT valid
-     authorization for creating a secondary on a different target).
+Verify:
+  grep -n "\$wpdb->last_error\|get_var\|get_row\|get_results" includes/keywords/class-keyword-assignment-repository.php includes/keywords/class-keyword-assignment-review-repository.php includes/keywords/class-keyword-assignment-validation-service.php
 
-     Every "valid same-target idempotent" predicate below means:
-       role IN ('primary','secondary') AND status='approved'
-       AND (role='primary' => canonical_owner=1)
-     matched to the exact identity key from the incoming batch.
+## Section 6 — Duplicate-key / concurrency behavior
+Record whether the assignment table has UNIQUE KEY assignment_key
+(exact CREATE TABLE line with schema file path). Record the current
+convention for translating a duplicate-key insert failure into a
+domain-level idempotency result (or state that no such convention
+exists).
 
-     ROW  candidate    existing state                                        decision                        result_action              result_reason
-     ───  ─────────   ────────────────────────────────────────────           ───────────────────────         ────────────────────       ─────────────────────────────────────────────
-     R1   missing     n/a                                                    create candidate + primary      approved                   primary_assignment_created
-     R2   exists      no assignment;                                                                         approved                   primary_assignment_created
-                     candidate.target_type/target_id == batch target         create primary
-     R3   exists      no assignment;                                         FAIL CLOSED (no writes)         manual_approval_blocked    role_inference_ambiguous_no_primary_evidence
-                     candidate.target_type/target_id != batch target
-     R4   exists      valid primary on SAME target; no same-target
-                     assignment record separately queried                    idempotent no-op (row only)     approved                   primary_assignment_already_exists
-     R5   exists      valid primary on DIFFERENT target;
-                     no same-target assignment yet                           create secondary                approved                   secondary_assignment_created
-     R6   exists      valid primary on DIFFERENT target;
-                     same-target assignment already status='approved'
-                     with valid role                                         idempotent no-op (row only)     approved                   secondary_assignment_already_exists
-     R7   exists      valid primary on DIFFERENT target;
-                     same-target assignment exists but NOT valid
-                     (blocked/rejected/inactive/review_required/
-                      role='excluded'/role='discovery')                      FAIL CLOSED                     manual_approval_blocked    same_target_assignment_not_active:<observed_status_or_role>
-     R8   exists      NO valid primary anywhere, but some assignment
-                     with role='primary' exists that is not canonical or
-                     not approved (invalid_primary_state)                    FAIL CLOSED                     manual_approval_blocked    invalid_primary_state:<observed_status_or_flags>
-     R9   exists      valid primary is status='review_required'
-                     (find_primary_owner returns it because it filters
-                      by ACTIVE_STATUSES, but PR-G requires 'approved')      FAIL CLOSED                     manual_approval_blocked    primary_pending_review
-     E1   any         assignment write fails inside outer transaction        ROLLBACK; row unapproved        manual_approval_failed     assignment_write_failed:<repo_error>
-     E2   any         candidate write fails inside outer transaction         ROLLBACK; row unapproved        manual_approval_failed     candidate_write_failed:<repo_error>
-     E3   any         import-row update fails after successful writes        ROLLBACK; row unapproved        manual_approval_failed     import_row_update_failed
-     E4   any         outer COMMIT fails                                     ROLLBACK; row unapproved        manual_approval_failed     transaction_commit_failed
-     E5   any         target_id <= 0 or target_type is empty                 no writes                       manual_approval_failed     indeterminate_target_identity
+CRITICAL SEMANTIC QUESTION — record the answer:
+  For a concurrent race where two callers both decide "create
+  secondary" for the same identity, one INSERT will succeed and the
+  other will fail. The audit MUST specify which detection mechanism is
+  authoritative in THIS codebase:
+    (i)  $wpdb->last_error string match on the duplicate-key error
+    (ii) explicit re-SELECT of the winning row by assignment_key
+         AFTER the failed insert, and idempotency inferred by the
+         re-read succeeding
+    (iii) a SELECT ... FOR UPDATE serialization strategy that avoids
+         the race entirely
+  Pick (i), (ii), or (iii) and justify it against the observed
+  $wpdb behavior. PR-G will implement exactly the chosen path.
 
-  ## 9. Existing tests that PR-G must UPDATE (list, do not modify here)
-     Each entry is a legitimate cutover update — the tests were pinning
-     the pre-cutover invariant.
+## Section 7 — Durable failure-result behavior
+Trace the current admin approval branch AND the current reject branch:
+after a decision, how is the operator-visible result_action /
+result_reason on the import row updated? Quote the exact
+update_import_row() call with its status fields.
 
-       - tests/KeywordPoolsAdminPageTest.php line 570
-         (test_server_side_approve_path_enforces_same_approval_contract_before_persistence)
-         currently pins the legacy sequence:
-           'self::import_row_approval_contract($row)' before
-           'approve_import_row_as_candidate_result($row, $batch)'
-         PR-G must replace with a pin that requires:
-           'self::import_row_approval_contract($row)' before
-           'KeywordPoolManualApprovalService' invocation
-         The 'manual_approval_blocked' / 'manual_approval_failed'
-         phrase must remain reachable — PR-G still surfaces both.
+CRITICAL SEMANTIC QUESTION — record the answer:
+  When a service-owned transaction ROLLBACKs, any update_import_row()
+  call inside that transaction is rolled back too. Therefore the
+  failure-reason update must run OUTSIDE the transaction. Document
+  the exact sequence PR-G will require:
+    - inside the transaction: attempt the atomic write
+    - on failure: ROLLBACK; then, OUTSIDE the transaction, call
+      update_import_row() with the durable failure fields
+      (result_action, result_reason, reviewed_by, reviewed_at)
+    - the admin caller MUST consume the service's structured return
+      value; it MUST NOT discard the failure envelope
 
-       - tests/KeywordPoolImportHistoryStaticTest.php lines 388-390
-         currently pin three legacy strings in the admin file:
-           "'result_reason' => 'manually_approved'"
-           "if ($candidate_id > 0 && $repository->update_candidate_status($candidate_id, 'approved'))"
-           "approve_import_row_as_candidate_result($row, $batch)"
-         PR-G must replace with pins for the new region.
+Confirm that update_import_row() does NOT itself open a transaction
+(quote its body) so this out-of-transaction call is a plain UPDATE.
 
-       - tests/KeywordPoolScopedRejectTest.php lines 354-356 and 381
-         currently pin the same three strings AND assert
-         substr_count(admin, "update_candidate_status($candidate_id, 'approved')") === 1
-         PR-G must remove the approve-branch pins here (leaving only the
-         reject-branch pins) and remove the substr_count assertion.
+Verify:
+  grep -n "public function update_import_row" includes/keywords/class-keyword-pool-import-batch-repository.php
+  sed -n '<recorded line>,<recorded line + 30>p' includes/keywords/class-keyword-pool-import-batch-repository.php
 
-       - tests/KeywordAssignmentSchemaStaticTest.php line 184
-         (test_manual_approval_and_rejection_paths_do_not_use_assignments)
-         currently asserts admin_source and import_service source do NOT
-         contain 'KeywordAssignmentRepository' or 'tmw_keyword_assignments'.
-         PR-G must:
-           - remove the admin_source scan (admin file legitimately
-             references KeywordAssignmentRepository post-cutover)
-           - keep the import_service scan (unchanged)
-           - add a new focused pin that assignment references in the
-             admin file appear ONLY between the exact markers
-             '[TMW-KW-MANUAL-APPROVE] begin' and
-             '[TMW-KW-MANUAL-APPROVE] end'
+## Section 8 — Uncertain-commit behavior
+Document the observed contract of $wpdb->query('COMMIT'):
+  - what it returns on genuine COMMIT success
+  - what it returns on genuine COMMIT failure
+  - what it returns when the server response is ambiguous
+    (connection dropped mid-COMMIT, timeout, error inside COMMIT)
 
-       - tests/KeywordAssignmentSchemaStaticTest.php line 210
-         (test_only_sanctioned_files_reference_the_assignment_layer)
-         PR-G must ADD two entries to $sanctioned:
-           'includes/admin/class-keyword-pools-admin-page.php'
-           'includes/keywords/class-keyword-pool-manual-approval-service.php'
+Record whether any current transactional path (assignment repo,
+review repo, validation service) treats a false COMMIT return value
+as (a) definitely rolled back, (b) definitely committed, or
+(c) UNCERTAIN and reconciles by re-reading state. Quote file:line
+for each case.
 
-     NOT AFFECTED (legitimate historical fixture data; do not touch):
-       - tests/KeywordOwnershipReportServiceTest.php line 193 uses
-         'manually_approved' as a historical row fixture value
-       - tests/KeywordOwnershipReportServiceTest.php line 258 uses
-         'manual_approval_failed' / 'existing_keyword_has_different_target'
-         as historical fixture data for a report scenario
-       - tests/CrakRevenueCamRoutingTest.php uses 'manually_approved' as
-         an unrelated offer-state string
+CRITICAL SEMANTIC QUESTION — record the answer:
+  What is the safest reconciliation sequence PR-G must implement
+  after a false COMMIT return? At minimum:
+    - re-read the assignment row by identity (assignment_key)
+    - if present with the expected payload: the transaction actually
+      committed; log 'uncertain_commit_reconciled_committed' and
+      treat as success (still call update_import_row OUTSIDE any
+      transaction with the success fields)
+    - if not present: the transaction actually rolled back; call
+      update_import_row OUTSIDE any transaction with
+      result_reason='transaction_commit_uncertain_rolled_back'
+    - never mark the row newly approved while state is unreconciled
 
-  ## 10. Files PR-G will touch — exact edit surface
-     NEW:
-       - includes/keywords/class-keyword-pool-manual-approval-service.php
-       - tests/KeywordPoolManualApprovalServiceTest.php
-       - tests/KeywordPoolManualApprovalGuardTest.php
-     EDIT (surgical, described in section 9 for tests):
-       - includes/keywords/class-keyword-assignment-repository.php
-           ADD two public methods:
-             create_active_primary_within_open_transaction(array): array
-             create_secondary_within_open_transaction(array): array
-           No change to any existing method body.
-       - includes/keywords/class-keyword-pool-candidate-repository.php
-           ADD one public method:
-             find_row_by_keyword(string $keyword): ?array
-           No change to any existing method body.
-       - includes/admin/class-keyword-pools-admin-page.php
-           Replace the approve-branch body between line 382 and line 414
-           with a single call to the new service; keep the contract check
-           order and the manual_approval_blocked/failed result_action
-           strings. Change target_type_for_pool() from private static to
-           public static. NO other change.
-       - includes/class-loader.php
-           ADD one tmwseo_safe_require for the new service (alphabetical
-           among sibling keywords entries).
-       - tests/KeywordPoolsAdminPageTest.php
-           Update line 570 test per section 9.
-       - tests/KeywordPoolImportHistoryStaticTest.php
-           Update lines 388-390 per section 9.
-       - tests/KeywordPoolScopedRejectTest.php
-           Update lines 354-356 and 381 per section 9. Reject-branch
-           byte-identity pin (see section 11) is preserved.
-       - tests/KeywordAssignmentSchemaStaticTest.php
-           Update lines 184 and 210 per section 9.
-       - tmw-seo-engine.php
-           Bump Version header and TMWSEO_ENGINE_VERSION only.
-       - CHANGELOG.md
-           New top entry only.
+Verify:
+  grep -n "'COMMIT'" includes/keywords/class-keyword-assignment-repository.php includes/keywords/class-keyword-assignment-validation-service.php
 
-     EXPLICIT NON-TARGETS (PR-G MUST NOT touch):
-       - class-keyword-pool-selected-import-service.php
-       - class-keyword-pool-import-batch-repository.php
-       - class-keyword-assignment-migration-analyzer.php
-       - class-keyword-assignment-migration-service.php
-       - class-keyword-assignment-review-repository.php
-       - class-keyword-assignment-review-execution-service.php
-       - class-keyword-assignment-review-sync-service.php
-       - class-keyword-assignment-validation-fixture-repository.php
-       - class-keyword-assignment-validation-service.php
-       - any file under includes/content/, includes/categories/,
-         includes/models/, includes/seo-engine/, includes/schema/,
-         includes/import/, includes/services/
-       - the Rank Math bridge, canonical filter, or noindex/robots writer
+## Section 9 — Full assignment identity tuple
+List the components of the assignment identity as observed in
+assignment_key() and normalize_assignment(). Quote the exact PHP.
+The audit MUST enumerate the components (pool, page_type, target_type,
+target_id, target_key) with the exact keys used by the codebase.
 
-  ## 11. Reject branch preservation
-     Record the current SHA1 of the [TMW-KW-SCOPED-REJECT] region
-     (delimited by the exact markers '// [TMW-KW-SCOPED-REJECT] begin
-     row-only rejection' and '// [TMW-KW-SCOPED-REJECT] end row-only
-     rejection'), computed from THIS commit. The PR-G guard test will
-     assert this SHA1 is unchanged after cutover.
-     Use:
-       awk '/\[TMW-KW-SCOPED-REJECT\] begin row-only rejection/,\
-            /\[TMW-KW-SCOPED-REJECT\] end row-only rejection/' \
-         includes/admin/class-keyword-pools-admin-page.php | sha1sum
+Document how KeywordAssignmentMigrationAnalyzer builds each component
+for a category import. Quote file:line.
 
-  ## 12. Source attribution slot for the new assignment writes
-     Confirm by grep that neither string 'manual_import_approval' nor
-     'admin_import_row:v1' appears anywhere under includes/ or tests/ in
-     this commit. Reserve them for PR-G:
-       source_type = 'manual_import_approval'
-       source_reference = 'admin_import_row:v1'
-       source_batch_id = (int) $batch['id']
-       source_import_row_id = (int) $row['id']
+Confirm that KeywordPoolsAdminPage::target_type_for_pool() maps
+category -> the exact string used in migration payloads. Record the
+mapping table for all supported pools.
+
+CRITICAL SEMANTIC QUESTION — record the answer:
+  For a same-target comparison in PR-G's decision table, which
+  fields MUST match to conclude "same target"? Enumerate all five
+  and record the equality operator (== vs === and casting rules)
+  PR-G will apply.
+
+Verify:
+  grep -n "assignment_key\|normalize_assignment" includes/keywords/class-keyword-assignment-repository.php
+  grep -n "target_type_for_pool" includes/admin/class-keyword-pools-admin-page.php
+  grep -n "target_type\|target_key\|page_type\|pool" includes/keywords/class-keyword-assignment-migration-analyzer.php | head -30
+
+## Section 10 — Status semantics and deterministic invalid-primary
+For every combination of role ∈ ROLES × status ∈ STATUSES ×
+canonical_owner ∈ {0,1}, record whether that combination:
+  - counts as a valid ACTIVE PRIMARY for the purposes of authorizing
+    a secondary on a different target
+  - counts as a valid ACTIVE SAME-TARGET idempotency signal
+  - is a deterministic-invalid state that MUST produce a specific
+    blocked reason string
+  - is prohibited by normalize_assignment (list the error string)
+
+Record the exact string PR-G will emit for each invalid state:
+  invalid_primary_state:blocked
+  invalid_primary_state:rejected
+  invalid_primary_state:inactive
+  invalid_primary_state:non_canonical
+  primary_pending_review
+  same_target_assignment_not_active:<observed_status>/<observed_role>
+
+CRITICAL SEMANTIC QUESTION — record the answer:
+  Does find_primary_owner() return null for a candidate whose only
+  primary is status='blocked'? For status='rejected'? For
+  status='inactive'? For canonical_owner=0? Confirm by reading its
+  WHERE clause. If yes, PR-G MUST NOT rely on find_primary_owner()
+  alone to detect invalid-primary — it MUST also inspect
+  find_assignments_for_candidate() for role='primary' rows in
+  non-active states and emit the specific reason. Confirm this is
+  the correct pattern.
+
+Verify:
+  grep -n "find_primary_owner\|find_assignments_for_candidate\|find_assignment\b" includes/keywords/class-keyword-assignment-repository.php
+  grep -n "ACTIVE_STATUSES\|RANK_MATH_FORBIDDEN_STATUSES\|STATUSES\|ROLES" includes/keywords/class-keyword-assignment-repository.php
+
+## Section 11 — Admin class namespace and loader dependencies
+Record the namespace declared in
+includes/admin/class-keyword-pools-admin-page.php.
+
+Record every namespace declared in
+includes/keywords/*.php that PR-G touches.
+
+For the new service PR-G will add
+(includes/keywords/class-keyword-pool-manual-approval-service.php,
+namespace TMWSEO\Engine\Keywords), state whether a bare reference to
+KeywordPoolsAdminPage from that file would resolve correctly.
+
+Trace includes/class-loader.php: state the exact `tmwseo_safe_require`
+line for the admin file and for the assignment repository, and the
+order in which they are required. State where the new service's
+`tmwseo_safe_require` line MUST be inserted relative to them so that
+by the time the service is instantiated, both the admin class and the
+assignment repository are loaded.
+
+CRITICAL SEMANTIC QUESTION — record the answer:
+  PR-G MUST resolve target_type_for_pool() via either:
+    (a) a fully-qualified name \TMWSEO\Engine\Admin\KeywordPoolsAdminPage,
+        with the loader ordering the admin class before the service, OR
+    (b) constructor injection of the admin class dependency, with the
+        service accepting it as a parameter.
+  Pick (a) or (b) and justify. Confirm target_type_for_pool()'s
+  current visibility (private/public/private static/public static) and
+  whether PR-G MUST bump it to public static in order to enable
+  option (a). If option (b), specify how the caller (the admin approve
+  branch, which is itself a static method) injects the dependency
+  without breaking the callable arity.
+
+Verify:
+  grep -n "^namespace\|^use " includes/admin/class-keyword-pools-admin-page.php includes/keywords/class-keyword-assignment-repository.php includes/keywords/class-keyword-pool-candidate-repository.php includes/keywords/class-keyword-pool-import-batch-repository.php
+  grep -n "target_type_for_pool" includes/admin/class-keyword-pools-admin-page.php
+  grep -n "tmwseo_safe_require.*class-keyword" includes/class-loader.php | head -30
+
+## Section 12 — Exact edit surface
+Enumerate every file PR-G will change and, for each, the exact
+methods/sections that will be added, modified, or completely erased.
+This section is authoritative for the follow-on PR — PR-G will refuse
+to touch any file not listed here.
+
+Also enumerate every existing PHPUnit test that pins the current
+LEGACY-A or LEGACY-B behavior and will therefore need to be updated
+by PR-G. Quote each pinned string with file:line. Explicitly note any
+fixture data (e.g. historical row states in report-service tests) that
+is NOT a code-behavior pin and MUST NOT be touched.
+
+Record the current SHA1 of the [TMW-KW-SCOPED-REJECT] region so PR-G
+can pin it byte-identically:
+  awk '/\[TMW-KW-SCOPED-REJECT\] begin row-only rejection/,\
+       /\[TMW-KW-SCOPED-REJECT\] end row-only rejection/' \
+    includes/admin/class-keyword-pools-admin-page.php | sha1sum
+
+Verify:
+  grep -Hn "update_candidate_status\|approve_import_row_as_candidate_result\|manually_approved\|manual_approval_failed" tests/ | grep -v "\.md:"
 
 ═════════════════════════════════════════════════════════════════
 D2 CONTENT — docs/audit/PR-G-manual-approval-assignment-cutover-pinned-signatures.md
 ═════════════════════════════════════════════════════════════════
-A simple checklist of exact substrings that must EITHER be removed OR
-added by PR-G. This is a documentation aid, not a running test.
+A documentation-only checklist of the exact substrings PR-G will
+remove and add. Sections:
 
-  # PR-G — Pinned Defect Signatures (documentation only)
+## MUST REMOVE from includes/admin/class-keyword-pools-admin-page.php
+  (list the exact substrings observed today in the approve branch —
+   e.g. update_candidate_status(...), approve_import_row_as_candidate_result(...),
+   'manually_approved' — with the line numbers observed in this
+   commit)
 
-  ## Signatures PR-G MUST REMOVE from includes/admin/class-keyword-pools-admin-page.php
-  - Exact substring: "update_candidate_status($candidate_id, 'approved')"
-    (inside handle_import_row_action() approve branch)
-  - Exact substring: "->approve_import_row_as_candidate_result($row, $batch)"
-    (inside handle_import_row_action() approve branch)
-  - Exact substring: "'result_reason' => 'manually_approved'"
-    (inside handle_import_row_action() approve branch)
+## MUST ADD to includes/admin/class-keyword-pools-admin-page.php
+  - the exact markers // [TMW-KW-MANUAL-APPROVE] begin / end
+  - the exact fully-qualified class name of the new service, as
+    chosen by Section 11
+  - a call to the service that observes and handles the returned
+    failure envelope (do not discard)
 
-  ## Signatures PR-G MUST ADD to includes/admin/class-keyword-pools-admin-page.php
-  - Exact marker: "// [TMW-KW-MANUAL-APPROVE] begin"
-  - Exact marker: "// [TMW-KW-MANUAL-APPROVE] end"
-  - Exact substring: "new \\TMWSEO\\Engine\\Keywords\\KeywordPoolManualApprovalService"
-    (inside the [TMW-KW-MANUAL-APPROVE] region)
+## MUST ADD to includes/keywords/
+  - the new service file
+  - two additive public methods on the assignment repository (names
+    to be finalized by PR-G, but must include "within_open_transaction"
+    in their identifiers so grep tools can enumerate them)
+  - the smallest safe additive public read wrapper on the candidate
+    repository, if Section 2 concluded one is needed
+  - (no changes to any other existing keywords file)
 
-  ## Signatures PR-G MUST ADD to includes/keywords/
-  - "class KeywordPoolManualApprovalService" in
-    includes/keywords/class-keyword-pool-manual-approval-service.php
-  - "public function create_active_primary_within_open_transaction("
-    in class-keyword-assignment-repository.php
-  - "public function create_secondary_within_open_transaction("
-    in class-keyword-assignment-repository.php
-  - "public function find_row_by_keyword("
-    in class-keyword-pool-candidate-repository.php
-
-  ## Signatures PR-G MUST NOT REMOVE
-  - The exact markers "// [TMW-KW-SCOPED-REJECT] begin row-only rejection"
-    and "// [TMW-KW-SCOPED-REJECT] end row-only rejection"
-  - The reject-branch body between them — SHA1 must match the value
-    recorded in the audit report
-
-  ## Test files PR-G MUST UPDATE
-  Listed in the audit report, section 9. Every update is a documented
-  cutover; no test is deleted merely to remove a failing pin.
+## MUST NOT REMOVE
+  - the markers // [TMW-KW-SCOPED-REJECT] begin row-only rejection /
+    end row-only rejection
+  - the reject-branch body between them — SHA1 must match Section 12
 
 ═════════════════════════════════════════════════════════════════
-VALIDATION FOR THIS AUDIT PR (documentation-only)
+VALIDATION FOR THIS AUDIT PR
 ═════════════════════════════════════════════════════════════════
-- No PHP linting is required — the two deliverables are Markdown.
-- Full PHPUnit sweep must remain byte-identical to main (no code
-  changed). Report the sweep output verbatim.
+- No PHP linting is required — deliverables are Markdown.
+- Full PHPUnit sweep must be byte-identical to main. Report verbatim.
 - git diff --check must be clean.
 - Preflight archive scan must be clean.
-- The audit's SHA1 for the [TMW-KW-SCOPED-REJECT] region MUST be
-  reproducible by running the awk|sha1sum command in section 11 —
-  include the observed SHA1 in the report so PR-G can pin it.
+- The recorded SHA1 for the [TMW-KW-SCOPED-REJECT] region MUST be
+  reproducible by anyone running the awk|sha1sum command.
+- Every "CRITICAL SEMANTIC QUESTION" MUST have a recorded answer in
+  D1. A missing answer fails PR-G-AUDIT review.
 
 ═════════════════════════════════════════════════════════════════
 COMMIT MESSAGE
 ═════════════════════════════════════════════════════════════════
 PR-G-AUDIT: manual approval → assignment cutover audit (no runtime code)
 
-- docs/audit/PR-G-manual-approval-assignment-cutover-audit.md traces the
-  current defective admin approval call graph with file:line refs from
-  this commit, enumerates the exact edit surface PR-G will touch,
-  documents that KeywordAssignmentRepository::create_assignment() opens
-  its own nested transaction for active canonical primaries, chooses
-  service-owned outer transaction with two new participation-safe
-  methods, and reproduces the fail-closed role decision table PR-G will
-  implement.
+- docs/audit/PR-G-manual-approval-assignment-cutover-audit.md traces
+  the current admin approval call graph, records the public/private
+  API surface of the candidate and assignment repositories with
+  visibility keywords, enumerates every transaction owner and every
+  SELECT ... FOR UPDATE occurrence in the assignment layer, documents
+  the $wpdb query-error contract, the duplicate-key concurrency
+  contract, the durable failure-result contract, the uncertain-COMMIT
+  reconciliation contract, the full 5-tuple assignment identity, the
+  deterministic invalid-primary detection pattern, the admin-class
+  namespace and loader-dependency choice, and the exact edit surface
+  for the follow-on PR-G implementation PR.
 - docs/audit/PR-G-manual-approval-assignment-cutover-pinned-signatures.md
-  is a documentation checklist of signatures PR-G must remove or add.
+  is a documentation checklist of substrings PR-G must remove or add.
 - No runtime code changed. No PHPUnit test file added or removed.
 
 ═════════════════════════════════════════════════════════════════
 PR BODY
 ═════════════════════════════════════════════════════════════════
-Include:
 - Reproduction of the exact production defect.
 - One-paragraph summary of the current call graph with file:line refs.
 - Explicit statement that no runtime code or PHPUnit test file changed.
-- Link to the two Markdown deliverables.
-- Explicit statement that PR-G will delete
-  docs/audit/PR-G-manual-approval-assignment-cutover-pinned-signatures.md
-  when it lands (D1 stays as historical record).
+- Link to both Markdown deliverables.
+- Explicit statement that PR-G will delete the pinned-signatures
+  Markdown (D1 stays as historical record).
 - Do NOT auto-merge.
 ````
 
 ---
 
-# PROMPT 2 of 2 — PR-G (implementation, paste AFTER PR-G-AUDIT lands)
+# PROMPT 2 of 2 — PR-G
+
+Paste this whole prompt into Codex AFTER PR-G-AUDIT is merged. Replace `<AUDIT_COMMIT_SHA>` with the merge-commit SHA of PR-G-AUDIT.
 
 ````text
 @codex
 
 Repository: LogicDuke/tmw-seo-engine
-Base: main (with PR-G-AUDIT merged)
+Base: main (with PR-G-AUDIT merged at commit <AUDIT_COMMIT_SHA>)
 Branch: claude/v5.9.26-manual-approval-assignment-cutover
-Version target: v5.9.26-manual-approval-assignment-cutover-v1.0.0
+Version target: 5.9.26-manual-approval-assignment-cutover-v1.0.0
 PR title: PR-G: Cut manual keyword approval over to assignments
 
-GOAL
-Cut the ordinary WordPress admin approval path (TMW SEO → Keyword Pools
-→ Category Pool → saved import batch → Approve) over to the additive
-assignment architecture merged in PRs #779–#782. Same-keyword,
-different-target approval must preserve the existing valid primary
-assignment and create a valid secondary for the new target — atomically,
-idempotently, through one service-owned outer transaction, and through
-the existing authoritative KeywordAssignmentRepository (extended with
-two additive participation-safe methods that do NOT open nested
-transactions). No parallel assignment system, no relaxation of any
-existing guard, no touch of Rank Math / generation / content /
-publishing / indexing / canonical / taxonomy / slugs / rejection
-behavior / plugin-load behavior / existing migration or validation
-fixture behavior.
+═════════════════════════════════════════════════════════════════
+GATE 0 — AUDIT EVIDENCE REQUIRED
+═════════════════════════════════════════════════════════════════
+Read docs/audit/PR-G-manual-approval-assignment-cutover-audit.md at
+merge-commit <AUDIT_COMMIT_SHA>. This document is the authoritative
+source of every API name, visibility keyword, transaction shape,
+lock pattern, identity tuple, status semantics, and loader
+dependency PR-G will use.
+
+Do NOT proceed if any of the following is true:
+- the audit file is absent
+- Section 4 (locking + revalidation) did not choose an option
+- Section 5 (read-query error) did not specify a guarded-read shape
+- Section 6 (duplicate-key concurrency) did not pick (i), (ii), or (iii)
+- Section 8 (uncertain-commit reconciliation) does not specify the
+  post-COMMIT-false reconciliation sequence
+- Section 9 (assignment identity) does not enumerate all five tuple
+  components
+- Section 10 (status semantics) does not list every deterministic
+  invalid-primary combination with its exact reason string
+- Section 11 did not choose (a) or (b) for the admin-class
+  resolution and did not confirm target_type_for_pool()'s current
+  visibility
+- Section 12 did not record the [TMW-KW-SCOPED-REJECT] SHA1
+- Any Section's CRITICAL SEMANTIC QUESTION has no recorded answer
+
+If any of the above is true, do not open PR-G. Instead, comment on
+the audit PR requesting the missing evidence.
+
+Do NOT proceed if the current repository state differs from what
+the audit recorded at <AUDIT_COMMIT_SHA>: re-run each Verify command
+listed in the audit and abort if the observed line numbers, visibility
+keywords, or existence of pinned strings diverge. Do NOT patch PR-G's
+behavior around a diverged repository — halt and request a re-audit.
 
 ═════════════════════════════════════════════════════════════════
-PREFLIGHT — MANDATORY, RUN FIRST, FAIL THE PR IF ANY HIT
+GOAL
+═════════════════════════════════════════════════════════════════
+Cut the ordinary WordPress admin approval path (TMW SEO → Keyword
+Pools → Category Pool → saved import batch → Approve) over to the
+additive assignment architecture landed in PRs #779–#782 (and the
+transaction-participation gate landed in PR-F rev 3). Same-keyword,
+different-target approval must preserve the existing valid primary
+assignment and create a valid secondary for the new target — atomically,
+concurrency-safe, idempotently, with durable operator-visible failure
+reasons, and without touching Rank Math / content generation /
+publishing / indexing / canonical / taxonomy / rejection behavior.
+
+═════════════════════════════════════════════════════════════════
+PREFLIGHT
 ═════════════════════════════════════════════════════════════════
   ARCHIVE_HITS=$(find . -type f \( \
     -name '*.zip' -o -name '*.tar' -o -name '*.gz' -o -name '*.rar' \
@@ -566,850 +582,557 @@ PREFLIGHT — MANDATORY, RUN FIRST, FAIL THE PR IF ANY HIT
     echo "[PREFLIGHT-FAIL] archive/binary artifacts present:"
     echo "$ARCHIVE_HITS"; exit 1
   fi
-  git ls-files -- '*.zip' '*.tar' '*.gz' '*.rar' '*.7z' '*.jar' '*.exe' '*.dll' '*.so' '*.dylib' | wc -l   # must be 0
+  git ls-files -- '*.zip' '*.tar' '*.gz' '*.rar' '*.7z' '*.jar' \
+    '*.exe' '*.dll' '*.so' '*.dylib' | wc -l    # must be 0
   git diff --check
 
 ═════════════════════════════════════════════════════════════════
-STRICT SCOPE EXCLUSIONS — MUST NOT CHANGE
+STRICT SCOPE EXCLUSIONS
 ═════════════════════════════════════════════════════════════════
 - Rank Math reads or writes
-- category generation, model generation, video generation
+- category/model/video content generation
 - content, publishing, indexing/noindex, canonical URLs
 - taxonomy, slugs
-- rejection behavior — the [TMW-KW-SCOPED-REJECT] region SHA1 recorded
-  in the audit report MUST match after PR-G lands
+- rejection behavior — the [TMW-KW-SCOPED-REJECT] region SHA1
+  recorded by the audit MUST match after PR-G lands
 - automatic assignment execution (PR-E) is untouched
-- plugin-load behavior
-- existing assignment migration, review, or validation fixture behavior
-- includes/keywords/class-keyword-pool-selected-import-service.php
-- includes/keywords/class-keyword-pool-import-batch-repository.php
-- includes/keywords/class-keyword-assignment-migration-analyzer.php
-- includes/keywords/class-keyword-assignment-migration-service.php
-- includes/keywords/class-keyword-assignment-review-repository.php
-- includes/keywords/class-keyword-assignment-review-execution-service.php
-- includes/keywords/class-keyword-assignment-review-sync-service.php
-- includes/keywords/class-keyword-assignment-validation-fixture-repository.php
-- includes/keywords/class-keyword-assignment-validation-service.php
+- plugin-load behavior beyond the one loader entry PR-G adds
+- existing assignment migration, review, or validation fixture
+  behavior beyond the two additive public methods PR-G adds to
+  KeywordAssignmentRepository
 - KeywordPoolCandidateRepository's existing_keyword_has_different_target
-  guard — PR-G reroutes around it, does not relax it
+  guard — PR-G reroutes around it; must NOT relax it
 
 ═════════════════════════════════════════════════════════════════
-FILES CHANGED (exhaustive)
+FILES CHANGED
 ═════════════════════════════════════════════════════════════════
+Only the files enumerated in the audit's Section 12 may change. The
+audit is authoritative. As a summary reproduced here for the reviewer,
+the expected surface is:
+
 NEW:
   - includes/keywords/class-keyword-pool-manual-approval-service.php
   - tests/KeywordPoolManualApprovalServiceTest.php
   - tests/KeywordPoolManualApprovalGuardTest.php
 
-EDIT (additive-only):
+EDIT (additive-only; existing method bodies byte-identical):
   - includes/keywords/class-keyword-assignment-repository.php
-      ADD two public methods; no existing method body is changed.
   - includes/keywords/class-keyword-pool-candidate-repository.php
-      ADD one public method; no existing method body is changed.
+    (only if Section 2 concluded a wrapper is needed)
 
 EDIT (surgical):
-  - includes/admin/class-keyword-pools-admin-page.php
-      Replace the approve-branch body between the '// LEGACY' region
-      and the closing '} else {' of the reject branch with the new
-      [TMW-KW-MANUAL-APPROVE] region calling the new service. Change
-      target_type_for_pool() from 'private static' to 'public static'.
-      NO other change. The reject branch is BYTE-IDENTICAL.
-  - includes/class-loader.php
-      ADD ONE tmwseo_safe_require for the new service.
-  - tests/KeywordPoolsAdminPageTest.php               (per audit §9)
-  - tests/KeywordPoolImportHistoryStaticTest.php      (per audit §9)
-  - tests/KeywordPoolScopedRejectTest.php             (per audit §9)
-  - tests/KeywordAssignmentSchemaStaticTest.php       (per audit §9)
-  - tmw-seo-engine.php  (Version header + TMWSEO_ENGINE_VERSION only)
-  - CHANGELOG.md        (new top entry only)
+  - includes/admin/class-keyword-pools-admin-page.php — approve-branch
+    body replaced with the [TMW-KW-MANUAL-APPROVE] region; visibility
+    change to target_type_for_pool() ONLY if Section 11 chose option
+    (a); reject branch BYTE-IDENTICAL to the audit's recorded SHA1.
+  - includes/class-loader.php — one tmwseo_safe_require, at the exact
+    position Section 11 required.
+  - tests/* — the exact test files listed by Section 12, each edited
+    only in the region documented.
+  - tmw-seo-engine.php — Version header + TMWSEO_ENGINE_VERSION only.
+  - CHANGELOG.md — new top entry only (see Changelog Rule below).
 
 DELETE:
   - docs/audit/PR-G-manual-approval-assignment-cutover-pinned-signatures.md
-    (documentation checklist from PR-G-AUDIT; its role ends here)
 
 ═════════════════════════════════════════════════════════════════
-NEW ASSIGNMENT REPOSITORY METHODS (additive)
+MANDATORY BEHAVIORAL PROPERTIES
 ═════════════════════════════════════════════════════════════════
-File: includes/keywords/class-keyword-assignment-repository.php
+The following properties are NORMATIVE. The implementation MUST
+satisfy every property. Where a property refers to "the audit's
+chosen mechanism", derive the implementation from the audit's D1
+document at commit <AUDIT_COMMIT_SHA>. Do NOT invent additional
+mechanisms; if a property references an audit-chosen path that is
+missing from D1, halt and request a re-audit.
 
-Add both methods AT THE END OF THE Writes section (after
-delete_assignment, before the '// ── Helpers ─────────' comment).
-Their bodies mirror existing private helpers exactly, with the
-transaction verbs removed.
+B1. SINGLE TRANSACTION OWNER
+    The new service owns exactly one outer transaction per approval
+    write attempt. It calls no repository method that opens an
+    independent nested transaction. The two additive assignment-repo
+    methods it calls MUST NOT contain the tokens 'START TRANSACTION'
+    or 'COMMIT' or 'ROLLBACK' — this is verifiable by grep and MUST
+    be asserted in the guard test.
 
-  /**
-   * Create a NEW active canonical PRIMARY assignment inside a
-   * transaction that the caller already owns. Does NOT call
-   * START TRANSACTION or COMMIT. Assumes the caller has opened its
-   * outer transaction and will COMMIT or ROLLBACK. Preserves every
-   * invariant enforced by create_active_primary_atomically():
-   *   - candidate rows locked with SELECT ... FOR UPDATE
-   *   - identity uniqueness by assignment_key
-   *   - zero pre-existing active canonical primary for the candidate
-   *   - post-insert re-verification that exactly one active canonical
-   *     primary now exists for the candidate
-   * On any failure returns [ 'ok' => false, 'error' => '<reason>' ] and
-   * does NOT ROLLBACK — the caller owns the boundary.
-   *
-   * @param array<string,mixed> $data
-   * @return array{ok:bool, id?:int, error?:string}
-   */
-  public function create_active_primary_within_open_transaction( array $data ): array {
-      if ( ! $this->table_exists() ) { return [ 'ok' => false, 'error' => 'assignments_table_missing' ]; }
-      $normalized = $this->normalize_assignment( $data );
-      if ( isset( $normalized['error'] ) ) { return [ 'ok' => false, 'error' => (string) $normalized['error'] ]; }
-      if ( ! $this->is_active_canonical_primary( $normalized ) ) {
-          return [ 'ok' => false, 'error' => 'payload_is_not_active_canonical_primary' ];
-      }
-      global $wpdb;
-      $table = $this->table();
-      $candidate_id = (int) $normalized['keyword_candidate_id'];
-      $wpdb->last_error = '';
-      $locked = $wpdb->get_results( $wpdb->prepare(
-          "SELECT id FROM {$table} WHERE keyword_candidate_id = %d FOR UPDATE",
-          $candidate_id
-      ), ARRAY_A );
-      if ( ! is_array( $locked ) || '' !== (string) $wpdb->last_error ) {
-          return [ 'ok' => false, 'error' => 'candidate_lock_failed' ];
-      }
-      $existing = (int) $wpdb->get_var( $wpdb->prepare(
-          "SELECT id FROM {$table} WHERE assignment_key = %s LIMIT 1",
-          $normalized['assignment_key']
-      ) );
-      if ( $existing > 0 ) {
-          return [ 'ok' => false, 'error' => 'assignment_identity_exists', 'id' => $existing ];
-      }
-      if ( 0 !== $this->active_owner_count( $candidate_id ) ) {
-          return [ 'ok' => false, 'error' => 'active_primary_owner_already_exists' ];
-      }
-      $normalized['created_at'] = $this->now();
-      $normalized['updated_at'] = $this->now();
-      if ( false === $wpdb->insert( $table, $this->to_row( $normalized ) ) ) {
-          return [ 'ok' => false, 'error' => 'insert_failed' ];
-      }
-      $id = (int) $wpdb->insert_id;
-      if ( 1 !== $this->active_owner_count( $candidate_id ) ) {
-          return [ 'ok' => false, 'error' => 'primary_owner_verification_failed' ];
-      }
-      $this->log( sprintf(
-          'created assignment id=%d candidate=%d key=%s role=primary status=%s (within-open-txn)',
-          $id, $candidate_id, (string) $normalized['target_key'], (string) $normalized['status']
-      ) );
-      return [ 'ok' => true, 'id' => $id ];
-  }
+B2. TRANSACTION-START FAILURE ABORTS BEFORE ANY WRITE
+    Before ANY $wpdb write, the service:
+      - clears $wpdb->last_error
+      - runs $wpdb->query('START TRANSACTION')
+      - checks the return value AND $wpdb->last_error
+      - if either indicates failure, performs no writes inside the
+        (non-existent) transaction; then calls update_import_row()
+        OUTSIDE any transaction with result_action='manual_approval_failed'
+        and result_reason='transaction_start_failed' and returns
+        the structured failure envelope
+    The admin caller consumes the envelope and does not overwrite it.
 
-  /**
-   * Create a non-primary (secondary/discovery/excluded) assignment
-   * inside a transaction that the caller already owns. Does NOT call
-   * START TRANSACTION or COMMIT. Rejects any payload that would be an
-   * active canonical primary.
-   *
-   * @param array<string,mixed> $data
-   * @return array{ok:bool, id?:int, error?:string}
-   */
-  public function create_secondary_within_open_transaction( array $data ): array {
-      if ( ! $this->table_exists() ) { return [ 'ok' => false, 'error' => 'assignments_table_missing' ]; }
-      $normalized = $this->normalize_assignment( $data );
-      if ( isset( $normalized['error'] ) ) { return [ 'ok' => false, 'error' => (string) $normalized['error'] ]; }
-      if ( $this->is_active_canonical_primary( $normalized ) ) {
-          return [ 'ok' => false, 'error' => 'payload_is_active_canonical_primary_use_primary_method' ];
-      }
-      global $wpdb;
-      $table = $this->table();
-      $existing = (int) $wpdb->get_var( $wpdb->prepare(
-          "SELECT id FROM {$table} WHERE assignment_key = %s LIMIT 1",
-          $normalized['assignment_key']
-      ) );
-      if ( $existing > 0 ) {
-          return [ 'ok' => false, 'error' => 'assignment_identity_exists', 'id' => $existing ];
-      }
-      $normalized['created_at'] = $this->now();
-      $normalized['updated_at'] = $this->now();
-      if ( false === $wpdb->insert( $table, $this->to_row( $normalized ) ) ) {
-          return [ 'ok' => false, 'error' => 'insert_failed' ];
-      }
-      $id = (int) $wpdb->insert_id;
-      $this->log( sprintf(
-          'created assignment id=%d candidate=%d key=%s role=%s status=%s (within-open-txn)',
-          $id, (int) $normalized['keyword_candidate_id'],
-          (string) $normalized['target_key'],
-          (string) $normalized['role'],
-          (string) $normalized['status']
-      ) );
-      return [ 'ok' => true, 'id' => $id ];
-  }
+B3. AUTHORIZATION EVIDENCE UNDER LOCK
+    Any candidate/assignment inspection used to authorize a write
+    MUST be re-run inside the outer transaction, under SELECT ...
+    FOR UPDATE of the candidate's assignment row set, before the
+    insert is issued. Pre-transaction reads may occur only for the
+    decision-table PATH SELECTION (e.g. "which of create_primary /
+    create_secondary / noop / blocked to attempt"). The final
+    authorization state MUST match the locked re-read; if it does
+    not, the service ROLLBACKs and returns failure with
+    result_reason='authorization_evidence_changed_under_lock'.
 
-Both methods reuse the existing private helpers `is_active_canonical_primary`,
-`active_owner_count`, `to_row`, `normalize_assignment`, `assignment_key`,
-`now`, `log`, `table`, `table_exists` — all already present in this
-class in this commit; no additional helper is introduced.
+B4. READ-QUERY FAILURE IS DISTINCT FROM ZERO ROWS
+    Every $wpdb read MUST use the guarded-read shape specified in
+    the audit's Section 5. On query error, the service MUST fail
+    closed with a specific query-failure reason (e.g.
+    lookup_query_failed:<hint>), NEVER treating the error as
+    "no rows found". This applies to primary lookup, same-target
+    lookup, all-assignments-for-candidate lookup, and any active-
+    owner counting the two new assignment-repo methods perform.
 
-═════════════════════════════════════════════════════════════════
-NEW CANDIDATE REPOSITORY METHOD (additive)
-═════════════════════════════════════════════════════════════════
-File: includes/keywords/class-keyword-pool-candidate-repository.php
+B5. CONCURRENCY-SAFE SECONDARY (AND PRIMARY) INSERT
+    Duplicate concurrent approvals MUST NOT produce duplicate rows
+    and MUST NOT report insert_failed when the DB rejected a
+    duplicate. The audit's Section 6 has chosen (i), (ii), or
+    (iii); implement exactly the chosen path:
+      (i)  detect duplicate-key from $wpdb->last_error, re-SELECT
+           the winning row by assignment_key, and return
+           secondary_assignment_already_exists / primary_assignment_already_exists
+           with its id
+      (ii) unconditional re-SELECT by assignment_key after any
+           insert failure, and treat successful re-read as the
+           idempotent no-op result
+      (iii) serialize the decision behind SELECT ... FOR UPDATE
+           on the candidate's assignment set (already required by
+           B3) and rely on that serialization to prevent the race
+    Do not implement more than one of these; do not mix (i) with
+    (ii) unless the audit explicitly required both.
 
-Add ONE public method immediately after the existing public
-find_existing_by_canonical_and_entity() method:
+B6. DURABLE FAILURE-RESULT PERSISTENCE
+    On ANY rollback path, the service MUST call
+    update_import_row() OUTSIDE the transaction with:
+      result_action = 'manual_approval_failed'
+        (or 'manual_approval_blocked' — see B10)
+      result_reason = the specific failure reason string
+      reviewed_by = get_current_user_id()
+      reviewed_at = current_time('mysql')
+    The status field MUST NOT be flipped to 'approved' on any
+    failure. The admin caller MUST consume the service's returned
+    envelope; it MUST NOT discard or overwrite the persisted
+    failure reason.
 
-  /**
-   * Public read-only lookup for the globally unique candidate row for a
-   * normalized keyword. Delegates to the existing private
-   * find_existing_by_keyword(). Never writes. Safe to call outside a
-   * transaction.
-   *
-   * @return array<string,mixed>|null
-   */
-  public function find_row_by_keyword( string $keyword ): ?array {
-      if ( ! $this->table_exists() ) { return null; }
-      $normalized = $this->normalize_keyword( $keyword );
-      if ( '' === $normalized ) { return null; }
-      return $this->find_existing_by_keyword( $normalized );
-  }
+B7. UNCERTAIN-COMMIT RECONCILIATION
+    If $wpdb->query('COMMIT') returns false OR $wpdb->last_error is
+    non-empty after the COMMIT call, the outcome is UNCERTAIN, not
+    definite. Implement exactly the reconciliation sequence
+    documented in the audit's Section 8:
+      - re-read the just-attempted assignment row by its
+        assignment_key
+      - if present with the expected payload: log
+        'uncertain_commit_reconciled_committed', update the import
+        row OUTSIDE any transaction with the success fields, return
+        success with a note in the log tag
+      - if not present: log
+        'uncertain_commit_reconciled_rolled_back', update the
+        import row OUTSIDE any transaction with
+        result_reason='transaction_commit_uncertain_rolled_back',
+        return failure
+    The service MUST NOT set the import row to 'approved' while the
+    commit outcome is unreconciled.
 
-Do not change any existing method body. Do not change any existing
-method signature. Do not change the visibility of
-find_existing_by_keyword() or target_scope_matches_existing().
+B8. FULL IDENTITY TUPLE COMPARISON
+    Every same-target / different-target / same-identity comparison
+    MUST use the five-tuple recorded in the audit's Section 9:
+      pool, page_type, target_type, target_id, target_key
+    Comparisons using fewer fields are forbidden. Applies equally
+    to:
+      - the decision-table branch that decides same-target primary
+      - the decision-table branch that decides same-target secondary
+      - any "already exists" idempotency check
 
-═════════════════════════════════════════════════════════════════
-NEW SERVICE — includes/keywords/class-keyword-pool-manual-approval-service.php
-═════════════════════════════════════════════════════════════════
-Namespace: TMWSEO\Engine\Keywords
-Class:     KeywordPoolManualApprovalService
+B9. DETERMINISTIC INVALID-PRIMARY DETECTION
+    The service MUST inspect find_assignments_for_candidate() (not
+    only find_primary_owner()) and MUST detect every combination
+    documented in the audit's Section 10, emitting the exact reason
+    string documented there:
+      invalid_primary_state:blocked
+      invalid_primary_state:rejected
+      invalid_primary_state:inactive
+      invalid_primary_state:non_canonical
+      primary_pending_review
+    The reason 'role_inference_ambiguous_no_primary_evidence' MUST
+    NOT be emitted for a candidate that has any role='primary' row
+    in any state — that reason is reserved for candidates that have
+    no role='primary' row at all AND whose own target_type/target_id
+    do not match the batch. Test T7 enforces this.
 
-Constructor accepts three optional dependencies. Defaults use the
-already-loaded singletons/new instances so admin callers pass nothing:
+B10. BLOCKED-BRANCH WRITE BOUNDARY
+    A blocked decision performs NO candidate writes, NO assignment
+    writes, and NO transaction. It performs EXACTLY ONE
+    update_import_row() call with:
+      status         = <unchanged>
+      result_action  = 'manual_approval_blocked'
+      result_reason  = <the specific blocked_reason>
+      reviewed_by    = get_current_user_id()
+      reviewed_at    = current_time('mysql')
+    Logs exactly one [TMW-KW-MANUAL-APPROVE] line. Returns a
+    structured failure envelope (ok=false, assignment_id=0,
+    role='none', result_action, result_reason) that the admin caller
+    consumes and does not overwrite.
 
-  public function __construct(
-      ?KeywordPoolCandidateRepository    $candidates = null,
-      ?KeywordAssignmentRepository       $assignments = null,
-      ?KeywordPoolImportBatchRepository  $rows        = null
-  )
+B11. INVALID KEYWORD ≠ MISSING CANDIDATE
+    normalize_keyword() returning empty MUST short-circuit to a
+    result_reason='indeterminate_keyword_identity' failure BEFORE
+    any candidate lookup is attempted. A non-empty normalized
+    keyword whose candidate lookup returns "no row" (with
+    $wpdb->last_error empty per B4) is a valid MISSING candidate
+    and proceeds to the create-candidate + create-primary path.
+    The two paths never conflate. Test T11 enforces this at the
+    normalize_keyword boundary.
 
-Public API — the ONLY entry point:
+B12. ADMIN CLASS DEPENDENCY
+    Resolve target_type_for_pool() via the mechanism chosen by the
+    audit's Section 11:
+      option (a): reference \TMWSEO\Engine\Admin\KeywordPoolsAdminPage::target_type_for_pool()
+                  by fully-qualified name. If Section 11 also
+                  required a visibility bump, apply exactly that
+                  bump (e.g. private static -> public static) with
+                  NO OTHER change to the admin file's method bodies.
+      option (b): accept the admin class (or a closure returning
+                  target_type_for_pool) as a constructor argument
+                  on the new service; the admin caller injects the
+                  dependency at construction. If Section 11 chose
+                  (b), no visibility change to the admin file.
+    A bare KeywordPoolsAdminPage reference from the Keywords
+    namespace is forbidden and MUST fail the guard test.
 
-  /**
-   * Approve one import row and land the correct assignment for its
-   * target inside ONE service-owned outer $wpdb transaction. Never
-   * rewrites candidate legacy target fields when the incoming target
-   * differs. Fails closed on any ambiguous decision.
-   *
-   * @param array<string,mixed> $row   import row DB record
-   * @param array<string,mixed> $batch import batch DB record
-   * @return array{
-   *   ok: bool,
-   *   candidate_id: int,
-   *   assignment_id: int,     // 0 for idempotent no-op and for failure
-   *   role: string,           // primary|secondary|none
-   *   result_action: string,  // approved|manual_approval_failed|manual_approval_blocked
-   *   result_reason: string,  // from the decision table
-   *   safe_reason: string,    // operator-safe copy of result_reason
-   * }
-   */
-  public function approve_import_row_with_assignment( array $row, array $batch ): array
+B13. NO REWRITE OF LEGACY TARGET IDENTITY
+    The service MUST NOT invoke KeywordPoolCandidateRepository::save()
+    with target_type / target_id / target_name / target_slug that
+    differ from the candidate's already-stored values. For the
+    new-candidate path (missing candidate), save() may be invoked
+    with the batch's target fields (that is a fresh insert). For
+    every other path, target-field updates on an existing candidate
+    are forbidden — the second target is represented as a new
+    assignment row, never as a candidate rewrite. The candidate
+    repository's existing existing_keyword_has_different_target
+    guard MUST remain unchanged.
 
-Concrete steps INSIDE this method:
+B14. REJECT BRANCH BYTE-IDENTICAL
+    The [TMW-KW-SCOPED-REJECT] region SHA1 recorded by the audit
+    MUST match after PR-G lands. Enforced by the guard test.
 
-  1. Extract target identity:
-       $pool        = strtolower( trim( (string) ( $batch['pool'] ?? '' ) ) );
-       $target_type = KeywordPoolsAdminPage::target_type_for_pool( $pool );
-       $target_id   = (int) ( $batch['target_id'] ?? 0 );
-       $target_name = (string) ( $batch['target_name'] ?? '' );
-       $target_slug = (string) ( $batch['target_slug'] ?? '' );
-       $target_key  = $target_type . ':' . $target_id;
-     Guard early — no writes if identity is indeterminate:
-       if ( '' === $target_type || $target_id <= 0 ) {
-           return $this->row_failure_no_write(
-               $row, 'indeterminate_target_identity'
-           );
-       }
-
-  2. Compute the normalized keyword:
-       $keyword_raw = (string) ( $row['normalized_keyword']
-                              ?? $row['keyword']
-                              ?? '' );
-       $keyword     = $this->candidates->normalize_keyword( $keyword_raw );
-       if ( '' === $keyword ) {
-           return $this->row_failure_no_write(
-               $row, 'indeterminate_keyword_identity'
-           );
-       }
-
-  3. Read-only candidate lookup (outside any transaction):
-       $candidate_row = $this->candidates->find_row_by_keyword( $keyword );
-
-  4. Read-only assignment inspection when candidate exists:
-       $candidate_id = is_array( $candidate_row ) ? (int) ( $candidate_row['id'] ?? 0 ) : 0;
-       $primary      = $candidate_id > 0 ? $this->assignments->find_primary_owner( $candidate_id ) : null;
-       $identity     = [
-           'pool' => $pool, 'page_type' => $target_type,
-           'target_type' => $target_type, 'target_id' => $target_id,
-           'target_key' => $target_key,
-       ];
-       $same_target  = $candidate_id > 0 ? $this->assignments->find_assignment( $candidate_id, $identity ) : null;
-       $all_for_cand = $candidate_id > 0 ? $this->assignments->find_assignments_for_candidate( $candidate_id ) : [];
-
-  5. Apply the audited fail-closed decision table below to determine:
-       $decision = 'create_primary' | 'create_secondary'
-                 | 'noop_primary'   | 'noop_secondary'
-                 | 'blocked'
-     and, for the blocked case, a precise $blocked_reason string.
-
-     VALID-PRIMARY predicate (used to decide "primary exists on a
-     different target → create secondary"):
-       role='primary' AND canonical_owner=1 AND status='approved'.
-     find_primary_owner() filters by ACTIVE_STATUSES which is
-     ['approved','review_required']. PR-G tightens to 'approved' only:
-       $primary_is_valid = is_array( $primary )
-           && 'approved' === (string) ( $primary['status'] ?? '' );
-
-     VALID-SAME-TARGET-IDEMPOTENT predicate (used for the two no-op
-     rows):
-       For a primary same-target row:
-         role='primary' AND canonical_owner=1 AND status='approved'.
-       For a secondary same-target row:
-         role='secondary' AND status='approved'.
-       Any other observed state on the same-target row is fail-closed.
-
-     Decision table (exact case-by-case):
-       IF no candidate_row:
-         decision = 'create_primary'
-       ELSE IF no assignment record with role IN ('primary','secondary')
-             AND no $primary:
-         IF the candidate row's own target_type and target_id equal the
-            batch's target_type and target_id:
-             decision = 'create_primary'
-         ELSE:
-             decision = 'blocked', reason = 'role_inference_ambiguous_no_primary_evidence'
-       ELSE IF is_array( $primary ) AND ! $primary_is_valid:
-         IF (string) $primary['status'] === 'review_required':
-             decision = 'blocked', reason = 'primary_pending_review'
-         ELSE:
-             decision = 'blocked', reason = 'invalid_primary_state:'
-                          . (string) $primary['status']
-       ELSE IF $primary_is_valid AND (int) $primary['target_id'] === $target_id
-                AND (string) $primary['target_type'] === $target_type:
-         # same-target primary
-         IF is_array( $same_target )
-            AND 'primary' === (string) ( $same_target['role'] ?? '' )
-            AND 1 === (int) ( $same_target['canonical_owner'] ?? 0 )
-            AND 'approved' === (string) ( $same_target['status'] ?? '' ):
-             decision = 'noop_primary'
-         ELSE:
-             decision = 'blocked', reason = 'invalid_primary_state:missing_expected_same_target_row'
-       ELSE IF $primary_is_valid AND (
-                    (int) $primary['target_id'] !== $target_id
-                 OR (string) $primary['target_type'] !== $target_type
-              ):
-         # different-target valid primary — decide secondary
-         IF is_array( $same_target ):
-             IF 'approved' === (string) ( $same_target['status'] ?? '' )
-                AND 'secondary' === (string) ( $same_target['role'] ?? '' ):
-                 decision = 'noop_secondary'
-             ELSE:
-                 decision = 'blocked', reason = 'same_target_assignment_not_active:'
-                              . (string) ( $same_target['status'] ?? 'unknown_status' )
-                              . '/' . (string) ( $same_target['role'] ?? 'unknown_role' )
-         ELSE:
-             decision = 'create_secondary'
-       ELSE:
-         decision = 'blocked', reason = 'role_inference_ambiguous_no_primary_evidence'
-
-  6. If decision === 'blocked':
-       - No transaction opened; no writes.
-       - Update the import row (single write) with:
-           status         => unchanged
-           result_action  => 'manual_approval_blocked'
-           result_reason  => $blocked_reason
-           reviewed_by    => get_current_user_id()
-           reviewed_at    => current_time('mysql')
-       - Log one [TMW-KW-MANUAL-APPROVE] line: row_id, batch_id,
-         candidate_id, target_key, decision=blocked, reason.
-       - Return the structured failure result (ok=false,
-         assignment_id=0, role='none', result_action, result_reason).
-
-  7. If decision === 'noop_primary' or 'noop_secondary':
-       - No transaction opened. Single write:
-           update_import_row([
-             status => 'approved',
-             result_action => 'approved',
-             result_reason => 'primary_assignment_already_exists'
-                                | 'secondary_assignment_already_exists',
-             candidate_id => $candidate_id,
-             reviewed_by => get_current_user_id(),
-             reviewed_at => current_time('mysql'),
-           ])
-       - If the row update returns false, return failure with
-         result_reason='import_row_update_failed' (no assignment to
-         roll back).
-       - Log one [TMW-KW-MANUAL-APPROVE] line noop=true.
-       - After the write, call
-         $this->rows->recalculate_batch_counts( (int) $batch['id'] )
-         to match reject-branch convention.
-       - Return success.
-
-  8. If decision === 'create_primary' OR 'create_secondary':
-       Open ONE outer transaction on $wpdb:
-         $wpdb->query( 'START TRANSACTION' )
-       Then:
-
-       (a) For 'create_primary' when no candidate_row exists yet:
-           Persist a new candidate INSIDE the transaction by calling
-           the existing $this->candidates->save( $candidate_payload ),
-           where $candidate_payload is built the same way
-           KeywordPoolSelectedImportService::approve_import_row_as_candidate_result()
-           builds it (payload extraction from row + batch, ensure
-           scored row, candidate_from_row). PR-G MUST NOT reimplement
-           that transformation — INSTEAD, it MUST call the existing
-           public method:
-             $selected = new KeywordPoolSelectedImportService();
-             $created  = $selected->approve_import_row_as_candidate_result( $row, $batch );
-           because approve_import_row_as_candidate_result() itself uses
-           only $wpdb->insert/$wpdb->update through the candidate
-           repository (proven in the audit) and therefore participates
-           in our outer transaction. Success case:
-             $candidate_id = (int) $created['candidate_id'];
-           Failure case (any $created['ok'] !== true):
-             $wpdb->query( 'ROLLBACK' );
-             return failure with
-               result_reason = 'candidate_write_failed:' . (string) ( $created['safe_reason'] ?? 'unknown' )
-
-       (b) Build the assignment payload:
-           $payload = [
-               'keyword_candidate_id'     => $candidate_id,
-               'pool'                     => $pool,
-               'page_type'                => $target_type,
-               'target_type'              => $target_type,
-               'target_id'                => $target_id,
-               'target_key'               => $target_key,
-               'target_name'              => $target_name,
-               'target_slug'              => $target_slug,
-               'role'                     => 'create_primary' === $decision ? 'primary' : 'secondary',
-               'status'                   => 'approved',
-               'canonical_owner'          => 'create_primary' === $decision ? 1 : 0,
-               'shared_secondary_allowed' => 'create_secondary' === $decision ? 1 : 0,
-               'approval_reason'          => 'manual_admin_import_row_approval',
-               'source_type'              => 'manual_import_approval',
-               'source_reference'         => 'admin_import_row:v1',
-               'source_batch_id'          => (int) ( $batch['id'] ?? 0 ),
-               'source_import_row_id'     => (int) ( $row['id'] ?? 0 ),
-               'active_in_rank_math'      => 0,
-               'present_in_content'       => 0,
-           ];
-
-       (c) Write the assignment via the appropriate new method:
-             'create_primary'   -> create_active_primary_within_open_transaction( $payload )
-             'create_secondary' -> create_secondary_within_open_transaction( $payload )
-           If the result is not ok:
-             $wpdb->query( 'ROLLBACK' );
-             return failure with
-               result_reason = 'assignment_write_failed:' . (string) ( $result['error'] ?? 'unknown' )
-           Else:
-             $assignment_id = (int) $result['id'];
-
-       (d) Update the import row INSIDE the same transaction:
-             $row_updated = $this->rows->update_import_row( (int) $row['id'], [
-                 'status'        => 'approved',
-                 'result_action' => 'approved',
-                 'result_reason' => 'create_primary' === $decision
-                                       ? 'primary_assignment_created'
-                                       : 'secondary_assignment_created',
-                 'candidate_id'  => $candidate_id,
-                 'reviewed_by'   => get_current_user_id(),
-                 'reviewed_at'   => current_time('mysql'),
-             ] );
-           If $row_updated is false:
-             $wpdb->query( 'ROLLBACK' );
-             return failure with result_reason = 'import_row_update_failed'
-
-       (e) COMMIT:
-             if ( false === $wpdb->query( 'COMMIT' ) ) {
-                 $wpdb->query( 'ROLLBACK' );
-                 return failure with result_reason = 'transaction_commit_failed'
-             }
-
-       (f) AFTER commit, recompute counts (outside the transaction, to
-           match reject-branch convention):
-             $this->rows->recalculate_batch_counts( (int) $batch['id'] );
-
-       (g) Log one [TMW-KW-MANUAL-APPROVE] line:
-             row_id, batch_id, candidate_id, target_key, role, reason,
-             assignment_id, commit=ok.
-
-       (h) Return success:
-             [
-               'ok' => true,
-               'candidate_id' => $candidate_id,
-               'assignment_id' => $assignment_id,
-               'role' => 'create_primary' === $decision ? 'primary' : 'secondary',
-               'result_action' => 'approved',
-               'result_reason' => 'create_primary' === $decision
-                                   ? 'primary_assignment_created'
-                                   : 'secondary_assignment_created',
-               'safe_reason' => same as result_reason,
-             ]
-
-  9. row_failure_no_write( $row, $reason ) helper:
-       Writes ONLY the import row's failure/blocked result. No
-       transaction opened. No assignment or candidate write. Used for
-       reason ∈ { 'indeterminate_target_identity',
-                  'indeterminate_keyword_identity' }.
-       For 'indeterminate_target_identity' set
-         result_action = 'manual_approval_failed'
-         result_reason = 'indeterminate_target_identity'.
-       For 'indeterminate_keyword_identity' set
-         result_action = 'manual_approval_failed'
-         result_reason = 'indeterminate_keyword_identity'.
-
-Log tag: [TMW-KW-MANUAL-APPROVE] on every branch.
+B15. NO WRITES OUTSIDE SANCTIONED TABLES
+    The only tables written by any code path in the new service or
+    the two new assignment-repo methods are:
+      {prefix}tmw_keyword_assignments
+      {prefix}tmw_keyword_candidates
+      {prefix}tmw_keyword_import_rows
+    No writes to Rank Math meta, post content, postmeta, term meta,
+    taxonomy, or any WordPress publish/set-terms function. Enforced
+    by Test T10 (scope-regression).
 
 ═════════════════════════════════════════════════════════════════
-ADMIN EDIT — includes/admin/class-keyword-pools-admin-page.php
+DECISION TABLE (audit-derived — do not invent additional rows)
 ═════════════════════════════════════════════════════════════════
-1. Change target_type_for_pool() from 'private static' to
-   'public static'. No other change to that method.
-
-2. Replace the approve-branch body of handle_import_row_action().
-   Erase LEGACY-A and LEGACY-B completely — they are not commented
-   out, not preserved as fallback. The full replacement between
-   'if (\'approve\' === $requested_action) {' and the matching
-   '} else {' becomes exactly:
-
-     // [TMW-KW-MANUAL-APPROVE] begin — assignment-aware manual approval
-     // Legacy candidate-only paths (update_candidate_status +
-     // approve_import_row_as_candidate_result direct call from this
-     // branch) have been removed; the service below is the single
-     // approval-write authority. The contract check remains first so
-     // blocked/unsafe rows never reach the service.
-     $approval_contract = self::import_row_approval_contract($row);
-     if (empty($approval_contract['can_approve'])) {
-         $repository->update_import_row($row_id, [
-             'result_action' => 'manual_approval_blocked',
-             'result_reason' => (string) ($approval_contract['approval_block_reason'] ?? 'approval_unavailable'),
-             'reviewed_by'   => get_current_user_id(),
-             'reviewed_at'   => $now,
-         ]);
-     } else {
-         $service = new \TMWSEO\Engine\Keywords\KeywordPoolManualApprovalService();
-         $service->approve_import_row_with_assignment($row, $batch);
-         // The service owns the import-row update, the transaction,
-         // and all logging. No additional writes here.
-     }
-     // [TMW-KW-MANUAL-APPROVE] end
-
-   The reject branch region (delimited by '// [TMW-KW-SCOPED-REJECT]
-   begin row-only rejection' / '// [TMW-KW-SCOPED-REJECT] end row-only
-   rejection') is BYTE-IDENTICAL to main. The
-   $repository->recalculate_batch_counts($batch_id) call OUTSIDE the
-   if/else is BYTE-IDENTICAL to main (it fires on both branches; the
-   service also calls recalculate_batch_counts on its success/no-op
-   paths — the double recompute is idempotent by construction and
-   preserves the existing reject-path count).
-
-   Nonce check, capability check, redirect args, search/sorting/
-   pagination handling are UNCHANGED.
+Use the decision table recorded in the audit's Section 10 verbatim.
+Reproduce it in the CHANGELOG entry and the PR body. Every reason
+string emitted MUST appear in that table. Any state combination not
+listed there is a fail-closed 'role_inference_ambiguous_no_primary_evidence'
+outcome — but ONLY when the candidate has no role='primary' row in
+any state (per B9).
 
 ═════════════════════════════════════════════════════════════════
-LOADER EDIT — includes/class-loader.php
-═════════════════════════════════════════════════════════════════
-Add one line in the keywords group, alphabetized among siblings:
-
-  tmwseo_safe_require( $p . 'class-keyword-pool-manual-approval-service.php' );
-
-Place it AFTER class-keyword-pool-import-row-repair-service.php and
-BEFORE class-classified-model-keyword-provider.php (alphabetical
-correctness verified against the current group).
-
-═════════════════════════════════════════════════════════════════
-BEHAVIORAL TESTS — tests/KeywordPoolManualApprovalServiceTest.php
+ACCEPTANCE TESTS — tests/KeywordPoolManualApprovalServiceTest.php
 ═════════════════════════════════════════════════════════════════
 Behavioral. Drives the REAL KeywordPoolManualApprovalService against
-an in-memory $wpdb built by combining the transaction semantics of
-AssignmentStateWpdb (from tests/KeywordAssignmentRepositoryTest.php)
-with the row/batch state modeling of ScopedRejectStateWpdb (from
-tests/KeywordPoolScopedRejectTest.php). Do NOT fake the service, the
-assignment repository, or the candidate repository.
+an in-memory $wpdb that records:
+  - the sequence of START TRANSACTION / COMMIT / ROLLBACK verbs
+  - every INSERT / UPDATE / DELETE target table
+  - every $wpdb->last_error value set on each read query
+  - the response to $wpdb->query('COMMIT'), configurable per test
 
-Cover EVERY case letter below. Report exact test/assertion counts.
+Do NOT fake the service, the assignment repository, or the candidate
+repository. The in-memory $wpdb models transactions faithfully.
 
-  A. Confirmed production case
-     Seed: candidate 'free cam chat' with target_type='category_page',
-       target_id=<free-cam-chat-id>; one approved primary assignment
-       for (candidate, category_page:<free-cam-chat-id>).
-     Row targets category_page:<live-cam-chat-id>.
-     Assert:
-       - original primary preserved byte-identical (id, assignment_key,
-         source_type, source_reference all unchanged);
-       - exactly one new secondary assignment created for
-         category_page:<live-cam-chat-id> with role='secondary',
-         status='approved', shared_secondary_allowed=1,
-         source_type='manual_import_approval',
-         source_reference='admin_import_row:v1';
-       - the row is updated to status='approved',
-         result_action='approved',
-         result_reason='secondary_assignment_created';
-       - candidate legacy target_type / target_id UNCHANGED.
+Cover EVERY test letter below. Report exact test/assertion counts.
 
-  B. Repeat approval (idempotent)
-     Run A twice. Assert:
-       - second call writes no new assignment;
-       - result_reason='secondary_assignment_already_exists';
-       - row remains status='approved'.
+  T1. CONCURRENT RACE — TWO CALLERS, SAME IDENTITY
+      Simulate two concurrent calls to
+      approve_import_row_with_assignment() for the same (candidate,
+      target_key). Exactly ONE performs an INSERT that succeeds and
+      commits; the OTHER observes the audit's chosen idempotency
+      outcome (Section 6 (i), (ii), or (iii)). Assert:
+        - no duplicate assignment rows exist for the identity
+        - the losing caller returns
+          result_reason='secondary_assignment_already_exists' (or
+          '..._primary_...' for the primary variant of the race)
+        - the losing caller's assignment_id points at the winning row
+        - both import rows are updated once (durably) via the winning
+          state; neither is 'manual_approval_failed'
 
-  C. Same-target valid primary idempotency
-     Seed candidate + one approved primary for the batch's target.
-     Assert result_reason='primary_assignment_already_exists',
-     no new assignment, row approved.
+  T2. TRANSACTION-START FAILURE
+      Configure the fake $wpdb so the first START TRANSACTION
+      returns false and sets $wpdb->last_error. Assert:
+        - no writes recorded to any assignment or candidate table
+        - update_import_row() called EXACTLY ONCE, OUTSIDE any
+          transaction, with result_action='manual_approval_failed'
+          and result_reason='transaction_start_failed'
+        - service returns the same envelope
+        - the admin caller does not overwrite the envelope
 
-  D. Same-target valid secondary idempotency
-     Seed candidate + a valid primary on ANOTHER target + a valid
-     approved secondary for THIS target.
-     Assert result_reason='secondary_assignment_already_exists',
-     no new assignment, row approved.
+  T3. READ-QUERY FAILURE
+      Configure the fake $wpdb so a SELECT during authorization
+      (e.g. the same-target lookup) returns null but leaves
+      $wpdb->last_error non-empty. Assert:
+        - no assignment insert attempted
+        - if the failure occurs BEFORE the transaction: no
+          transaction opened; update_import_row() called ONCE
+          OUTSIDE any transaction with a
+          'lookup_query_failed:' reason
+        - if the failure occurs INSIDE the transaction (per B3):
+          ROLLBACK observed; update_import_row() called ONCE
+          OUTSIDE any transaction with the same reason
 
-  E. New candidate + primary success
-     No candidate exists. Assert candidate row created (through
-     approve_import_row_as_candidate_result), one primary assignment
-     created (role='primary', canonical_owner=1, status='approved'),
-     row approved, result_reason='primary_assignment_created'.
-     Assert that BOTH the candidate insert and the assignment insert
-     are visible only AFTER the outer COMMIT (transaction fake
-     enforces this — writes in the buffer, not in committed state,
-     until COMMIT).
+  T4. ROLLBACK DURABILITY
+      For each rollback trigger (candidate save failure, assignment
+      insert failure, import-row update failure), assert:
+        - ROLLBACK observed
+        - NO orphan candidate row survives
+        - NO orphan assignment row survives
+        - update_import_row() called ONCE OUTSIDE the (rolled-back)
+          transaction with the specific failure reason
+        - the row's status field is NOT 'approved'
+        - the admin caller consumes the envelope and does not
+          overwrite it
 
-  F. New candidate rollback on assignment failure
-     No candidate exists. Force create_active_primary_within_open_transaction
-     to fail (fake $wpdb->insert on the assignments table returns
-     false). Assert:
-       - $wpdb sees ROLLBACK;
-       - NO candidate row remains in committed state;
-       - NO assignment row remains in committed state;
-       - import row NOT approved
-         (result_action='manual_approval_failed',
-          result_reason starts with 'assignment_write_failed:');
-       - no post-commit call to recalculate_batch_counts.
+  T5. UNCERTAIN-COMMIT RECONCILIATION
+      Two sub-cases:
+        T5a — COMMIT returns false BUT the fake $wpdb records the
+              assignment insert as visible (server actually
+              committed): assert reconciliation converges to
+              SUCCESS (import row updated OUTSIDE any transaction
+              with the success fields), and log contains
+              'uncertain_commit_reconciled_committed'.
+        T5b — COMMIT returns false AND the fake $wpdb does not
+              record the assignment insert as visible (server
+              actually rolled back): assert reconciliation converges
+              to FAILURE (import row updated OUTSIDE any transaction
+              with result_reason='transaction_commit_uncertain_rolled_back'),
+              and log contains 'uncertain_commit_reconciled_rolled_back'.
+      In BOTH cases the row's status field is not 'approved' until
+      reconciliation converges on committed.
 
-  G. Assignment rollback on import-row update failure
-     Candidate exists with valid primary on OTHER target. Force
-     $wpdb->update on the import_rows table to return false. Assert:
-       - $wpdb sees ROLLBACK;
-       - NO assignment row remains in committed state;
-       - existing primary preserved byte-identical;
-       - import row still not approved
-         (result_reason='import_row_update_failed').
+  T6. FULL IDENTITY COMPARISON
+      Seed candidate with a valid approved primary on
+      (pool='model', page_type='model', target_type='model',
+       target_id=X, target_key='model:X'). Approve an import row
+      whose identity is (pool='category', page_type='category_page',
+       target_type='category_page', target_id=X,
+       target_key='category_page:X') — same target_id, different
+      everything else. Assert:
+        - decision is CREATE SECONDARY (not idempotent)
+        - one secondary assignment created for the category_page
+          identity
+        - the model primary is byte-identical after the write
 
-  H. Invalid existing primary state — every variant
-     For each of the following states, seed a single assignment for
-     the candidate that would otherwise match "different-target primary"
-     but violates the valid-primary predicate; assert
-     decision=blocked, no assignment written, row set to
-     result_action='manual_approval_blocked' with the exact reason:
-       H1. status='approved' AND canonical_owner=0
-             → 'role_inference_ambiguous_no_primary_evidence'
-             (find_primary_owner returns null; no other primary
-              evidence; candidate's own target != batch)
-       H2. status='review_required' AND canonical_owner=1
-             → 'primary_pending_review'
-       H3. status='blocked'
-             → 'invalid_primary_state:blocked' via find_assignments_for_candidate
-             OR 'role_inference_ambiguous_no_primary_evidence' if
-             find_primary_owner returns null and no other evidence —
-             use the exact wording the service emits; assert whichever
-             branch fires
-       H4. status='rejected' — same as H3 wording assertion
-       H5. status='inactive' — same as H3 wording assertion
-     For each state assert also: import row's status field is NOT
-     flipped to 'approved'; row is written once with the block record.
+  T7. DETERMINISTIC INVALID-PRIMARY
+      For each combination in the audit's Section 10 invalid-primary
+      table, seed the candidate accordingly and assert the exact
+      reason string:
+        T7a status='blocked'    -> invalid_primary_state:blocked
+        T7b status='rejected'   -> invalid_primary_state:rejected
+        T7c status='inactive'   -> invalid_primary_state:inactive
+        T7d canonical_owner=0   -> invalid_primary_state:non_canonical
+        T7e status='review_required' -> primary_pending_review
+      In every case: decision=blocked; NO writes to any assignment
+      or candidate table; exactly ONE update_import_row() with
+      result_action='manual_approval_blocked' and the exact reason.
 
-  I. Invalid same-target assignment state (not idempotent)
-     Seed candidate + a valid primary on OTHER target + a same-target
-     assignment record whose status IS one of {blocked, rejected,
-     inactive, review_required} OR whose role is {excluded, discovery}.
-     For each variant assert:
-       - decision=blocked;
-       - no new assignment created;
-       - result_reason='same_target_assignment_not_active:<status>/<role>'.
+  T8. IDEMPOTENCY (baseline)
+      Approve the confirmed production case (free-cam-chat with
+      Free Cam Chat primary owned, Live Cam Chat as the batch).
+      Assert:
+        - one new secondary assignment created for the
+          category_page:<live-cam-chat-id> identity
+        - result_reason='secondary_assignment_created'
+        - Free Cam Chat primary byte-identical
+        - candidate legacy target_type / target_id UNCHANGED
+      Then approve the SAME row again. Assert:
+        - no additional assignment row created
+        - result_reason='secondary_assignment_already_exists'
+        - import row still 'approved'
 
-  J. Candidate lookup API safety
-     Static-analysis assertion inside the same test (or a companion
-     assertion at the top of the test class): grep the source of
-     includes/keywords/class-keyword-pool-manual-approval-service.php
-     for '->find_existing_by_keyword(' — count MUST be 0. This proves
-     PR-G never calls the private candidate-repo method.
+  T9. SIBLING ISOLATION
+      Seed two candidates (A and B), each with distinct import rows
+      in distinct batches. Approve A's row. Assert B's candidate
+      row, B's assignments, and B's import row are byte-identical.
 
-  K. Transaction tracing
-     The in-memory $wpdb records every 'START TRANSACTION' / 'COMMIT' /
-     'ROLLBACK' call. For each of the write cases (A, E, F, G) assert
-     the recorded sequence contains EXACTLY ONE 'START TRANSACTION'
-     paired with EXACTLY ONE 'COMMIT' (case A, E) or EXACTLY ONE
-     'ROLLBACK' (case F, G). Idempotent no-op cases (B, C, D) and
-     blocked cases (H, I) MUST record ZERO 'START TRANSACTION' calls.
+  T10. SCOPE REGRESSION (no unrelated writes)
+      Approve any success case with a wpdb that records every
+      write target. Assert every recorded write targets ONE of:
+        {prefix}tmw_keyword_assignments
+        {prefix}tmw_keyword_candidates
+        {prefix}tmw_keyword_import_rows
+      ZERO writes to postmeta, termmeta, options, or Rank Math meta
+      keys ('rank_math_focus_keyword', 'rank_math_robots',
+      'rank_math_description', 'rank_math_title'). ZERO calls to
+      wp_insert_post, wp_update_post, wp_publish_post,
+      wp_set_object_terms, wp_update_term, update_post_meta,
+      update_term_meta.
 
-  L. Sibling isolation
-     Seed two import rows in DIFFERENT batches referencing the SAME
-     candidate, plus an unrelated candidate with its own assignment.
-     Approve row 1. Assert:
-       - row 2's fields are byte-identical (status, result_action,
-         result_reason, candidate_id, reviewed_by, reviewed_at);
-       - the unrelated candidate and its assignment are byte-identical;
-       - recalculate_batch_counts was called only for row 1's batch id.
+  T11. INVALID KEYWORD ≠ MISSING CANDIDATE
+      T11a — normalize_keyword() returns "" for the input:
+        - assert NO candidate lookup issued
+        - assert exactly ONE update_import_row() OUTSIDE any
+          transaction with result_reason='indeterminate_keyword_identity'
+      T11b — normalize_keyword() returns a valid string; candidate
+             lookup returns null with $wpdb->last_error empty:
+        - assert the decision proceeds to create-candidate +
+          create-primary
+        - assert a candidate INSERT occurs inside the outer
+          transaction
+      T11c — normalize_keyword() returns a valid string; candidate
+             lookup returns null but $wpdb->last_error is non-empty:
+        - per B4/T3, this is a query failure, NOT a missing
+          candidate — assert the query-failure reason is emitted
+        - assert NO candidate INSERT attempted
 
-  M. Rejection branch byte-identity
-     (Actually enforced in the guard test — see below. This entry is
-     listed here for coverage-letter completeness.)
-
-  N. Scope regression — only sanctioned tables written
-     The in-memory $wpdb records every write with its target table.
-     Assert every recorded write in ANY case targets one of ONLY:
-       {prefix}tmw_keyword_assignments
-       {prefix}tmw_keyword_candidates
-       {prefix}tmw_keyword_import_rows
-       {prefix}tmw_keyword_import_batches
-     Assert ZERO writes to Rank Math meta keys ('rank_math_focus_keyword',
-     'rank_math_robots', 'rank_math_description', 'rank_math_title'),
-     ZERO writes to postmeta or termmeta tables, ZERO calls to any
-     WordPress publish/unpublish/set-terms function within the trace.
+  T12. NEW-CANDIDATE ROLLBACK ON DOWNSTREAM FAILURE
+      Missing candidate; candidate INSERT succeeds inside outer
+      transaction; force assignment INSERT to fail. Assert:
+        - ROLLBACK observed
+        - NO candidate row survives
+        - NO assignment row survives
+        - update_import_row() called OUTSIDE the rolled-back
+          transaction with result_reason='assignment_write_failed:<...>'
 
 ═════════════════════════════════════════════════════════════════
 STATIC GUARD TEST — tests/KeywordPoolManualApprovalGuardTest.php
 ═════════════════════════════════════════════════════════════════
-Pure file_get_contents + regex. No wpdb, no service instantiation.
+Pure file_get_contents + regex. No wpdb. No service instantiation.
 
-  1. Extract the region delimited by
-       '// [TMW-KW-MANUAL-APPROVE] begin'
-       '// [TMW-KW-MANUAL-APPROVE] end'
-     from includes/admin/class-keyword-pools-admin-page.php.
-     Assert the region contains:
-       - 'self::import_row_approval_contract($row)'
-       - 'KeywordPoolManualApprovalService'
-       - '->approve_import_row_with_assignment(' or the fully qualified
-         '$service->approve_import_row_with_assignment('
-       - 'manual_approval_blocked' (for the contract-blocked case)
-     Assert the region does NOT contain:
-       - 'update_candidate_status('
-       - 'approve_import_row_as_candidate_result('
-       - "'manually_approved'"
-       - 'existing_keyword_has_different_target'
-       - 'update_post_meta'
-       - 'wp_insert_post'
-       - 'wp_update_post'
-       - 'wp_publish_post'
-       - 'wp_set_object_terms'
-       - 'wp_update_term'
-       - 'update_term_meta'
-       - 'rank_math_focus_keyword'
-       - 'rank_math_robots'
-       - 'rank_math_description'
-       - 'rank_math_title'
+  S1. Extract the region between
+        // [TMW-KW-MANUAL-APPROVE] begin
+        // [TMW-KW-MANUAL-APPROVE] end
+      from includes/admin/class-keyword-pools-admin-page.php.
+      Assert the region contains:
+        - 'self::import_row_approval_contract($row)'
+        - the fully-qualified new service class name (as chosen by
+          audit Section 11)
+        - 'approve_import_row_with_assignment('
+        - handling of the returned envelope: the region MUST
+          reference the envelope's result_action / result_reason
+          fields OR call update_import_row() with a durable failure
+          value from the envelope on the failure branch. (This
+          guards against Codex P2 — silently discarding the failure.)
+      Assert the region does NOT contain:
+        - 'update_candidate_status('
+        - 'approve_import_row_as_candidate_result('
+        - "'manually_approved'"
+        - 'existing_keyword_has_different_target'
+        - 'update_post_meta'
+        - 'wp_insert_post'
+        - 'wp_update_post'
+        - 'wp_publish_post'
+        - 'wp_set_object_terms'
+        - 'wp_update_term'
+        - 'update_term_meta'
+        - 'rank_math_focus_keyword'
+        - 'rank_math_robots'
+        - 'rank_math_description'
+        - 'rank_math_title'
 
-  2. Extract the region delimited by
-       '// [TMW-KW-SCOPED-REJECT] begin row-only rejection'
-       '// [TMW-KW-SCOPED-REJECT] end row-only rejection'
-     Assert sha1(region) equals the exact hex string recorded by the
-     PR-G-AUDIT report (which is the SHA1 computed against main before
-     PR-G's edits). This pins the reject branch as byte-identical.
+  S2. Extract the region between
+        // [TMW-KW-SCOPED-REJECT] begin row-only rejection
+        // [TMW-KW-SCOPED-REJECT] end row-only rejection
+      Assert sha1(region) equals the exact hex string recorded by
+      the audit's Section 12.
 
-  3. Assert
-       'find_existing_by_keyword('
-     appears ZERO times in
-     includes/keywords/class-keyword-pool-manual-approval-service.php.
+  S3. Assert
+        'find_existing_by_keyword('
+      appears ZERO times in
+      includes/keywords/class-keyword-pool-manual-approval-service.php.
 
-  4. Assert
-       'join_external_transaction'
-     appears ZERO times in the new service file AND ZERO times in
-     class-keyword-assignment-repository.php (the participation gate
-     is not extended to the assignment repo — the new methods
-     replace it).
+  S4. Assert
+        'START TRANSACTION' and 'COMMIT' and 'ROLLBACK'
+      each appear ZERO times in the two new methods added to
+      includes/keywords/class-keyword-assignment-repository.php (as
+      identified by their names containing 'within_open_transaction').
+      Assert 'START TRANSACTION' appears EXACTLY ONCE in the new
+      service file (the single service-owned outer transaction).
+      Assert 'COMMIT' appears EXACTLY ONCE in the service file, and
+      'ROLLBACK' appears at least once (on every failure branch).
 
-═════════════════════════════════════════════════════════════════
-EXISTING TEST FILE UPDATES (per audit §9)
-═════════════════════════════════════════════════════════════════
+  S5. Assert 'join_external_transaction' appears ZERO times in the
+      new service file AND ZERO times in the assignment repository
+      (PR-F's mechanism is not extended).
 
-tests/KeywordPoolsAdminPageTest.php
-  Rewrite test_server_side_approve_path_enforces_same_approval_contract_before_persistence:
-    - contractPos: strpos($source, 'self::import_row_approval_contract($row)')
-    - servicePos:  strpos($source, 'KeywordPoolManualApprovalService')
-    - Assert both are found and contractPos < servicePos
-    - Assert $source still contains the exact substring
-      "'result_action' => 'manual_approval_blocked'"
-    - Assert $source no longer contains 'approve_import_row_as_candidate_result($row, $batch)'
-    - Assert $source no longer contains 'update_candidate_status($candidate_id, \'approved\')'
-
-tests/KeywordPoolImportHistoryStaticTest.php lines 388-390
-  Replace the three legacy assertions with:
-    - assertStringContainsString( "// [TMW-KW-MANUAL-APPROVE] begin", $this->admin )
-    - assertStringContainsString( "KeywordPoolManualApprovalService", $this->admin )
-    - assertStringContainsString( "'result_action' => 'approved'", $this->admin ) — wait, that string
-      no longer lives in the admin file (the service now writes it).
-      INSTEAD: assert the admin file only contains the two
-      'result_action' assignments actually present after the edit:
-        "'result_action' => 'manual_approval_blocked'"
-        "'result_action' => 'rejected'"
-      (the second is inside the untouched reject branch).
-
-tests/KeywordPoolScopedRejectTest.php lines 354-356
-  Delete the three approve-branch pins. The reject-branch pins in the
-  same test file remain unchanged. Delete the substr_count assertion at
-  line 381 for 'update_candidate_status($candidate_id, \'approved\')'
-  (that string no longer appears anywhere in the admin file).
-
-tests/KeywordAssignmentSchemaStaticTest.php
-  Rewrite test_manual_approval_and_rejection_paths_do_not_use_assignments:
-    - Keep the import_service scan verbatim.
-    - Replace the admin_source scan with:
-        Extract the [TMW-KW-MANUAL-APPROVE] region and assert
-        'KeywordAssignmentRepository' appears in it (that's expected
-        via the new service; the new service is what references the
-        repo, but the admin region contains 'KeywordPoolManualApprovalService'
-        which is the entry — assert that specific class name is present
-        in the region).
-        Extract everything OUTSIDE the [TMW-KW-MANUAL-APPROVE] region
-        and assert 'KeywordAssignmentRepository' and
-        'tmw_keyword_assignments' appear zero times outside the region.
-
-  Extend test_only_sanctioned_files_reference_the_assignment_layer:
-    Add to $sanctioned:
-      'includes/admin/class-keyword-pools-admin-page.php',
-      'includes/keywords/class-keyword-pool-manual-approval-service.php',
-    (both alphabetized within the existing list).
+  S6. Assert 'KeywordPoolsAdminPage' unqualified does NOT appear in
+      the new service file: any reference must be through
+      '\TMWSEO\Engine\Admin\KeywordPoolsAdminPage' (option a) or via
+      a constructor-injected variable (option b, in which case the
+      symbol does not appear at all in the service body outside
+      the constructor signature).
 
 ═════════════════════════════════════════════════════════════════
-tmw-seo-engine.php version bump
+EXISTING TEST FILE UPDATES (per audit Section 12)
 ═════════════════════════════════════════════════════════════════
-Header 'Version:'      -> 5.9.26-manual-approval-assignment-cutover-v1.0.0
-TMWSEO_ENGINE_VERSION  -> 5.9.26-manual-approval-assignment-cutover-v1.0.0
-No other change to this file.
+Update EXACTLY the tests the audit's Section 12 enumerated. Do NOT
+touch any test not in that list.
+
+For each of the following files, apply changes per Section 12:
+  - tests/KeywordPoolsAdminPageTest.php
+  - tests/KeywordPoolImportHistoryStaticTest.php
+  - tests/KeywordPoolScopedRejectTest.php
+  - tests/KeywordAssignmentSchemaStaticTest.php
+
+For tests/KeywordAssignmentSchemaStaticTest.php specifically, when
+rewriting test_manual_approval_and_rejection_paths_do_not_use_assignments:
+  - Keep the import_service scan verbatim (unchanged).
+  - Replace the admin_source scan with a region-scoped invariant:
+      * Extract the [TMW-KW-MANUAL-APPROVE] region and assert the
+        region contains 'KeywordPoolManualApprovalService' (NOT
+        'KeywordAssignmentRepository' — the region references the
+        service, and the service references the repository; the
+        admin file itself does not need to name the repository).
+      * Extract everything OUTSIDE the [TMW-KW-MANUAL-APPROVE]
+        region and assert 'KeywordAssignmentRepository' and
+        'tmw_keyword_assignments' appear ZERO times outside the
+        region.
+
+Extend test_only_sanctioned_files_reference_the_assignment_layer's
+$sanctioned array by adding EXACTLY two entries, alphabetized within
+the existing list:
+  'includes/admin/class-keyword-pools-admin-page.php'
+  'includes/keywords/class-keyword-pool-manual-approval-service.php'
 
 ═════════════════════════════════════════════════════════════════
-CHANGELOG.md — new top entry
+CHANGELOG RULE
 ═════════════════════════════════════════════════════════════════
-## 5.9.26-manual-approval-assignment-cutover-v1.0.0 — <today>
+The new top entry uses the header format:
 
-PR-G — Cut manual keyword approval over to assignments.
+  ## 5.9.26-manual-approval-assignment-cutover-v1.0.0 — YYYY-MM-DD
 
-- **Production defect fixed.** In TMW SEO → Keyword Pools → Category Pool → saved import batch, approving a keyword for a second category (confirmed live case: `free cam chat` under Live Cam Chat while the original category owns it primary) failed with `manual_approval_failed / existing_keyword_has_different_target`. Root cause: the legacy approve branch either flipped the globally unique candidate row's status via `KeywordPoolImportBatchRepository::update_candidate_status()` (no assignment write anywhere) or called `KeywordPoolSelectedImportService::approve_import_row_as_candidate_result() → KeywordPoolCandidateRepository::save()`, whose `target_scope_matches_existing()` guard correctly refused to rewrite the candidate's legacy target fields on a different-target approval.
+Replace 'YYYY-MM-DD' with the actual UTC date on which PR-G is
+merged. Do NOT commit any placeholder such as '<today>' or
+'unreleased' or 'TBD'. If the merge is delayed, force-update the
+date in a final commit before merge. Reject the PR at review if the
+date field does not parse as a valid ISO 8601 calendar date.
 
-- **New behavior.** A new `KeywordPoolManualApprovalService` owns admin import-row approval. It resolves the candidate through a new public read-only wrapper `KeywordPoolCandidateRepository::find_row_by_keyword()`, inspects existing assignments via `KeywordAssignmentRepository`, and applies a fail-closed role decision table: no candidate → create candidate + primary; candidate exists with valid same-target primary → idempotent no-op; candidate exists with valid same-target secondary → idempotent no-op; candidate exists with valid different-target primary and no same-target record → create secondary; candidate exists with an invalid or pending primary state, or a same-target record that isn't a valid approved primary/secondary → fail closed with a precise reason (`role_inference_ambiguous_no_primary_evidence`, `primary_pending_review`, `invalid_primary_state:<status>`, or `same_target_assignment_not_active:<status>/<role>`); ambiguous target identity → fail closed with `indeterminate_target_identity` and no writes.
+Body of the entry: reproduce the audit's Section 10 decision-table
+outcomes and the mandatory behavioral properties B1–B15 in prose
+narrative form, and enumerate every emitted result_reason string.
 
-- **One transaction, no nesting.** Assignment writes for a new active canonical primary would previously nest a `START TRANSACTION` inside any caller's transaction (MySQL implicitly commits the outer one), so PR-G adds two additive participation-safe methods to `KeywordAssignmentRepository`: `create_active_primary_within_open_transaction()` and `create_secondary_within_open_transaction()`. Both replicate the invariants of the existing atomic paths (identity uniqueness, `SELECT ... FOR UPDATE` candidate lock, active-owner-count precondition and post-verification) without opening a nested transaction. The new service opens ONE outer `$wpdb` transaction that covers new candidate creation (through the existing `KeywordPoolSelectedImportService::approve_import_row_as_candidate_result()`, whose write path uses raw `$wpdb->insert`/`update` and therefore participates), the assignment write, and the import-row update. Any failure rolls the whole boundary back; the import row is never marked approved without a matching assignment, no orphan candidate remains, and the existing primary is never rewritten. `recalculate_batch_counts()` runs after commit to match the existing reject-branch convention.
-
-- **Idempotency is strict.** A same-target record only counts as idempotent evidence when its status is exactly `approved` AND the role is `primary` (with `canonical_owner=1`) or `secondary`. `review_required`, `blocked`, `rejected`, `inactive`, `excluded`, and `discovery` states all fail closed with a precise reason. This is stricter than `KeywordAssignmentRepository::find_primary_owner()`'s `ACTIVE_STATUSES` filter (which includes `review_required`), by design — manual admin approval should not authorize a secondary on a candidate whose primary has not yet been human-reviewed.
-
-- **Reused, not reinvented.** The single-active-canonical-primary invariant, `SELECT ... FOR UPDATE` locking, identity uniqueness by `assignment_key`, source-attribution semantics, and the migration/review/validation architectures continue to be enforced exactly as before. PR-F's `KeywordAssignmentReviewRepository::join_external_transaction()` gate is untouched because PR-G never touches the review repository.
-
-- **Strict scope exclusions.** No changes to Rank Math reads/writes, category/model/video generation, content, publishing, indexing/noindex, canonical URLs, taxonomy, slugs, rejection behavior (the `[TMW-KW-SCOPED-REJECT]` region SHA1 is pinned byte-identical), automatic assignment execution, plugin-load behavior, or any existing migration/review/validation class. `KeywordPoolCandidateRepository::save()`'s `existing_keyword_has_different_target` guard is unchanged — PR-G reroutes around it, does not relax it.
-
-- **UI.** The confirmed example now shows `approved — secondary_assignment_created`. Idempotent repeats show `approved — secondary_assignment_already_exists` or `approved — primary_assignment_already_exists`. Genuine failures still surface precisely (`manual_approval_failed:<reason>`, `manual_approval_blocked:<reason>`).
-
-- **Debug log tag** `[TMW-KW-MANUAL-APPROVE]` on every service branch and inside the rewritten approve-branch region.
-
-- **Tests.** New behavioral suite `KeywordPoolManualApprovalServiceTest` covers cases A–N (production case, idempotent repeat, same-target primary idempotency, same-target secondary idempotency, new candidate + primary success, new candidate rollback on assignment failure, assignment rollback on row update failure, invalid primary state variants, invalid same-target assignment state, candidate lookup API safety, transaction tracing, sibling isolation, rejection byte-identity, scope regression). New static guard `KeywordPoolManualApprovalGuardTest` pins the `[TMW-KW-MANUAL-APPROVE]` region content, the reject-branch SHA1 byte-identity, and the absence of `find_existing_by_keyword(` and `join_external_transaction` from the new service. Existing test files listed in the PR body are updated to reflect the cutover; every pre-existing suite whose invariant was not the pre-cutover behavior stays byte-green.
+═════════════════════════════════════════════════════════════════
+VERSION BUMP
+═════════════════════════════════════════════════════════════════
+tmw-seo-engine.php:
+  Header 'Version:'      -> 5.9.26-manual-approval-assignment-cutover-v1.0.0
+  TMWSEO_ENGINE_VERSION  -> 5.9.26-manual-approval-assignment-cutover-v1.0.0
+No other change.
 
 ═════════════════════════════════════════════════════════════════
 VALIDATION
 ═════════════════════════════════════════════════════════════════
-- php -l on every changed PHP file (report each).
-- Focused suites — all MUST pass:
+- php -l on every changed PHP file. Report each.
+- Focused suites — every one MUST pass. Report exact
+  test/assertion counts.
     tests/KeywordPoolManualApprovalServiceTest.php
     tests/KeywordPoolManualApprovalGuardTest.php
     tests/KeywordAssignmentRepositoryTest.php
@@ -1425,63 +1148,55 @@ VALIDATION
     tests/KeywordPoolImportBatchRepositoryTest.php
     tests/KeywordPoolImportHistoryStaticTest.php
     tests/CsvKeywordApprovalWorkflowTest.php
-  Report exact test/assertion counts for each.
-- Full PHPUnit sweep — no new failures vs the pre-PR baseline. Report
-  exact deltas.
-- git diff --check must be clean.
-- Preflight archive scan must be clean.
-- Confirm docs/audit/PR-G-manual-approval-assignment-cutover-pinned-signatures.md
-  is DELETED by this PR (git status shows D).
-- Post-PR grep asserts:
-    grep -R "update_candidate_status(\$candidate_id, 'approved')" includes/admin/  →  0 hits
-    grep -R "approve_import_row_as_candidate_result(\$row, \$batch)" includes/admin/  →  0 hits
-    grep -R "->find_existing_by_keyword(" includes/keywords/class-keyword-pool-manual-approval-service.php  →  0 hits
-    grep -R "'manual_import_approval'" includes/keywords/  →  ≥1 hit (the new service)
-    grep -R "\[TMW-KW-MANUAL-APPROVE\]" includes/keywords/ includes/admin/  →  ≥2 hits
-    grep -c "START TRANSACTION" includes/keywords/class-keyword-pool-manual-approval-service.php  →  1
-    grep -c "COMMIT" includes/keywords/class-keyword-pool-manual-approval-service.php  →  1
-    (One outer transaction owner, one COMMIT verb; no nested START.)
-- Reject-branch SHA1 check:
-    awk '/\[TMW-KW-SCOPED-REJECT\] begin row-only rejection/,\
-         /\[TMW-KW-SCOPED-REJECT\] end row-only rejection/' \
-      includes/admin/class-keyword-pools-admin-page.php | sha1sum
-    Must equal the value recorded in the audit report.
+- Full PHPUnit sweep — report exact delta vs the pre-PR baseline.
+- git diff --check clean.
+- Preflight archive scan clean.
+- docs/audit/PR-G-manual-approval-assignment-cutover-pinned-signatures.md
+  DELETED (git status shows D).
+- Post-PR grep asserts (note the '--' before patterns starting
+  with '-'):
+    grep -R "update_candidate_status(\$candidate_id, 'approved')" includes/admin/   -> 0 hits
+    grep -R "approve_import_row_as_candidate_result(\$row, \$batch)" includes/admin/   -> 0 hits
+    grep -R -- "->find_existing_by_keyword(" includes/keywords/class-keyword-pool-manual-approval-service.php   -> 0 hits
+    grep -R "'manual_import_approval'" includes/keywords/   -> at least 1 hit (the new service)
+    grep -R "\[TMW-KW-MANUAL-APPROVE\]" includes/keywords/ includes/admin/   -> at least 2 hits
+    grep -c "START TRANSACTION" includes/keywords/class-keyword-pool-manual-approval-service.php   -> 1
+    grep -c "COMMIT" includes/keywords/class-keyword-pool-manual-approval-service.php   -> 1
+    grep -R -- "within_open_transaction" includes/keywords/class-keyword-assignment-repository.php   -> at least 2 hits
+    grep -R "START TRANSACTION\|COMMIT" includes/keywords/class-keyword-assignment-repository.php | grep -c "within_open_transaction"   -> 0
+- Reject-branch SHA1 verification:
+    awk '/\[TMW-KW-SCOPED-REJECT\] begin row-only rejection/,/\[TMW-KW-SCOPED-REJECT\] end row-only rejection/' includes/admin/class-keyword-pools-admin-page.php | sha1sum
+    MUST equal the value recorded in the audit's Section 12.
 
 ═════════════════════════════════════════════════════════════════
 COMMIT MESSAGE
 ═════════════════════════════════════════════════════════════════
 PR-G: Cut manual keyword approval over to assignments
 
-Admin import-row Approve now routes through the new
-KeywordPoolManualApprovalService, which resolves the candidate through
-the new public read-only wrapper KeywordPoolCandidateRepository
-::find_row_by_keyword() (no private method calls), inspects existing
-assignments via KeywordAssignmentRepository, applies a fail-closed role
-decision table (new candidate + primary / same-target primary no-op /
-same-target secondary no-op / different-target valid primary → create
-secondary / invalid or ambiguous state → block with precise reason /
-indeterminate target identity → fail with precise reason), and wraps
-candidate + assignment + import-row writes in one service-owned outer
-$wpdb transaction.
+Admin import-row Approve now routes through a new
+KeywordPoolManualApprovalService that consumes the merged audit
+report at <AUDIT_COMMIT_SHA>. The service owns exactly one outer
+$wpdb transaction, aborts before any write if START TRANSACTION
+fails, re-runs authorization reads under SELECT ... FOR UPDATE
+inside the transaction, distinguishes read-query failures from
+zero-row results, handles duplicate concurrent inserts by the
+audit's chosen idempotency mechanism, persists operator-visible
+failure reasons via a rollback-safe out-of-transaction row update,
+reconciles uncertain COMMIT outcomes by re-reading the winning
+assignment row, compares the full 5-tuple assignment identity
+(pool, page_type, target_type, target_id, target_key), detects
+every invalid-primary state deterministically from the candidate's
+full assignment set, and never rewrites the existing primary or
+candidate legacy target identity. Two additive public methods on
+KeywordAssignmentRepository — both named with '_within_open_transaction'
+— mirror the invariants of the existing atomic paths without opening
+a nested transaction. Legacy sub-paths (update_candidate_status and
+direct approve_import_row_as_candidate_result inside the approve
+branch) are completely erased. Reject branch byte-identical.
+Rank Math, generation, content, publishing, indexing, canonical,
+taxonomy, and plugin-load behavior untouched.
 
-The nested-transaction bug that would arise from wrapping the existing
-create_active_primary_atomically() in an outer transaction is avoided
-by adding two additive participation-safe public methods to
-KeywordAssignmentRepository:
-  - create_active_primary_within_open_transaction()
-  - create_secondary_within_open_transaction()
-Both preserve the SELECT ... FOR UPDATE lock, identity-uniqueness, and
-active-owner-count invariants without opening a nested START TRANSACTION.
-
-Legacy sub-paths (update_candidate_status and direct
-approve_import_row_as_candidate_result inside the approve branch) are
-completely erased. The reject branch is byte-identical (guarded by
-recorded SHA1). Every existing assignment/migration/review/validation
-class is untouched; Rank Math, generation, content, publishing,
-indexing, canonical, taxonomy, slugs, and plugin-load behavior are
-unchanged.
-
-Reason strings surfaced by the new path:
+Reason strings emitted by the new path (audit Section 10):
   approved                — with result_reason:
                               primary_assignment_created
                               secondary_assignment_created
@@ -1490,14 +1205,20 @@ Reason strings surfaced by the new path:
   manual_approval_blocked — with result_reason:
                               role_inference_ambiguous_no_primary_evidence
                               primary_pending_review
-                              invalid_primary_state:<status>
+                              invalid_primary_state:blocked
+                              invalid_primary_state:rejected
+                              invalid_primary_state:inactive
+                              invalid_primary_state:non_canonical
                               same_target_assignment_not_active:<status>/<role>
-                              plus the pre-existing contract block reasons
+                              (plus the pre-existing contract block reasons)
   manual_approval_failed  — with result_reason:
-                              assignment_write_failed:<repo_error>
+                              transaction_start_failed
+                              lookup_query_failed:<hint>
+                              authorization_evidence_changed_under_lock
                               candidate_write_failed:<repo_error>
+                              assignment_write_failed:<repo_error>
                               import_row_update_failed
-                              transaction_commit_failed
+                              transaction_commit_uncertain_rolled_back
                               indeterminate_target_identity
                               indeterminate_keyword_identity
 
@@ -1506,58 +1227,44 @@ Log tag: [TMW-KW-MANUAL-APPROVE].
 ═════════════════════════════════════════════════════════════════
 PR BODY — MUST INCLUDE, IN ORDER
 ═════════════════════════════════════════════════════════════════
-1. Exact production defect fixed (verbatim: keyword, existing target,
-   new target, current failure strings).
-2. Old legacy path (LEGACY-A + LEGACY-B), one paragraph, quoting the
-   file:line refs from PR-G-AUDIT.
-3. New assignment-aware behavior, including the fail-closed role
-   decision table verbatim from the audit §8.
-4. Transaction ownership model — one paragraph:
-     - service-owned outer $wpdb transaction covers new candidate
-       creation (through the existing selected-import service, whose
-       write path participates), the assignment write (through one of
-       the two new participation-safe methods), and the import-row
-       update;
-     - single-active-canonical-primary invariant is enforced by
-       KeywordAssignmentRepository (extended, not reimplemented);
-     - repeat approvals of the same row/target are no-ops with
-       precise result_reason values;
-     - failure of any write rolls the transaction back and leaves the
-       import row unapproved, the existing primary intact, and no
-       orphan candidate or assignment behind;
-     - candidate legacy target_type/target_id are never rewritten when
-       the incoming target differs.
-5. Strict scope exclusions (list from this prompt).
-6. Exact tests run and their counts.
-7. Production validation plan:
+1. Link to the merged PR-G-AUDIT report at <AUDIT_COMMIT_SHA>.
+   Quote each Gate 0 answer verbatim.
+2. Exact production defect fixed (keyword, existing target, new
+   target, current failure strings).
+3. Old legacy path (LEGACY-A + LEGACY-B), one paragraph, quoting
+   the file:line refs from the audit's Section 1.
+4. New assignment-aware behavior — reproduce the audit's Section 10
+   decision table verbatim.
+5. Transaction and durability model — one paragraph naming each
+   behavioral property (B1..B15) and one sentence per property
+   describing where the code satisfies it. Where a property invokes
+   an audit-chosen mechanism, quote the audit's answer.
+6. Strict scope exclusions.
+7. Exact tests run and their counts.
+8. Production validation plan:
      - free cam chat remains primary on its existing category;
-     - approving it under Live Cam Chat creates a secondary assignment;
-     - the import row becomes approved with
+     - approving it under Live Cam Chat creates a secondary
+       assignment;
+     - the import row becomes 'approved' with
        result_reason=secondary_assignment_created;
-     - the original primary remains unchanged;
+     - the original primary remains byte-identical;
      - approving again is idempotent
        (result_reason=secondary_assignment_already_exists);
      - no duplicate assignment exists;
-     - no Rank Math / content / publishing / indexing state changes
-       occur.
-8. Explicit request for CodeRabbit review.
-9. Do NOT auto-merge.
+     - no Rank Math / content / publishing / indexing state changes.
+9. Explicit request for CodeRabbit review.
+10. Do NOT auto-merge.
 ````
 
 ---
 
-## Bundle consistency check (self-review, passed)
+## 3. Bundle self-consistency
 
-- Audit findings and PR-G edit surface agree on file paths, method signatures, visibility changes, and every static test that must be updated.
-- Transaction ownership model: **exactly one owner** (the new service), **exactly one `START TRANSACTION`**, **exactly one `COMMIT`** verb per write case. All existing nested-transaction paths (`create_active_primary_atomically`, `set_primary_owner`, `update_activating_primary_atomically`) are avoided by using two new additive methods.
-- Candidate creation is inside the atomic boundary via the existing selected-import service, whose write path uses raw `$wpdb->insert`/`update` and therefore participates in the outer transaction.
-- Idempotency requires strictly `status='approved'`; `review_required`, `blocked`, `rejected`, `inactive`, `excluded`, `discovery` states all fail closed. No inactive/rejected/blocked state is accepted as idempotent.
-- No secondary is authorized by merely `status=approved`: the valid-primary predicate requires `role='primary' AND canonical_owner=1 AND status='approved'`.
-- The reject branch `[TMW-KW-SCOPED-REJECT]` is pinned byte-identical via SHA1 recorded in the audit report and asserted in the guard test.
-- No private method is called from outside its class. The audit explicitly identifies `KeywordPoolCandidateRepository::find_existing_by_keyword()` as private and adds a public wrapper `find_row_by_keyword()`.
-- No fictional API remains: `import_row_approval_contract()` is `private static` on `KeywordPoolsAdminPage` and is called via `self::` from `handle_import_row_action()` (same class) — verified in the ZIP at line 1317.
-- Every test file listed in "edit surface" has its exact change described in §9 of the audit and mirrored in PROMPT 2.
-- No archive/binary artifact is created inside the repo; the preflight scan runs on both PRs.
-- File is UTF-8, contains the two required headings (`PROMPT 1 of 2 — PR-G-AUDIT` and `PROMPT 2 of 2 — PR-G`), and both prompts are complete and paste-ready.
+The rebuild removes every full PHP method body that the earlier revision hard-coded. It replaces those bodies with:
+
+- an audit prompt that documents the real API surface, transaction shapes, locking behavior, read-query error semantics, duplicate-key concurrency, durable failure persistence, uncertain-commit reconciliation, and the full 5-tuple assignment identity;
+- an implementation prompt that gates on the audit's evidence, states fifteen mandatory behavioral properties (B1–B15) with test IDs, specifies twelve acceptance tests (T1–T12) and six static guards (S1–S6), fixes the changelog placeholder rule to require an ISO 8601 landing date, and terminates every `grep` option-parsing hazard.
+
+No CodeRabbit finding, no Codex finding, and no reviewer directive from the request that produced this rebuild is silently discarded. Every one is either directly addressed by an audit section, an audit critical semantic question, a behavioral property, an acceptance test, or a static guard. See §1's coverage matrix.
 
 End of bundle.
