@@ -87,7 +87,7 @@ Pin two authorization evaluations:
 1. initial server-side validation before transaction setup;
 2. current-state revalidation inside the transaction immediately before the first candidate or assignment write, under the selected concurrency strategy.
 
-A concurrent eligibility change must fail closed with no candidate or assignment write.
+The selected strategy must keep eligibility serialized from the transactional revalidation through the first candidate or assignment write. A concurrent eligibility change before revalidation or in the interval after revalidation but before the first write must fail closed with no candidate or assignment write.
 
 ## 2. Candidate repository contract and callable global lookup
 
@@ -127,15 +127,20 @@ D1 must select exactly one strategy and use its exact name everywhere.
 - The service starts the outer transaction.
 - It locks the current import row, candidate identity row or protected candidate-key range, and all assignment rows for the current `keyword_candidate_id` using D1-pinned current/locking reads.
 - It reruns the full approval-eligibility contract after locks are held and immediately before the first write.
+- The eligibility lock or equivalent serialization remains effective through the first candidate or assignment write.
 - It derives the role/state decision only from locked current rows.
 - Candidate and assignment inserts occur after locked revalidation.
 - A duplicate-key collision after complete locked revalidation is an invariant failure, not idempotent success, unless D1 proves a specific gap that the UNIQUE KEY intentionally arbitrates.
 
 ### Strategy B — unique-key arbitration with fresh-state reconciliation
 
-- The service starts the outer transaction and reruns eligibility using D1-pinned current-state semantics before writes.
-- It does not claim that all competing insert gaps are serialized.
-- Candidate and assignment UNIQUE KEYs arbitrate supported races.
+- The service starts the outer transaction.
+- Before the first candidate or assignment write, it acquires a D1-pinned eligibility lock or uses an evidence-backed compare-and-swap/conditional-write guard over the import row and every mutable eligibility input.
+- It reruns the full eligibility contract using current-state semantics after that guard is acquired.
+- The eligibility lock remains held through the first write, or the compare-and-swap/conditional write atomically proves that the observed eligibility version/state is still current at the write boundary.
+- If eligibility changes after revalidation but before the first write, the lock blocks that change until after the write boundary or the compare-and-swap fails; a failed guard produces the exact fail-closed result and zero candidate/assignment writes.
+- Strategy B does not claim that all candidate or assignment insert gaps are serialized.
+- Candidate and assignment UNIQUE KEYs arbitrate supported insertion races.
 - Only a failure proven to be the exact expected UNIQUE KEY collision may enter idempotent reconciliation.
 - The losing caller ends or abandons the failed transaction safely and reconciles using a confirmed fresh transaction/connection, or uses a D1-proven current/locking read that observes the winner.
 - A plain reread from an earlier InnoDB REPEATABLE READ snapshot is forbidden.
@@ -146,14 +151,15 @@ D1 must select exactly one strategy and use its exact name everywhere.
 - D1 must label each write path A or B separately: existing-candidate assignment, missing-candidate creation, assignment creation, and eligibility revalidation.
 - One path must not mix conflicting A and B assumptions.
 - Every A-labelled path follows all Strategy A rules.
-- Every B-labelled path follows all Strategy B rules.
-- Eligibility revalidation always uses current locked or otherwise serialized state immediately before the first write.
+- Every B-labelled path follows all Strategy B rules, including the eligibility lock or compare-and-swap guard through the first write.
+- Eligibility revalidation always uses current locked or otherwise atomically serialized state immediately before and through the first write boundary.
 
 D1 must cover:
 
 1. existing candidate plus concurrent assignment creation;
 2. missing candidate plus concurrent candidate creation and assignment creation;
-3. eligibility changing between the initial check and transactional revalidation.
+3. eligibility changing between the initial check and transactional revalidation;
+4. eligibility changing after transactional revalidation but before the first candidate or assignment write.
 
 For failed candidate inserts, define an evidence-backed classifier distinguishing the exact candidate-keyword UNIQUE KEY race, another-constraint duplicate, generic database failure, and unclassifiable failure. Only the expected candidate-keyword collision may reuse a winner.
 
@@ -181,7 +187,13 @@ Pin ordering:
 
 For update_import_row() failure after commit or rollback, require exact logging and a persisted repair/reconciliation record, job, queue, or admin recovery action before return. The failure or pending repair must be visible to operators.
 
-For batch-count failure after a successful row update:
+After a deferred import-row repair succeeds:
+
+- immediately invoke `recalculate_batch_counts()` for the affected batch and verify its result;
+- do not clear `import_row_repair_pending` until the row payload is verified and batch recalculation has either succeeded or a separate visible batch-repair item has been persisted;
+- if recalculation fails, preserve the repaired row and committed candidate/assignment state, retain the exact failure envelope, create or retain an operator-visible `batch_counts_repair_pending` item, and keep it until a later verified recalculation succeeds.
+
+For batch-count failure after an immediate or deferred successful row update:
 
 - preserve candidate, assignment, and row result;
 - log the exact batch and failure envelope;
@@ -232,15 +244,16 @@ Report:
 - UTF-8 readability;
 - archive scan;
 - exact A/B/H definition and selected strategy;
-- both eligibility checks;
+- both eligibility checks and serialization through the first write;
 - callable global-keyword lookup;
 - complete writer graph and engine inventory;
-- both data races and eligibility-change race;
+- both data races and both eligibility-change windows;
 - exact duplicate classifier;
 - approved candidate and assignment states;
 - complete import-row payload;
 - candidate-scoped decision table;
 - persisted transaction, row, and batch recovery;
+- deferred row-repair-to-batch-recalculation sequence;
 - operator-visible row/batch repair states;
 - candidate and primary byte-preservation requirements;
 - reject-region SHA1;
@@ -275,11 +288,11 @@ Read D1 at `<AUDIT_COMMIT_SHA>` and rerun every audit verification command.
 Do not proceed unless D1:
 
 - defines and selects Strategy A, B, or H exactly as this bundle defines it;
-- pins both initial and transactional eligibility evaluation;
+- pins both initial and transactional eligibility evaluation plus serialization through the first write;
 - pins a callable global-keyword lookup;
 - accounts for every reachable writer and transaction path;
 - proves or converts every atomic table to a transactional engine, or fails closed before writes;
-- covers existing-candidate, missing-candidate, assignment, and eligibility-change races;
+- covers existing-candidate, missing-candidate, assignment, and both eligibility-change windows;
 - pins exact duplicate classification;
 - guarantees approved candidates and exact approved assignment state;
 - pins guarded reads, fresh-state reconciliation, and durable recovery;
@@ -287,6 +300,7 @@ Do not proceed unless D1:
 - scopes all assignment decisions to the current keyword_candidate_id;
 - pins the complete import-row payload;
 - authorizes persisted transaction, row, and batch repair plus operator-visible pending states;
+- requires successful deferred row repair to trigger verified batch recalculation or a visible persisted batch-repair item;
 - pins original candidate and primary preservation;
 - authorizes the complete implementation and test surface.
 
@@ -314,7 +328,15 @@ Clear last_error, issue START TRANSACTION, validate the pinned success result, i
 
 Implement only D1's selected A/B/H strategy with the exact semantics defined in audit Section 4.
 
-Immediately before the first candidate or assignment write, rerun the full eligibility contract using the selected current locked or serialized state. If it changed, perform no candidate/assignment write, safely end the transaction, and persist the exact failure through the post-transaction durability path.
+Immediately before the first candidate or assignment write, rerun the full eligibility contract using the selected current locked or serialized state.
+
+For Strategy A, hold the D1-pinned eligibility and authorization locks through the first write.
+
+For Strategy B, hold an eligibility lock through the first write or use the exact D1-pinned compare-and-swap/conditional-write guard that atomically proves the revalidated eligibility state is unchanged at the first-write boundary. A plain current read followed by an unguarded write is forbidden.
+
+For Strategy H, apply the corresponding A or B rule to the eligibility path exactly as mapped by D1.
+
+If eligibility changes before revalidation or after revalidation but before the first write, perform no candidate/assignment write, safely end the transaction, and persist the exact failure through the post-transaction durability path.
 
 For B-labelled race paths, reuse a winner only after exact UNIQUE KEY classification and fresh/current reconciliation. Other duplicates, generic failures, and unclassifiable failures fail closed before assignment processing.
 
@@ -370,9 +392,17 @@ On row-update failure after commit or rollback:
 - expose an operator-visible `import_row_repair_pending` state, admin notice, or recovery-list entry until repair succeeds;
 - do not silently redirect or issue an unpinned same-call retry.
 
-Only after safe row persistence may batch recalculation run.
+When a deferred row repair later succeeds:
 
-On batch recalculation failure:
+- verify the complete intended row payload;
+- invoke `recalculate_batch_counts()` for the affected batch and verify success;
+- preserve the candidate, assignment, repaired row, and exact prior failure envelope during this sequence;
+- clear `import_row_repair_pending` only after row verification and either verified batch recalculation success or creation/retention of a separate operator-visible `batch_counts_repair_pending` item;
+- if recalculation fails, persist and expose `batch_counts_repair_pending`, keep it visible while counts may be stale, and retain it until a later verified recalculation succeeds.
+
+Only after safe immediate row persistence may immediate batch recalculation run.
+
+On batch recalculation failure after immediate or deferred row persistence:
 
 - preserve candidate, assignment, and row state;
 - log batch ID and failure envelope;
@@ -387,7 +417,10 @@ ACCEPTANCE TESTS
 
 ## T1. Eligibility concurrency
 
-Pause after the initial eligibility check, change eligibility from another connection, resume, and prove transactional revalidation sees the change and performs zero candidate/assignment writes.
+Run two database-capable variants:
+
+1. pause after the initial eligibility check, change eligibility from another connection, resume, and prove transactional revalidation sees the change and performs zero candidate/assignment writes;
+2. pause after transactional revalidation but before the first write, attempt an eligibility-changing reject/block from another connection, and prove the selected A lock or B lock/compare-and-swap guard prevents stale authorization: the change is blocked until after the write boundary or causes the guard to fail, and no candidate/assignment write occurs when the eligibility version/state no longer matches.
 
 ## T2. Global lookup
 
@@ -399,7 +432,7 @@ Exercise every path according to the selected A/B/H strategy.
 
 For A-labelled paths, prove locks/current reads serialize authorization and duplicate collisions are treated according to the A invariant contract.
 
-For B-labelled paths, prove exact duplicate classification, fresh/current winner visibility under the supported isolation level, correct winner IDs, and fail-closed handling for other duplicate, generic, and unclassifiable errors.
+For B-labelled paths, prove eligibility serialization through the first write, exact duplicate classification, fresh/current winner visibility under the supported isolation level, correct winner IDs, and fail-closed handling for other duplicate, generic, and unclassifiable errors.
 
 Cover existing-candidate and missing-candidate races.
 
@@ -441,11 +474,21 @@ Force assignment failure after candidate creation and prove no orphan survives r
 
 ## T13. Operator-visible durability
 
-Cover row-update and batch-recalculation failures. Assert a persisted repair item exists before return, the corresponding operator-visible pending state or admin notice is present while data may be stale, committed state remains intact, repair succeeds later, and the visible pending state is cleared only after verified success.
+Cover row-update and batch-recalculation failures.
+
+For deferred row repair, assert this exact sequence:
+
+1. a persisted `import_row_repair_pending` item exists before the original request returns;
+2. later repair writes and verifies the complete row payload;
+3. the repair invokes and verifies `recalculate_batch_counts()`;
+4. when recalculation succeeds, pending row and batch warnings are cleared only after verification;
+5. when recalculation fails, the repaired row and committed candidate/assignment remain intact, the exact failure envelope is retained, a persisted operator-visible `batch_counts_repair_pending` item exists, and that item remains until a later verified recalculation succeeds.
+
+Also assert unresolved transaction recovery and immediate batch failures preserve committed state and operator visibility.
 
 STATIC GUARDS
 
-S1. Require initial eligibility plus transactional revalidation immediately before the first write.
+S1. Require initial eligibility plus transactional revalidation and an A lock or B lock/compare-and-swap guard that remains effective through the first write.
 
 S2. Verify reject-region SHA1.
 
@@ -463,11 +506,11 @@ S8. Verify every assignment-state query includes current keyword_candidate_id an
 
 S9. Verify complete import-row payload.
 
-S10. Verify every unresolved transaction, row-update failure, and batch-write failure persists recovery and exposes an operator-visible pending state before return; verify visible state clearing is reachable only after successful repair.
+S10. Verify every unresolved transaction, row-update failure, and batch-write failure persists recovery and exposes an operator-visible pending state before return. Verify the deferred row-repair success path invokes and checks `recalculate_batch_counts()`. Verify `import_row_repair_pending` cannot clear before row verification and either verified recalculation success or persisted visible `batch_counts_repair_pending`. Verify batch pending state clearing is reachable only after successful recalculation verification.
 
 CHANGELOG
 
-Use the actual UTC landing date. Describe B1–B16, selected A/B/H semantics, two-point eligibility, global lookup, duplicate classification, engine verification, both data races, candidate-scoped decisions, exact approved states, six-part identity, preservation, complete row payload, persisted recovery, and operator-visible row/batch repair states.
+Use the actual UTC landing date. Describe B1–B16, selected A/B/H semantics, eligibility serialization through the first write, global lookup, duplicate classification, engine verification, both data races, candidate-scoped decisions, exact approved states, six-part identity, preservation, complete row payload, persisted recovery, deferred row-repair batch recalculation, and operator-visible row/batch repair states.
 
 VERSION
 
@@ -481,8 +524,8 @@ Run and report:
 
 - PHP lint for every changed PHP file;
 - all focused tests from D1;
-- database-capable tests for selected A/B/H paths, both data races, eligibility invalidation, and upgraded-table engine handling;
-- duplicate classification, decision table, preservation, row payload, recovery, and operator-visible repair tests;
+- database-capable tests for selected A/B/H paths, both data races, both eligibility invalidation windows, and upgraded-table engine handling;
+- duplicate classification, decision table, preservation, row payload, deferred row-repair batch recalculation, recovery, and operator-visible repair tests;
 - full PHPUnit sweep and baseline delta;
 - git diff --check;
 - archive scan;
@@ -498,7 +541,7 @@ PR-G: cut manual keyword approval over to assignments
 
 PR BODY
 
-Include audit SHA, Gate 0 evidence, selected strategy and its exact path mapping, decision table, B1–B16, all concurrency results, identities, preservation evidence, complete row payload, persisted recovery, operator-visible repair behavior, tests/counts, Codex and CodeRabbit review requests, and `Do not auto-merge`.
+Include audit SHA, Gate 0 evidence, selected strategy and its exact path mapping, decision table, B1–B16, all concurrency results, identities, preservation evidence, complete row payload, persisted recovery, deferred row-repair batch recalculation, operator-visible repair behavior, tests/counts, Codex and CodeRabbit review requests, and `Do not auto-merge`.
 ```
 
 ---
@@ -508,6 +551,9 @@ Include audit SHA, Gate 0 evidence, selected strategy and its exact path mapping
 Before merging this documentation-only PR, verify:
 
 ```bash
+#!/usr/bin/env bash
+set -euo pipefail
+
 git diff --check main...HEAD
 git diff --name-only main...HEAD
 python - <<'PY'
