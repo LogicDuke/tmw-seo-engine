@@ -4,14 +4,14 @@
 
 **Bundle branch:** `docs/pr-g-final-bundle`
 
-**Runtime impact of this PR:** none; this PR changes documentation only.
+**Runtime impact:** none; this PR changes documentation only.
 
 This bundle contains two prompts in delivery order:
 
 1. `PR-G-AUDIT`
 2. `PR-G`
 
-Run and merge the audit first. Do not run the implementation prompt until the audit PR has merged and its merge commit SHA is available.
+Run and merge the audit first. Do not run PR-G until the audit PR has merged and its merge commit SHA is available.
 
 ---
 
@@ -27,13 +27,11 @@ PR title: PR-G-AUDIT: manual keyword approval assignment cutover audit
 
 PURPOSE
 
-Create an evidence-only audit for the manual keyword approval → assignment cutover.
-
-This PR is investigative. It must not change runtime PHP, PHPUnit tests, version files, or CHANGELOG.
+Create an evidence-only audit for the manual keyword approval → assignment cutover. This PR must not change runtime PHP, tests, version files, or CHANGELOG.
 
 DELIVERABLES
 
-Create exactly these Markdown files:
+Create exactly:
 
 1. docs/audit/PR-G-manual-approval-assignment-cutover-audit.md
 2. docs/audit/PR-G-manual-approval-assignment-cutover-edit-checklist.md
@@ -44,19 +42,19 @@ EVIDENCE CHARTER
 
 Use only repository state at the audit commit.
 
-For claims static inspection can establish, include validated file:line evidence and the command used.
+For static claims, include validated file:line evidence and the command used.
 
 Runtime facts that cannot be established by source must be written exactly as:
 
   not established by repository evidence
 
-Those statements are exempt from file:line evidence and must identify the exact fault-injection or integration test required before PR-G may rely on them.
+Those statements are exempt from file:line evidence and must name the exact fault-injection or integration test needed before PR-G may rely on them.
 
-Never invent evidence for connection loss, timeout, driver failures, ambiguous transaction-command responses, unpinned duplicate-key signals, or transaction state after connection loss.
+Never invent evidence for connection loss, timeout, driver failures, ambiguous START TRANSACTION / COMMIT / ROLLBACK responses, unpinned duplicate-key signals, or transaction state after connection loss.
 
 STRICT SCOPE
 
-The audit PR must not change runtime PHP, tests, version files, CHANGELOG, archives, or binary artifacts.
+Do not change runtime PHP, tests, version files, CHANGELOG, archives, or binary artifacts.
 
 PREFLIGHT
 
@@ -72,147 +70,146 @@ D1 REQUIRED SECTIONS
 
 ## 1. Production defect, approval eligibility, and current call graph
 
-Document the confirmed defect:
+Document:
 
 - keyword: free cam chat;
-- existing target: the valid primary on the original category;
+- existing target: valid primary on the original category;
 - requested target: Live Cam Chat;
 - current result_action: manual_approval_failed;
 - current result_reason: existing_keyword_has_different_target.
 
-Trace the approve path from the admin-post hook through the admin controller and both legacy approval sub-paths.
+Trace the admin-post hook, controller, and both legacy approval paths.
 
-Pin the complete server-side approval-eligibility contract currently enforced by `import_row_approval_contract()` or its exact equivalent, including every blocked state and every input, metric, and validation predicate. The UI hiding an Approve button is not sufficient.
+Pin the complete server-side `import_row_approval_contract()` contract or exact equivalent, including every blocked state and every input, metric, and validation predicate.
 
-Pin two eligibility evaluation points:
+Pin two authorization evaluations:
 
-1. the initial server-side check before transaction setup;
-2. a D1-selected locking or serialized revalidation inside the transaction immediately before the first candidate or assignment write.
+1. initial server-side validation before transaction setup;
+2. current-state revalidation inside the transaction immediately before the first candidate or assignment write, under the selected concurrency strategy.
 
-The second check must read the current row and all eligibility inputs under the selected concurrency strategy. A concurrent eligibility or status change must cause an exact fail-closed result with no candidate or assignment write.
+A concurrent eligibility change must fail closed with no candidate or assignment write.
 
-## 2. Candidate repository contract, callable global lookup, and status transitions
+## 2. Candidate repository contract and callable global lookup
 
-List all public and private methods in KeywordPoolCandidateRepository.
+List all candidate-repository methods and record normalization, lookup, save, status-default, target-identity, transaction-ownership, and error-envelope behavior.
 
-Record:
+Select and pin exactly one callable global keyword lookup:
 
-- normalization and lookup signatures and visibility;
-- empty-normalized-keyword behavior;
-- missing candidate versus invalid keyword;
-- save() envelope and status default;
-- existing-candidate target-identity rules;
-- transaction ownership for every reachable candidate writer;
-- every join_external_transaction() / leave_external_transaction() path;
-- how a newly created candidate becomes `approved` inside the atomic unit;
-- how an already-linked non-approved candidate becomes `approved` inside the atomic unit or fails closed with an exact reason;
-- how every status transition preserves all non-status and legacy target fields.
+- an existing public keyword-only lookup; or
+- the smallest-safe additive public wrapper around the private keyword-only lookup.
 
-The audit must select and pin a callable keyword-only lookup for the globally unique candidate identity. The implementation must not call a private method or substitute an entity-scoped lookup that can miss a candidate owned by another target.
+An entity-scoped lookup is not a substitute. Gate 0 fails if no callable global-keyword lookup is available or authorized.
 
-Choose exactly one supported contract:
+Pin how:
 
-- an existing public keyword-only lookup with exact signature; or
-- a smallest-safe additive public wrapper around the private keyword-only lookup, with exact signature and result envelope.
+- a new candidate becomes `approved` in the atomic unit;
+- an existing non-approved candidate becomes `approved` or fails closed;
+- all legacy target and non-status fields remain byte-identical during promotion.
 
-Gate 0 must fail if no callable global-keyword lookup is available or authorized.
+## 3. Complete writer graph and table-engine contract
 
-## 3. Complete writer graph, storage engines, and assignment contract
+Enumerate every writer reachable from PR-G across candidate, assignment, review, validation, import-row, import-batch, and recovery components.
 
-Starting from the proposed PR-G service call graph, enumerate every reachable writer in candidate, assignment, review, validation, import-row, import-batch, and recovery components.
+For every writer record method/signature, tables, transaction owner, transaction commands, external-transaction participation, locking, visibility, result envelope, rollback responsibility, and reconciliation responsibility.
 
-For every writer, record exact method/signature, tables written, transaction owner, transaction commands, external-transaction participation, locking, visibility, result envelope, rollback responsibility, and reconciliation responsibility.
+Enumerate every atomic table and establish its storage engine on current and upgraded installations. At minimum include candidate and assignment tables.
 
-Enumerate every table in the atomic unit and establish its storage engine on current and upgraded installations. At minimum inspect candidate and assignment tables.
-
-Do not infer rollback safety because tests use InnoDB. If any atomic table may be non-transactional, require an idempotent verified conversion before enablement or fail closed before START TRANSACTION.
+If an atomic table can be non-transactional, require an idempotent verified conversion before enablement or fail closed before START TRANSACTION.
 
 Trace `recalculate_batch_counts()` and classify the import-batch write as a mandatory post-transaction durability boundary.
 
-## 4. Unified concurrency and duplicate classification strategy
+## 4. Unified concurrency strategy definitions and selection
 
-Choose exactly Strategy A, Strategy B, or Strategy H and use that vocabulary everywhere.
+D1 must select exactly one strategy and use its exact name everywhere.
 
-Cover:
+### Strategy A — locked serialization
 
-1. existing candidate, concurrent assignment creation;
-2. missing candidate, concurrent candidate UNIQUE KEY creation followed by assignment creation;
-3. eligibility changes between the initial server-side check and the first transactional write.
+- The service starts the outer transaction.
+- It locks the current import row, candidate identity row or protected candidate-key range, and all assignment rows for the current `keyword_candidate_id` using D1-pinned current/locking reads.
+- It reruns the full approval-eligibility contract after locks are held and immediately before the first write.
+- It derives the role/state decision only from locked current rows.
+- Candidate and assignment inserts occur after locked revalidation.
+- A duplicate-key collision after complete locked revalidation is an invariant failure, not idempotent success, unless D1 proves a specific gap that the UNIQUE KEY intentionally arbitrates.
 
-For Strategy B or the B portion of H, reconciliation must use a current/locking read with proven visibility or a confirmed fresh transaction/connection. A plain REPEATABLE READ snapshot reread is forbidden.
+### Strategy B — unique-key arbitration with fresh-state reconciliation
 
-For a failed candidate insert, D1 must define an evidence-backed classifier that distinguishes:
+- The service starts the outer transaction and reruns eligibility using D1-pinned current-state semantics before writes.
+- It does not claim that all competing insert gaps are serialized.
+- Candidate and assignment UNIQUE KEYs arbitrate supported races.
+- Only a failure proven to be the exact expected UNIQUE KEY collision may enter idempotent reconciliation.
+- The losing caller ends or abandons the failed transaction safely and reconciles using a confirmed fresh transaction/connection, or uses a D1-proven current/locking read that observes the winner.
+- A plain reread from an earlier InnoDB REPEATABLE READ snapshot is forbidden.
+- Winner reuse requires complete identity and required-state validation.
 
-- the exact candidate-keyword UNIQUE KEY duplicate caused by the supported race;
-- a duplicate on another constraint;
-- a generic insert/database failure;
-- an unclassifiable error.
+### Strategy H — explicit path-by-path hybrid
 
-Only the exact candidate-keyword UNIQUE KEY collision may enter winner reuse. Reuse requires a fresh/current visibility-safe read and complete validation of the winning candidate. Every other insert failure must fail closed with a distinct exact reason and no assignment processing.
+- D1 must label each write path A or B separately: existing-candidate assignment, missing-candidate creation, assignment creation, and eligibility revalidation.
+- One path must not mix conflicting A and B assumptions.
+- Every A-labelled path follows all Strategy A rules.
+- Every B-labelled path follows all Strategy B rules.
+- Eligibility revalidation always uses current locked or otherwise serialized state immediately before the first write.
 
-## 5. Read-query error contract
+D1 must cover:
 
-For get_var(), get_row(), and get_results(), require clearing and immediately checking `$wpdb->last_error` before interpreting results. Query failure must remain distinct from zero rows.
+1. existing candidate plus concurrent assignment creation;
+2. missing candidate plus concurrent candidate creation and assignment creation;
+3. eligibility changing between the initial check and transactional revalidation.
 
-## 6. Duplicate-key and assignment-state contract
+For failed candidate inserts, define an evidence-backed classifier distinguishing the exact candidate-keyword UNIQUE KEY race, another-constraint duplicate, generic database failure, and unclassifiable failure. Only the expected candidate-keyword collision may reuse a winner.
 
-Confirm exact candidate and assignment UNIQUE KEY definitions and the reliable classifier available for each collision. Do not rely on an unpinned substring or error code.
+## 5. Guarded-read contract
 
-For candidate races, require visibility-safe reuse of the winning candidate ID only after the failure is proven to target the candidate-keyword UNIQUE KEY and after establishment of `approved` status.
+For get_var(), get_row(), and get_results(): clear `$wpdb->last_error`, execute the read, inspect `$wpdb->last_error` immediately, then interpret the value. Query failure must remain distinct from zero rows.
 
-For assignment success and idempotency, pin the exact required assignment payload for each role, including role, status, active semantics, canonical_owner, and all identity fields.
+## 6. Duplicate and assignment-state contract
 
-A manual approval must not report success for an assignment left `review_required`, inactive, blocked, rejected, or otherwise outside the D1-pinned approved state.
+Confirm exact candidate and assignment UNIQUE KEY definitions and reliable collision classification.
 
-## 7. Durable import-row and batch-result contract
+Pin the exact successful assignment payload for every role, including role, approved status, active state, canonical_owner, keyword_candidate_id, pool, page_type, target_type, target_id, and target_key.
 
-Trace and pin the complete success and failure payload written to the import row, including status, candidate_id, result_action, result_reason, reviewed_by, reviewed_at, and any other field required for batch counts or operator visibility.
+Manual approval must not succeed for review_required, blocked, rejected, inactive, or otherwise non-approved assignment state.
 
-Confirm update_import_row() transaction behavior.
+## 7. Import-row and batch durability
+
+Pin the complete import-row success and failure payload, including status, candidate_id, result_action, result_reason, reviewed_by, reviewed_at, and every field needed for batch counts or operator visibility.
 
 Pin ordering:
 
-1. atomic candidate/assignment transaction resolves;
-2. import-row result is persisted safely;
-3. batch counts are recalculated and persisted.
+1. atomic candidate/assignment outcome resolves;
+2. import-row result persists safely;
+3. batch counts recalculate and persist.
 
-Define deterministic behavior for update_import_row() failure after commit and after rollback. Both cases require exact logging plus a concrete durable repair/reconciliation record, job, queue, or operator-visible recovery state before return.
+For update_import_row() failure after commit or rollback, require exact logging and a persisted repair/reconciliation record, job, queue, or admin recovery action before return. The failure or pending repair must be visible to operators.
 
-Define deterministic behavior for batch-count failure after a successful row update. Do not roll back committed candidate/assignment state or erase the row result.
+For batch-count failure after a successful row update:
+
+- preserve candidate, assignment, and row result;
+- log the exact batch and failure envelope;
+- persist or schedule repair before return;
+- set or expose an operator-visible `batch_counts_repair_pending` state, admin notice, recovery-list entry, or equivalent until repair succeeds;
+- clear the visible pending state only after a verified successful recalculation.
 
 ## 8. Transaction-command and durable recovery contract
 
-Define supported start/commit/rollback success, definite failure, uncertain outcome, proof the original transaction ended, and the concrete persisted recovery mechanism.
+Define start, commit, and rollback success, definite failure, uncertain outcome, proof the original transaction ended, and concrete persisted recovery.
 
-If no durable recovery mechanism exists, Gate 0 fails.
+If no durable transaction, row-repair, and batch-repair mechanism exists, Gate 0 fails.
 
-## 9. Target identity and assignment identity
+## 9. Identities
 
 Target identity is the five-part tuple: pool, page_type, target_type, target_id, target_key.
 
 Full assignment identity is keyword_candidate_id plus those five fields.
 
-Use the six-part identity for assignment_key lookup and reconciliation.
+Use the six-part identity for assignment_key lookup, duplicate reconciliation, already-exists checks, and uncertain-commit reconciliation.
 
-## 10. Complete candidate-scoped role/state decision table
+## 10. Candidate-scoped decision table
 
-Inspect only the assignment rows belonging to the current `keyword_candidate_id` under approval. Unrelated candidates must never influence primary counting, invalid-state classification, mixed-state precedence, or any outcome.
+Inspect only assignments for the current `keyword_candidate_id`.
 
-Pin exact outcomes and exact result reasons for:
+Pin exact outcomes and reasons for no primary, same-target approved primary, same-target approved secondary, same-target invalid/non-approved row, valid primary on another target, mixed primary states, multiple active canonical primaries, no-primary evidence, and invalid primary states.
 
-- no primary assignment exists for the current candidate;
-- same-target approved active canonical primary exists for the current candidate;
-- same-target approved active secondary exists for the current candidate;
-- same-target assignment exists but is non-approved, inactive, blocked, rejected, review_required, or non-canonical;
-- a valid primary exists on a different target for the current candidate;
-- mixed primary states for the current candidate;
-- multiple active canonical primaries for the current candidate;
-- no primary evidence for the current candidate;
-- invalid primary states for the current candidate.
-
-For each state, pin whether PR-G creates a canonical primary, creates a secondary, promotes an existing row, returns idempotent success, or fails closed.
-
-Multiple active canonical primaries must fail closed unless impossibility is proven by cited evidence.
+Unrelated candidates must never affect the decision. Multiple active canonical primaries fail closed unless impossibility is proven.
 
 ## 11. Namespace and loader contract
 
@@ -220,36 +217,32 @@ Resolve only `TMWSEO\Engine\Admin\KeywordPoolsAdminPage` by exact FQCN or exact 
 
 ## 12. Exact edit surface
 
-List every file PR-G may add, edit, or delete, including global-keyword lookup wrapper, engine conversion/version guard, durable row-recovery mechanism, batch-repair mechanism, implementation files, and tests.
+List every authorized implementation and test file, including any global-keyword wrapper, engine conversion guard, durable transaction/row recovery, batch-repair mechanism, and operator-visible recovery UI/state.
 
-If prerequisites exceed acceptable scope, Gate 0 must fail and recommend prerequisite PRs.
+If prerequisites exceed acceptable scope, Gate 0 fails and D1 recommends prerequisite PRs.
 
 Record the complete `[TMW-KW-SCOPED-REJECT]` region SHA1.
 
-D2 CONTENT
-
-D2 summarizes D1 without pretending to pin APIs.
-
 AUDIT VALIDATION
 
-Run and report:
+Report:
 
 - git diff --check;
 - exact changed paths;
 - UTF-8 readability;
 - archive scan;
-- callable global-keyword lookup selected;
-- both eligibility evaluation points and their lock/revalidation contract;
-- complete writer graph;
-- atomic-table engine inventory and conversion/fail-closed decision;
-- both data races plus the eligibility-change race;
-- exact candidate duplicate classifier and fail-closed non-race errors;
-- exact approved candidate and assignment states;
-- complete import-row payload including status and candidate_id;
-- candidate-scoped no-primary/same-target/different-target decision table;
-- durable row-repair, transaction-recovery, and batch-repair mechanisms;
-- original primary and candidate preservation requirements;
-- byte-preservation requirements for every successful candidate promotion;
+- exact A/B/H definition and selected strategy;
+- both eligibility checks;
+- callable global-keyword lookup;
+- complete writer graph and engine inventory;
+- both data races and eligibility-change race;
+- exact duplicate classifier;
+- approved candidate and assignment states;
+- complete import-row payload;
+- candidate-scoped decision table;
+- persisted transaction, row, and batch recovery;
+- operator-visible row/batch repair states;
+- candidate and primary byte-preservation requirements;
 - reject-region SHA1;
 - no runtime/test/version/changelog changes.
 
@@ -259,7 +252,7 @@ PR-G-AUDIT: manual approval assignment cutover audit
 
 PR BODY
 
-Include the defect, two-point eligibility gate, callable keyword lookup, writer graph, table-engine evidence, A/B/H decision, duplicate classifier, candidate-scoped decision table, candidate/assignment approved states, complete row payload, durable recovery, batch durability, links, exact paths, and do-not-auto-merge instruction.
+Include all Gate 0 evidence and explicitly state: do not auto-merge.
 ```
 
 ---
@@ -277,307 +270,204 @@ PR title: PR-G: cut manual keyword approval over to assignments
 
 GATE 0 — AUDIT REQUIRED
 
-Read D1 at `<AUDIT_COMMIT_SHA>` and re-run every audit verification command.
+Read D1 at `<AUDIT_COMMIT_SHA>` and rerun every audit verification command.
 
-Do not proceed unless:
+Do not proceed unless D1:
 
-- Sections 4 and 6 select Strategy A, B, or H consistently;
-- a callable global-keyword candidate lookup or authorized public wrapper is pinned;
-- the complete server-side approval-eligibility gate is pinned at both the initial and locked transactional revalidation points;
-- every reachable writer and join_external_transaction() path is accounted for;
-- every atomic table is proven transactional, converted safely, or causes fail-closed behavior before writes;
-- both candidate/assignment races and the eligibility-change race are specified;
-- the exact candidate-keyword duplicate classifier is pinned and all other insert errors fail closed;
-- new and existing candidates are guaranteed approved inside the atomic unit;
-- successful assignments are guaranteed the exact D1-pinned approved/active/canonical state;
-- guarded reads, transaction outcomes, fresh-state reconciliation, and durable recovery are pinned;
-- five-part target and six-part assignment identities are distinguished;
-- all decision-table reads are scoped to the current keyword_candidate_id;
-- no-primary, same-target, different-target, mixed, and multiple-primary outcomes are pinned;
-- the complete import-row payload includes status and candidate_id;
-- row-update failure, batch-count failure, and unresolved transaction outcomes have persisted recovery mechanisms;
-- original candidate and original primary preservation are pinned;
-- every successful existing-candidate promotion has runtime byte-preservation requirements for all protected fields;
-- Section 12 authorizes the complete implementation and test surface.
+- defines and selects Strategy A, B, or H exactly as this bundle defines it;
+- pins both initial and transactional eligibility evaluation;
+- pins a callable global-keyword lookup;
+- accounts for every reachable writer and transaction path;
+- proves or converts every atomic table to a transactional engine, or fails closed before writes;
+- covers existing-candidate, missing-candidate, assignment, and eligibility-change races;
+- pins exact duplicate classification;
+- guarantees approved candidates and exact approved assignment state;
+- pins guarded reads, fresh-state reconciliation, and durable recovery;
+- distinguishes five-part target and six-part assignment identity;
+- scopes all assignment decisions to the current keyword_candidate_id;
+- pins the complete import-row payload;
+- authorizes persisted transaction, row, and batch repair plus operator-visible pending states;
+- pins original candidate and primary preservation;
+- authorizes the complete implementation and test surface.
 
 Halt on divergence or missing prerequisites.
 
-GOAL
+MANDATORY PROPERTIES
 
-Route ordinary admin manual approval through an assignment-aware service while preserving the valid original primary and existing candidate target identity.
+## B1. Transaction ownership and engines
 
-STRICT SCOPE
+The service owns one outer transaction. Every atomic writer participates without nested transactions or autocommit escape. Verify or convert every atomic table before START TRANSACTION; otherwise fail closed with zero candidate/assignment writes.
 
-Do not change Rank Math, generation, publishing, indexing, canonical behavior, taxonomy, slugs, rejection behavior, or unrelated loader behavior.
+## B2. Initial eligibility
 
-Only D1-authorized files may change.
+Run the exact server-side approval contract before transaction setup. Crafted requests for blocked rows fail closed with no candidate/assignment writes.
 
-MANDATORY BEHAVIORAL PROPERTIES
+## B3. Global-keyword lookup
 
-## B1. Single transaction owner, writer participation, and transactional engines
+Use only the D1-pinned public keyword-only lookup or wrapper. Distinguish invalid keyword, zero rows, and read failure.
 
-The service owns one outer transaction per atomic attempt.
+## B4. Transaction start
 
-Every atomic writer participates without nested transactions or autocommit escape.
+Clear last_error, issue START TRANSACTION, validate the pinned success result, inspect last_error, and verify state before any write. Uncertain start uses persisted recovery.
 
-Before START TRANSACTION, verify every atomic table uses the D1-approved transactional engine. Convert idempotently where authorized. Otherwise fail closed before writes.
+## B5. Selected concurrency strategy
 
-## B2. Initial server-side approval eligibility
+Implement only D1's selected A/B/H strategy with the exact semantics defined in audit Section 4.
 
-Run the exact D1-pinned approval contract on every admin-post request before opening a transaction or invoking any candidate/assignment writer.
+Immediately before the first candidate or assignment write, rerun the full eligibility contract using the selected current locked or serialized state. If it changed, perform no candidate/assignment write, safely end the transaction, and persist the exact failure through the post-transaction durability path.
 
-Crafted requests for hidden or blocked rows must fail closed with the exact audited result and no candidate or assignment write.
+For B-labelled race paths, reuse a winner only after exact UNIQUE KEY classification and fresh/current reconciliation. Other duplicates, generic failures, and unclassifiable failures fail closed before assignment processing.
 
-## B3. Callable global-keyword candidate lookup
+## B6. Guarded reads
 
-Use only the D1-pinned public keyword-only lookup or authorized public wrapper.
+Every read distinguishes query failure from zero rows.
 
-Do not call a private method. Do not substitute an entity-scoped lookup that can miss a globally unique candidate owned by another target.
+## B7. Rollback
 
-An empty normalized keyword must remain distinct from a successful zero-row lookup and from a read error.
+Verify ROLLBACK, prove the original transaction ended, reconcile every attempted write on a fresh/transaction-free connection, and persist recovery when unresolved.
 
-## B4. Start failure before writes
+## B8. Uncertain COMMIT
 
-Clear last_error, issue START TRANSACTION, validate the audited success result, inspect last_error, and verify state before any write.
+Reconcile from a confirmed fresh/transaction-free state. Validate the full six-part identity, exact approved assignment payload, candidate status and preserved target identity, import-row fields, and ended transaction. Distinguish this attempt from another caller's idempotent winner.
 
-Uncertain start uses durable recovery; no ephemeral pending envelope.
+## B9. Candidate-scoped decision table
 
-## B5. Locked authorization revalidation and duplicate races follow A/B/H
+Every assignment query and state decision is restricted to the current keyword_candidate_id. Implement D1's exact no-primary, same-target, different-target, mixed, invalid, and multiple-primary outcomes.
 
-After the initial B2 check and after the outer transaction has started, acquire the exact D1-selected locks or serialization mechanism.
+## B10. Candidate approval and preservation
 
-Immediately before the first candidate or assignment write, re-read the current import row and every input used by the approval contract and re-run the exact D1-pinned eligibility contract under those locks or equivalent serialization.
-
-If eligibility changed after B2, abort with the exact audited failure result, perform no candidate or assignment write, safely end the transaction, and persist the failure result only through the audited post-transaction durability path.
-
-Apply only the D1-selected A/B/H mechanism for candidate and assignment races.
-
-For a missing-candidate insert failure:
-
-- inspect the audited error signal before any reuse;
-- prove the collision is specifically the candidate-keyword UNIQUE KEY race;
-- use a fresh/current visibility-safe read to observe and validate the winner;
-- reuse the winning candidate only after full identity and approved-state validation;
-- fail closed with distinct exact reasons for another-constraint duplicate, generic insert failure, or unclassifiable error;
-- do not continue to assignment processing on those non-race failures.
-
-## B6. Read failure is not zero rows
-
-Use guarded reads everywhere.
-
-## B7. Rollback verification and complete reconciliation
-
-Verify ROLLBACK, prove the original transaction ended, reconcile every attempted write on a fresh/transaction-free connection, and invoke durable recovery when unresolved.
-
-## B8. Uncertain COMMIT validates complete state
-
-Reconcile from a confirmed fresh/transaction-free state. Validate the full six-part identity, exact approved assignment payload, candidate ID/keyword/status/legacy target identity, import-row status/candidate_id/result fields, and original transaction end.
-
-## B9. Candidate-scoped role/state decision table
-
-Every assignment query, primary count, state grouping, and precedence decision must be restricted to the current `keyword_candidate_id` under approval.
-
-Implement exactly the D1-pinned outcomes for no primary, same-target approved primary, same-target approved secondary, same-target invalid/non-approved state, valid primary on another target, mixed primary states, multiple active canonical primaries, no-primary evidence, and invalid-primary states.
-
-Unrelated candidates must not affect any result.
-
-Return exact deterministic result reasons.
-
-## B10. Candidate approval and field preservation
-
-A successful missing-candidate path creates the candidate as approved inside the atomic unit.
-
-A successful existing-candidate path establishes approved status inside the same atomic unit or fails closed with the exact audited reason.
-
-For every successful promotion from each D1-supported non-approved starting status, preserve byte-identically every field not explicitly authorized to change. At minimum preserve legacy target_type, target_id, target_name, target_slug, provenance/source fields, keyword identity, timestamps not explicitly designated for update, and all other non-status fields.
-
-The only field changes allowed during a pure promotion are the exact D1-pinned status/audit fields. Generic save/normalization behavior must not silently rewrite protected fields.
+New and supported existing candidates become approved inside the atomic unit. Preserve every non-status field byte-identically; only D1-authorized status/audit fields may change.
 
 ## B11. Exact assignment success state
 
-Every successful created, promoted, or idempotently reused assignment must match the exact D1-pinned role, approved status, active state, canonical_owner value, and full six-part identity.
+Every created, promoted, or reused assignment matches D1's exact role, approved status, active state, canonical_owner, and six-part identity.
 
-Do not report approval success for review_required, blocked, rejected, inactive, or otherwise non-approved assignment state.
+## B12. Preserve original primary
 
-## B12. Preserve the original primary assignment
+The production case's original primary remains byte-identical across first and repeated approvals. Do not transfer or rewrite canonical ownership.
 
-For the production different-target case, the original primary assignment must remain byte-identical across first and repeated approvals, including role, status, active state, canonical_owner, target identity, timestamps, metadata, and candidate link, except fields D1 explicitly proves are expected to change.
-
-Do not demote, transfer, rewrite, or replace canonical ownership while creating the requested secondary.
-
-## B13. Exact admin class resolution
+## B13. Exact admin class
 
 Resolve only `TMWSEO\Engine\Admin\KeywordPoolsAdminPage`.
 
-## B14. Reject branch byte identity
+## B14. Reject-region identity
 
 Preserve the audited reject-region SHA1.
 
-## B15. Complete import-row persistence and sanctioned writes
+## B15. Complete row persistence and sanctioned writes
 
-Persist the complete D1-pinned row payload, including status and candidate_id as well as result_action, result_reason, reviewed_by, and reviewed_at.
+Persist status, candidate_id, result_action, result_reason, reviewed_by, reviewed_at, and every D1-pinned field. Keep `recalculate_batch_counts()` after safe row handling. Writes are limited to D1-authorized candidate, assignment, import-row, import-batch, engine-version, and recovery/repair storage.
 
-Writes are limited to D1-authorized candidate, assignment, import-row, import-batch, engine-version, and recovery/repair storage.
-
-Keep `recalculate_batch_counts()` reachable after row handling unless D1 pins an equivalent replacement.
-
-## B16. Row-update, transaction-recovery, and batch-count durability
+## B16. Durable and operator-visible recovery
 
 update_import_row() remains outside the outer transaction and its failure is not a rollback trigger.
 
-If update_import_row() fails after a committed approval or after a successful rollback:
+On row-update failure after commit or rollback:
 
-- keep already committed transactional state unchanged;
-- do not silently redirect;
-- log exact row ID, batch ID, intended complete payload, and failure envelope;
-- persist or schedule the D1-authorized row repair/reconciliation mechanism before return;
-- expose an operator-visible recovery state;
-- do not issue an unpinned second in-call retry.
+- preserve committed transactional state;
+- log row ID, batch ID, intended payload, and failure envelope;
+- persist or schedule repair before return;
+- expose an operator-visible `import_row_repair_pending` state, admin notice, or recovery-list entry until repair succeeds;
+- do not silently redirect or issue an unpinned same-call retry.
 
-Only after a safe row-result update may `recalculate_batch_counts()` run.
+Only after safe row persistence may batch recalculation run.
 
-If batch recalculation fails, keep committed candidate/assignment and row result intact, log the exact batch ID and failure envelope, and persist or schedule the D1-authorized repair before return.
+On batch recalculation failure:
 
-Unresolved start/commit/rollback paths use concrete persisted reconciliation before return.
+- preserve candidate, assignment, and row state;
+- log batch ID and failure envelope;
+- persist or schedule repair before return;
+- expose an operator-visible `batch_counts_repair_pending` state, admin notice, or recovery-list entry until a verified recalculation succeeds;
+- keep the visible warning present while stored counts may be stale;
+- clear it only after successful repair verification.
+
+Unresolved transaction outcomes use persisted reconciliation and an operator-visible pending state before return.
 
 ACCEPTANCE TESTS
 
-## T1. Eligibility gate and concurrent invalidation
+## T1. Eligibility concurrency
 
-Craft admin-post requests for every D1-pinned ineligible state. Assert the initial eligibility contract runs before service writes.
+Pause after the initial eligibility check, change eligibility from another connection, resume, and prove transactional revalidation sees the change and performs zero candidate/assignment writes.
 
-Add a database-capable concurrency test that pauses after B2, changes an eligibility/status input from another connection, then resumes. Assert the transactional lock/revalidation sees the current state, returns the exact audited failure, performs zero candidate/assignment writes, safely ends the transaction, and persists the operator-visible failure through the audited durability path.
+## T2. Global lookup
 
-## T2. Global-keyword lookup
+Prove the different-target candidate is found globally without private or entity-scoped lookup misuse.
 
-Use the production different-target shape where the candidate belongs to another entity. Assert the callable keyword-only lookup finds it, no private method is called, no entity-scoped lookup misclassifies it as missing, and no candidate UNIQUE collision occurs.
+## T3. Strategy tests
 
-## T3. Existing- and missing-candidate concurrency plus insert classification
+Exercise every path according to the selected A/B/H strategy.
 
-Use database-capable tests under the supported isolation level. Assert one candidate, one six-part assignment identity, candidate approved status, exact approved assignment state, safe loser reuse, and deterministic envelopes.
+For A-labelled paths, prove locks/current reads serialize authorization and duplicate collisions are treated according to the A invariant contract.
 
-For the missing-candidate race, assert the losing insert is classified specifically as the candidate-keyword UNIQUE KEY collision before reuse and that the winner is read through a fresh/current visibility-safe read.
+For B-labelled paths, prove exact duplicate classification, fresh/current winner visibility under the supported isolation level, correct winner IDs, and fail-closed handling for other duplicate, generic, and unclassifiable errors.
 
-Also inject:
+Cover existing-candidate and missing-candidate races.
 
-- a duplicate on a different constraint;
-- a generic candidate insert/database failure;
-- an unclassifiable insert error.
+## T4. Start and engine failures
 
-Assert each non-race failure returns its distinct exact fail-closed reason, performs no winner reuse, and performs no assignment write.
-
-## T4. Transaction start and storage engines
-
-Cover definite/uncertain start plus non-transactional or unverified atomic tables. Assert conversion before writes or fail-closed behavior with zero candidate/assignment writes.
+Cover definite/uncertain start and non-transactional upgraded tables. Assert conversion before writes or fail-closed zero writes.
 
 ## T5. Read errors
 
-Distinguish query failure from zero rows.
+Distinguish read failure from zero rows.
 
-## T6. Rollback and writer coverage
+## T6. Rollback
 
-Force failure after every transactional writer and verify no attempted state survives successful rollback. Cover failed rollback, connection loss, fresh-state reconciliation, and durable recovery.
+Force failure after every transactional writer and cover successful rollback, failed rollback, connection loss, fresh-state reconciliation, and persisted recovery.
 
 ## T7. Uncertain COMMIT
 
-Cover this attempt committed, another caller won, rollback, partial/conflicting candidate or assignment state, read failure, and import-row conflict. Assert exact approved assignment state and complete row payload.
+Cover this attempt committed, another caller won, rollback, conflicting state, read failure, and import-row conflict.
 
-## T8. Candidate-scoped complete decision table
+## T8. Candidate-scoped decision table
 
-For each decision-table case, create unrelated candidates with conflicting primary and status rows. Assert those unrelated rows do not affect the current candidate's outcome.
+Add unrelated candidates with conflicting states and prove they do not affect the current candidate. Cover every D1 decision-table row and exact reason.
 
-Test exact outcomes and result reasons for no-primary, same-target primary, same-target secondary, every non-approved same-target state, different-target primary, mixed primary states, multiple active canonical primaries, and no-primary evidence.
+## T9. Production idempotency and preservation
 
-## T9. Production-case idempotency and preservation
+Approve twice. Assert one approved active secondary, exact created/already-exists reasons, byte-identical existing candidate protected fields, and byte-identical original primary.
 
-Approve the production case twice. Assert one approved active secondary with the exact D1-pinned role/status/canonical state, correct created/already-exists reasons, existing candidate non-status fields byte-identical, and original primary assignment byte-identical before and after both approvals.
+## T10. Candidate promotion preservation
 
-## T10. Candidate promotion status and byte preservation
-
-For every D1-supported non-approved starting status that may be promoted:
-
-1. snapshot the complete candidate row before approval;
-2. perform approval;
-3. assert status and only the exact D1-authorized audit fields changed;
-4. assert every B10-protected field is byte-identical to the snapshot.
-
-Cover queued_for_review, rejected, inactive, and every other supported state separately. For states that must not be promoted, assert the exact fail-closed reason and a byte-identical entire candidate row.
-
-Assignment success is forbidden while the candidate remains non-approved.
+For every promotable starting status, snapshot the entire row and assert only D1-authorized status/audit fields change. Non-promotable states remain entirely byte-identical and return exact fail-closed reasons.
 
 ## T11. Import-row payload
 
-For successful new-candidate, successful existing-candidate, idempotent, blocked, and failure paths, assert exact status, candidate_id, result_action, result_reason, reviewed_by, reviewed_at, and every other D1-pinned field.
+Assert every D1-pinned field for successful, idempotent, blocked, and failure paths.
 
 ## T12. New-candidate downstream failure
 
-Create candidate, force assignment failure, and assert no orphan survives rollback on the verified production-equivalent engine.
+Force assignment failure after candidate creation and prove no orphan survives rollback on the production-equivalent engine.
 
-## T13. Row and batch durability
+## T13. Operator-visible durability
 
-Cover success-state row update failure, failure-state row update failure, durable row repair before return, batch recalculation success, batch recalculation failure, durable batch repair before return, preserved committed candidate/assignment state, and persisted reconciliation for unresolved transaction outcomes.
+Cover row-update and batch-recalculation failures. Assert a persisted repair item exists before return, the corresponding operator-visible pending state or admin notice is present while data may be stale, committed state remains intact, repair succeeds later, and the visible pending state is cleared only after verified success.
 
 STATIC GUARDS
 
-## S1. Two-point eligibility and manual approval region
+S1. Require initial eligibility plus transactional revalidation immediately before the first write.
 
-Require the D1-pinned initial server-side eligibility call before transaction setup.
+S2. Verify reject-region SHA1.
 
-Require a second call or exact equivalent predicate under the D1-selected transaction lock/serialization immediately before the first candidate or assignment write.
+S3. Require the exact public global-keyword lookup or wrapper.
 
-Require returned-envelope handling. Forbid legacy approval calls and unrelated writes.
+S4. Verify complete writer ownership and atomic-table engine coverage.
 
-## S2. Reject-region SHA1
+S5. Inspect every within-open-transaction method body for zero transaction commands.
 
-Compare with D1.
+S6. Resolve every KeywordPoolsAdminPage reference to exactly `TMWSEO\Engine\Admin\KeywordPoolsAdminPage`.
 
-## S3. Global-keyword lookup boundary
+S7. Verify duplicate winner reuse is reachable only from the exact expected UNIQUE KEY classifier and follows the selected strategy's visibility rules.
 
-Require the exact D1-pinned public keyword-only method or wrapper. Reject calls to private candidate methods and reject entity-scoped lookup for global candidate discovery.
+S8. Verify every assignment-state query includes current keyword_candidate_id and promotion writers update only authorized columns.
 
-## S4. Complete writer ownership and engine coverage
+S9. Verify complete import-row payload.
 
-Build the D1 allowlist of every reachable writer and atomic table. Assert transaction participation or audited post-transaction boundaries and pre-transaction engine verification/conversion/fail-closed coverage.
-
-## S5. Nested-transaction guard
-
-Inspect each within-open-transaction body separately for zero transaction commands.
-
-## S6. Complete class-name resolution
-
-Require exactly `TMWSEO\Engine\Admin\KeywordPoolsAdminPage`.
-
-## S7. Candidate duplicate classifier and approved-state guard
-
-Assert candidate winner reuse is reachable only from the exact D1-pinned candidate-keyword UNIQUE KEY classification and uses a fresh/current read.
-
-Assert other-constraint duplicates, generic insert failures, and unclassifiable errors fail closed before assignment processing.
-
-Assert new and existing candidate success paths establish approved status and every assignment success/idempotent path validates exact role, approved status, active state, canonical_owner, and six-part identity.
-
-## S8. Candidate-scoped decision and preservation guard
-
-Assert every assignment state query used for decisions contains the current keyword_candidate_id predicate.
-
-Assert the production path contains no update of original-primary fields.
-
-Assert candidate promotion writers are restricted to the D1-authorized status/audit columns and do not use a generic full-row rewrite that can alter protected fields.
-
-## S9. Complete import-row payload guard
-
-Assert every success path writes status and candidate_id plus the complete D1-pinned result/review fields.
-
-## S10. Durable row and batch recovery guard
-
-Assert every update_import_row() failure path persists or schedules row repair before return.
-
-Assert every unresolved transaction path persists recovery before return.
-
-Assert batch recalculation remains reachable only after safe row persistence and every batch-write failure path persists or schedules repair.
+S10. Verify every unresolved transaction, row-update failure, and batch-write failure persists recovery and exposes an operator-visible pending state before return; verify visible state clearing is reachable only after successful repair.
 
 CHANGELOG
 
-Use the actual UTC landing date. Describe B1–B16, two-point eligibility revalidation, global-keyword lookup, duplicate classification, table-engine verification, both data races plus eligibility-change concurrency, candidate-scoped decisions, candidate and assignment approved states, six-part identity, original candidate/primary preservation, promotion byte preservation, complete row payload, row repair, transaction recovery, and batch repair.
+Use the actual UTC landing date. Describe B1–B16, selected A/B/H semantics, two-point eligibility, global lookup, duplicate classification, engine verification, both data races, candidate-scoped decisions, exact approved states, six-part identity, preservation, complete row payload, persisted recovery, and operator-visible row/batch repair states.
 
 VERSION
 
@@ -591,9 +481,8 @@ Run and report:
 
 - PHP lint for every changed PHP file;
 - all focused tests from D1;
-- database-capable tests for both data races, eligibility-change concurrency, and non-transactional upgraded-table handling;
-- candidate duplicate-classification and non-race insert-failure tests;
-- global lookup, candidate-scoped decision-table, assignment-approved-state, original-primary preservation, per-status candidate-promotion byte-preservation, row-payload, row-repair, and batch-repair tests;
+- database-capable tests for selected A/B/H paths, both data races, eligibility invalidation, and upgraded-table engine handling;
+- duplicate classification, decision table, preservation, row payload, recovery, and operator-visible repair tests;
 - full PHPUnit sweep and baseline delta;
 - git diff --check;
 - archive scan;
@@ -607,23 +496,9 @@ COMMIT MESSAGE
 
 PR-G: cut manual keyword approval over to assignments
 
-PR BODY — REQUIRED ORDER
+PR BODY
 
-1. Audit link and merge SHA.
-2. Gate 0 evidence: two-point eligibility, callable global lookup, writer graph, table engines, Strategy A/B/H, duplicate classifier.
-3. Production defect and old path.
-4. Candidate-scoped complete role/state decision table.
-5. B1–B16 model.
-6. Data-race and eligibility-change concurrency results.
-7. Five-part and six-part identities.
-8. Candidate and assignment approved-state evidence.
-9. Original candidate/primary and promotion-field preservation evidence.
-10. Complete import-row payload.
-11. Transaction, row-repair, and batch-repair mechanisms.
-12. Scope exclusions.
-13. Exact tests/counts and production validation.
-14. Codex and CodeRabbit review request.
-15. Do not auto-merge.
+Include audit SHA, Gate 0 evidence, selected strategy and its exact path mapping, decision table, B1–B16, all concurrency results, identities, preservation evidence, complete row payload, persisted recovery, operator-visible repair behavior, tests/counts, Codex and CodeRabbit review requests, and `Do not auto-merge`.
 ```
 
 ---
@@ -652,6 +527,6 @@ Expected changed path:
 docs/bundles/PR-G-manual-approval-assignment-cutover-FINAL-bundle.md
 ```
 
-Report the observed line count and heading locations. Do not use a stale fixed count.
+Report observed line count and heading locations. Do not use a stale fixed count.
 
-Do not merge this bundle until fresh Codex and CodeRabbit reviews run against its current head commit.
+Do not merge until fresh Codex and CodeRabbit reviews run against the current head and report no unresolved current-head findings.
