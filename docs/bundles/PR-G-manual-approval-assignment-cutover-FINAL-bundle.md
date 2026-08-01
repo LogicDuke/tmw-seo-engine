@@ -83,7 +83,9 @@ Trace the admin-post hook, controller, and both legacy approval paths.
 Pin the exact admin-post authorization gates currently surrounding manual approval:
 
 1. the `current_user_can()` check using the exact `KeywordPoolsAdminPage::CAPABILITY` value or its exact resolved equivalent;
-2. the row-specific nonce verification, including exact action/name construction and the row identifier bound into it.
+2. the existing row-bound nonce verification, including the exact nonce field, exact action string construction, and the import-row identifier bound into that string.
+
+The audited nonce contract is intentionally row-bound, not approve/reject-action-bound. A nonce issued for one row must fail for another row. A nonce issued for the same row is not required to fail solely because `import_row_action` changes. PR-G must preserve the exact current contract; introducing action-bound nonces is outside this PR and requires a separately audited prerequisite change.
 
 Both gates must run before loading approval data, opening a transaction, or performing any candidate, assignment, import-row, import-batch, or recovery write. Capability failure and nonce failure must terminate with the exact audited behavior and zero approval writes. UI visibility is not an authorization substitute.
 
@@ -250,7 +252,8 @@ Report:
 - exact changed paths;
 - UTF-8 readability;
 - archive scan;
-- exact capability and row-specific nonce gates, ordering, and failure behavior;
+- exact capability and row-bound nonce gates, exact row binding, ordering, and failure behavior;
+- explicit confirmation that action-bound nonce semantics are outside PR-G scope;
 - exact A/B/H definition and selected strategy;
 - both eligibility checks and serialization through the first write;
 - callable global-keyword lookup;
@@ -295,7 +298,8 @@ Read D1 at `<AUDIT_COMMIT_SHA>` and rerun every audit verification command.
 
 Do not proceed unless D1:
 
-- pins the exact admin-post capability check and row-specific nonce verification before all approval reads and writes;
+- pins the exact admin-post capability check and exact existing row-bound nonce verification before all approval reads and writes;
+- confirms that action-bound nonce semantics are outside PR-G scope and are not required by PR-G tests;
 - defines and selects Strategy A, B, or H exactly as this bundle defines it;
 - pins both initial and transactional eligibility evaluation plus serialization through the first write;
 - pins a callable global-keyword lookup;
@@ -326,9 +330,11 @@ The service owns one outer transaction. Every atomic writer participates without
 Before loading approval data, opening a transaction, invoking the service, or performing any approval-related write:
 
 1. enforce the exact D1-pinned `current_user_can()` check using `KeywordPoolsAdminPage::CAPABILITY` or its exact resolved equivalent;
-2. verify the exact D1-pinned row-specific nonce with the audited action/name construction and row binding.
+2. verify the exact D1-pinned existing row-bound nonce using the audited field, action-string construction, and import-row identifier.
 
-Do not move either gate behind a candidate, assignment, import-row, import-batch, or recovery write. Unauthorized and invalid/missing-nonce requests terminate with the exact audited behavior and zero approval writes.
+The nonce contract in PR-G is strictly the current row-bound contract. A nonce for another row must fail. PR-G must not add, assume, or test approve/reject-action binding for the same row. Any action-bound nonce redesign is outside scope and requires a separate audited prerequisite PR.
+
+Do not move either gate behind a candidate, assignment, import-row, import-batch, or recovery write. Unauthorized and invalid/missing/cross-row-nonce requests terminate with the exact audited behavior and zero approval writes.
 
 After both authorization gates pass, run the exact server-side approval-eligibility contract before transaction setup. Crafted requests for blocked rows fail closed with no candidate/assignment writes.
 
@@ -438,9 +444,11 @@ Add negative admin-post tests for:
 - a user lacking the exact D1-pinned capability;
 - a missing nonce;
 - an invalid nonce;
-- a nonce valid for another row or action.
+- a nonce valid for a different import row.
 
-Assert each request terminates at the audited gate, before approval-row loading that is not required for the gate, before service invocation, before transaction setup, and with zero candidate, assignment, import-row, import-batch, or recovery writes.
+Add one compatibility assertion that the test suite does not expect same-row approve/reject-action separation unless a separately audited prerequisite PR has first changed the nonce construction. Do not manufacture an action-bound failure expectation under the current row-bound contract.
+
+Assert each negative request terminates at the audited gate, before approval-row loading that is not required for the gate, before service invocation, before transaction setup, and with zero candidate, assignment, import-row, import-batch, or recovery writes.
 
 Then run two database-capable eligibility variants:
 
@@ -513,7 +521,7 @@ Also assert unresolved transaction recovery and immediate batch failures preserv
 
 STATIC GUARDS
 
-S1. Require the exact capability check and row-specific nonce verification before approval-row mutation, service invocation, transaction setup, and every approval write. Require initial eligibility plus transactional revalidation and an A lock or B lock/compare-and-swap guard effective through the first write.
+S1. Require the exact capability check and exact existing row-bound nonce verification before approval-row mutation, service invocation, transaction setup, and every approval write. Verify the nonce action string remains bound to the import-row identifier exactly as audited. Reject any PR-G-only test or implementation assumption that the same-row nonce is approve/reject-action-bound. Require initial eligibility plus transactional revalidation and an A lock or B lock/compare-and-swap guard effective through the first write.
 
 S2. Verify reject-region SHA1.
 
@@ -535,7 +543,7 @@ S10. Verify every unresolved transaction, row-update failure, and batch-write fa
 
 CHANGELOG
 
-Use the actual UTC landing date. Describe B1–B16, preserved capability/nonce authorization gates, selected A/B/H semantics, eligibility serialization through the first write, global lookup, duplicate classification, engine verification, both data races, candidate-scoped decisions, exact approved states, six-part identity, preservation, complete row payload, persisted recovery, deferred row-repair batch recalculation, and operator-visible row/batch repair states.
+Use the actual UTC landing date. Describe B1–B16, preserved capability and exact row-bound nonce authorization gates, selected A/B/H semantics, eligibility serialization through the first write, global lookup, duplicate classification, engine verification, both data races, candidate-scoped decisions, exact approved states, six-part identity, preservation, complete row payload, persisted recovery, deferred row-repair batch recalculation, and operator-visible row/batch repair states.
 
 VERSION
 
@@ -549,7 +557,8 @@ Run and report:
 
 - PHP lint for every changed PHP file;
 - all focused tests from D1;
-- capability and row-specific nonce negative tests;
+- capability, missing/invalid nonce, and cross-row nonce negative tests under the exact existing row-bound contract;
+- explicit confirmation that same-row approve/reject-action binding is not asserted by PR-G;
 - database-capable tests for selected A/B/H paths, both data races, both eligibility invalidation windows, and upgraded-table engine handling;
 - duplicate classification, decision table, preservation, row payload, deferred row-repair batch recalculation, recovery, and operator-visible repair tests;
 - full PHPUnit sweep and baseline delta;
