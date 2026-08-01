@@ -61,14 +61,14 @@ PREFLIGHT
 Run and report:
 
   git status --short
-  git diff --check
+  git diff --check main...HEAD
   git ls-files -- '*.zip' '*.tar' '*.gz' '*.rar' '*.7z' '*.jar' '*.exe' '*.dll' '*.so' '*.dylib'
 
 The tracked archive/binary list must be empty.
 
 D1 REQUIRED SECTIONS
 
-## 1. Production defect, approval eligibility, and current call graph
+## 1. Production defect, admin-post authorization, approval eligibility, and current call graph
 
 Document:
 
@@ -80,14 +80,21 @@ Document:
 
 Trace the admin-post hook, controller, and both legacy approval paths.
 
+Pin the exact admin-post authorization gates currently surrounding manual approval:
+
+1. the `current_user_can()` check using the exact `KeywordPoolsAdminPage::CAPABILITY` value or its exact resolved equivalent;
+2. the row-specific nonce verification, including exact action/name construction and the row identifier bound into it.
+
+Both gates must run before loading approval data, opening a transaction, or performing any candidate, assignment, import-row, import-batch, or recovery write. Capability failure and nonce failure must terminate with the exact audited behavior and zero approval writes. UI visibility is not an authorization substitute.
+
 Pin the complete server-side `import_row_approval_contract()` contract or exact equivalent, including every blocked state and every input, metric, and validation predicate.
 
-Pin two authorization evaluations:
+Pin two eligibility evaluations:
 
-1. initial server-side validation before transaction setup;
+1. initial server-side validation after capability and nonce verification but before transaction setup;
 2. current-state revalidation inside the transaction immediately before the first candidate or assignment write, under the selected concurrency strategy.
 
-The selected strategy must keep eligibility serialized from the transactional revalidation through the first candidate or assignment write. A concurrent eligibility change before revalidation or in the interval after revalidation but before the first write must fail closed with no candidate or assignment write.
+The selected strategy must keep eligibility serialized from transactional revalidation through the first candidate or assignment write. A concurrent eligibility change before revalidation or after revalidation but before the first write must fail closed with no candidate or assignment write.
 
 ## 2. Candidate repository contract and callable global lookup
 
@@ -239,10 +246,11 @@ AUDIT VALIDATION
 
 Report:
 
-- git diff --check;
+- git diff --check main...HEAD;
 - exact changed paths;
 - UTF-8 readability;
 - archive scan;
+- exact capability and row-specific nonce gates, ordering, and failure behavior;
 - exact A/B/H definition and selected strategy;
 - both eligibility checks and serialization through the first write;
 - callable global-keyword lookup;
@@ -287,6 +295,7 @@ Read D1 at `<AUDIT_COMMIT_SHA>` and rerun every audit verification command.
 
 Do not proceed unless D1:
 
+- pins the exact admin-post capability check and row-specific nonce verification before all approval reads and writes;
 - defines and selects Strategy A, B, or H exactly as this bundle defines it;
 - pins both initial and transactional eligibility evaluation plus serialization through the first write;
 - pins a callable global-keyword lookup;
@@ -312,9 +321,16 @@ MANDATORY PROPERTIES
 
 The service owns one outer transaction. Every atomic writer participates without nested transactions or autocommit escape. Verify or convert every atomic table before START TRANSACTION; otherwise fail closed with zero candidate/assignment writes.
 
-## B2. Initial eligibility
+## B2. Admin-post authorization and initial eligibility
 
-Run the exact server-side approval contract before transaction setup. Crafted requests for blocked rows fail closed with no candidate/assignment writes.
+Before loading approval data, opening a transaction, invoking the service, or performing any approval-related write:
+
+1. enforce the exact D1-pinned `current_user_can()` check using `KeywordPoolsAdminPage::CAPABILITY` or its exact resolved equivalent;
+2. verify the exact D1-pinned row-specific nonce with the audited action/name construction and row binding.
+
+Do not move either gate behind a candidate, assignment, import-row, import-batch, or recovery write. Unauthorized and invalid/missing-nonce requests terminate with the exact audited behavior and zero approval writes.
+
+After both authorization gates pass, run the exact server-side approval-eligibility contract before transaction setup. Crafted requests for blocked rows fail closed with no candidate/assignment writes.
 
 ## B3. Global-keyword lookup
 
@@ -415,9 +431,18 @@ Unresolved transaction outcomes use persisted reconciliation and an operator-vis
 
 ACCEPTANCE TESTS
 
-## T1. Eligibility concurrency
+## T1. Authorization gates and eligibility concurrency
 
-Run two database-capable variants:
+Add negative admin-post tests for:
+
+- a user lacking the exact D1-pinned capability;
+- a missing nonce;
+- an invalid nonce;
+- a nonce valid for another row or action.
+
+Assert each request terminates at the audited gate, before approval-row loading that is not required for the gate, before service invocation, before transaction setup, and with zero candidate, assignment, import-row, import-batch, or recovery writes.
+
+Then run two database-capable eligibility variants:
 
 1. pause after the initial eligibility check, change eligibility from another connection, resume, and prove transactional revalidation sees the change and performs zero candidate/assignment writes;
 2. pause after transactional revalidation but before the first write, attempt an eligibility-changing reject/block from another connection, and prove the selected A lock or B lock/compare-and-swap guard prevents stale authorization: the change is blocked until after the write boundary or causes the guard to fail, and no candidate/assignment write occurs when the eligibility version/state no longer matches.
@@ -488,7 +513,7 @@ Also assert unresolved transaction recovery and immediate batch failures preserv
 
 STATIC GUARDS
 
-S1. Require initial eligibility plus transactional revalidation and an A lock or B lock/compare-and-swap guard that remains effective through the first write.
+S1. Require the exact capability check and row-specific nonce verification before approval-row mutation, service invocation, transaction setup, and every approval write. Require initial eligibility plus transactional revalidation and an A lock or B lock/compare-and-swap guard effective through the first write.
 
 S2. Verify reject-region SHA1.
 
@@ -510,7 +535,7 @@ S10. Verify every unresolved transaction, row-update failure, and batch-write fa
 
 CHANGELOG
 
-Use the actual UTC landing date. Describe B1–B16, selected A/B/H semantics, eligibility serialization through the first write, global lookup, duplicate classification, engine verification, both data races, candidate-scoped decisions, exact approved states, six-part identity, preservation, complete row payload, persisted recovery, deferred row-repair batch recalculation, and operator-visible row/batch repair states.
+Use the actual UTC landing date. Describe B1–B16, preserved capability/nonce authorization gates, selected A/B/H semantics, eligibility serialization through the first write, global lookup, duplicate classification, engine verification, both data races, candidate-scoped decisions, exact approved states, six-part identity, preservation, complete row payload, persisted recovery, deferred row-repair batch recalculation, and operator-visible row/batch repair states.
 
 VERSION
 
@@ -524,10 +549,11 @@ Run and report:
 
 - PHP lint for every changed PHP file;
 - all focused tests from D1;
+- capability and row-specific nonce negative tests;
 - database-capable tests for selected A/B/H paths, both data races, both eligibility invalidation windows, and upgraded-table engine handling;
 - duplicate classification, decision table, preservation, row payload, deferred row-repair batch recalculation, recovery, and operator-visible repair tests;
 - full PHPUnit sweep and baseline delta;
-- git diff --check;
+- git diff --check main...HEAD;
 - archive scan;
 - exact changed paths;
 - UTF-8 readability;
@@ -541,7 +567,7 @@ PR-G: cut manual keyword approval over to assignments
 
 PR BODY
 
-Include audit SHA, Gate 0 evidence, selected strategy and its exact path mapping, decision table, B1–B16, all concurrency results, identities, preservation evidence, complete row payload, persisted recovery, deferred row-repair batch recalculation, operator-visible repair behavior, tests/counts, Codex and CodeRabbit review requests, and `Do not auto-merge`.
+Include audit SHA, Gate 0 evidence, authorization-gate evidence, selected strategy and its exact path mapping, decision table, B1–B16, all concurrency results, identities, preservation evidence, complete row payload, persisted recovery, deferred row-repair batch recalculation, operator-visible repair behavior, tests/counts, Codex and CodeRabbit review requests, and `Do not auto-merge`.
 ```
 
 ---
