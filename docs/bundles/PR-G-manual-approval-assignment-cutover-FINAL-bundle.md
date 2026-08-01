@@ -554,17 +554,25 @@ Before merging this documentation-only PR, verify:
 #!/usr/bin/env bash
 set -euo pipefail
 
+bundle_path='docs/bundles/PR-G-manual-approval-assignment-cutover-FINAL-bundle.md'
+actual_paths="$(git diff --name-only main...HEAD)"
+
+if [[ "$actual_paths" != "$bundle_path" ]]; then
+  printf 'Expected exactly one changed path:\n%s\nObserved changed paths:\n%s\n' "$bundle_path" "$actual_paths" >&2
+  exit 1
+fi
+
 git diff --check main...HEAD
-git diff --name-only main...HEAD
+printf 'Exact changed path OK: %s\n' "$bundle_path"
 python - <<'PY'
 from pathlib import Path
 p = Path('docs/bundles/PR-G-manual-approval-assignment-cutover-FINAL-bundle.md')
 p.read_text(encoding='utf-8')
 print('UTF-8 OK')
 PY
-wc -l docs/bundles/PR-G-manual-approval-assignment-cutover-FINAL-bundle.md
-grep -n '^# PROMPT 1 of 2 — PR-G-AUDIT$' docs/bundles/PR-G-manual-approval-assignment-cutover-FINAL-bundle.md
-grep -n '^# PROMPT 2 of 2 — PR-G$' docs/bundles/PR-G-manual-approval-assignment-cutover-FINAL-bundle.md
+wc -l "$bundle_path"
+grep -n '^# PROMPT 1 of 2 — PR-G-AUDIT$' "$bundle_path"
+grep -n '^# PROMPT 2 of 2 — PR-G$' "$bundle_path"
 ```
 
 Expected changed path:
