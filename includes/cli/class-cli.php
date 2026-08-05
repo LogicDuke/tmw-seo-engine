@@ -2327,6 +2327,158 @@ class TMWSEOCommand extends \WP_CLI_Command {
         \WP_CLI::success( '[TMW-KW-ASSIGN-VALIDATE] ' . $action . ' complete.' );
     }
 
+    /**
+     * PR-H — inspect and resolve unresolved transaction outcomes.
+     *
+     * These markers are written over an INDEPENDENT database connection when the
+     * primary connection could not be trusted, so they survive the request that
+     * created them. A marker blocks retries of its operation until an operator
+     * resolves it here.
+     *
+     * ## OPTIONS
+     *
+     * [--list]
+     * : List every unresolved outcome with its generation.
+     *
+     * [--inspect=<operation-key>]
+     * : Show one outcome in full, including its evidence payload.
+     *
+     * [--verify]
+     * : Verify recovery schema and independent connectivity, then exit.
+     *
+     * [--resolve=<operation-key>]
+     * : Resolve one outcome. Requires --generation, --decision and --reason.
+     *
+     * [--generation=<generation>]
+     * : Exact generation you were shown. Stale values are refused.
+     *
+     * [--decision=<decision>]
+     * : acknowledged — the outcome was investigated and accepted.
+     * : discarded    — the marker is not applicable and is being cleared.
+     * ---
+     * options:
+     *   - acknowledged
+     *   - discarded
+     * ---
+     *
+     * [--reason=<reason>]
+     * : Free-text resolution reason. Recorded and audit-logged.
+     *
+     * ## EXAMPLES
+     *
+     *   wp tmwseo recovery-outcomes --verify
+     *   wp tmwseo recovery-outcomes --list
+     *   wp tmwseo recovery-outcomes --inspect="manual_approval:row:900"
+     *   wp tmwseo recovery-outcomes --resolve="manual_approval:row:900" --generation=2 \
+     *       --decision=acknowledged --reason="verified against committed state" --user=admin
+     *
+     * @subcommand recovery-outcomes
+     */
+    public function recovery_outcomes( $args, $assoc ) {
+        require_once dirname( __DIR__ ) . '/recovery/class-unresolved-transaction-outcome-connection.php';
+        require_once dirname( __DIR__ ) . '/recovery/class-unresolved-transaction-outcome-repository.php';
+        $repo = new \TMWSEO\Engine\Recovery\UnresolvedTransactionOutcomeRepository();
+
+        if ( ! empty( $assoc['verify'] ) ) {
+            // Staging check against the REAL database: independent connection,
+            // session timeout policy, table engine, columns and indexes. Each
+            // step is reported separately so a failure is actionable.
+            \WP_CLI::log( '[TMW-RECOVERY] verifying independent connection and recovery schema...' );
+
+            $connection = new \TMWSEO\Engine\Recovery\UnresolvedTransactionOutcomeConnection();
+            $opened = $connection->open();
+            if ( empty( $opened['ok'] ) ) {
+                \WP_CLI::error( sprintf(
+                    '[TMW-RECOVERY] %s: %s',
+                    (string) $opened['status'],
+                    (string) $opened['error']
+                ) );
+            }
+            // open() returns only policy-ready connections, so reaching this
+            // point proves both the bounded connect and the session policy.
+            \WP_CLI::log( '  ok  independent connection established (bounded connect timeout)' );
+            \WP_CLI::log( '  ok  session policy applied and verified: ' . implode( '; ', \TMWSEO\Engine\Recovery\UnresolvedTransactionOutcomeConnection::SESSION_POLICY ) );
+            $connection->close( $opened['db'] );
+
+            $result = $repo->verify_schema();
+            if ( empty( $result['ok'] ) ) {
+                \WP_CLI::error( '[TMW-RECOVERY] ' . (string) $result['status'] . ': ' . (string) $result['reason'] );
+            }
+            \WP_CLI::log( '  ok  table exists and engine is InnoDB' );
+            \WP_CLI::log( '  ok  all required columns present' );
+            \WP_CLI::log( '  ok  operation_identity is a single-part, full-column, unique index on operation_key' );
+
+            $stored_error = (string) get_option( \TMWSEO\Engine\Recovery\UnresolvedTransactionOutcomeRepository::SCHEMA_ERROR_OPTION, '' );
+            if ( '' !== $stored_error ) {
+                \WP_CLI::warning( '[TMW-RECOVERY] a schema error from the installation path is still recorded: ' . $stored_error );
+                \WP_CLI::warning( '[TMW-RECOVERY] re-run initialization (or `wp tmwseo recovery-outcomes --verify` after it) to clear it.' );
+            }
+
+            \WP_CLI::success( '[TMW-RECOVERY] independent connection, timeout policy and recovery schema verified.' );
+            return;
+        }
+
+        if ( ! empty( $assoc['inspect'] ) ) {
+            $found = $repo->find_unresolved_outcome( (string) $assoc['inspect'] );
+            if ( empty( $found['ok'] ) ) {
+                \WP_CLI::error( '[TMW-RECOVERY] recovery store unreadable (' . (string) $found['status'] . '): ' . (string) $found['reason'] );
+            }
+            if ( empty( $found['found'] ) ) {
+                \WP_CLI::warning( '[TMW-RECOVERY] no outcome with that operation key.' );
+                return;
+            }
+            foreach ( $found['row'] as $column => $value ) {
+                \WP_CLI::log( sprintf( '  %-24s %s', $column, is_scalar( $value ) ? (string) $value : (string) json_encode( $value ) ) );
+            }
+            return;
+        }
+
+        if ( ! empty( $assoc['resolve'] ) ) {
+            $generation = (int) ( $assoc['generation'] ?? 0 );
+            $decision   = (string) ( $assoc['decision'] ?? '' );
+            $reason     = (string) ( $assoc['reason'] ?? '' );
+            if ( $generation <= 0 ) { \WP_CLI::error( '--generation is required. Run --list to see the current generation.' ); }
+            if ( ! in_array( $decision, [ 'acknowledged', 'discarded' ], true ) ) { \WP_CLI::error( '--decision must be acknowledged or discarded.' ); }
+            if ( '' === trim( $reason ) ) { \WP_CLI::error( '--reason is required and is recorded against the outcome.' ); }
+
+            $operator = function_exists( 'get_current_user_id' ) ? (int) get_current_user_id() : 0;
+            if ( function_exists( 'current_user_can' ) && ! current_user_can( 'manage_options' ) ) {
+                \WP_CLI::error( '[TMW-RECOVERY] insufficient capability — re-run with --user=<administrator>. Nothing was changed.' );
+            }
+
+            $result = $repo->resolve_outcome( (string) $assoc['resolve'], $generation, [
+                'decision'          => $decision,
+                'resolved_by'       => $operator,
+                'resolution_reason' => $reason,
+                'evidence'          => [ 'source' => 'wp-cli' ],
+            ] );
+            if ( empty( $result['ok'] ) ) {
+                $detail = (string) $result['status'];
+                if ( isset( $result['current_generation'] ) ) { $detail .= ' (current generation is ' . (int) $result['current_generation'] . ')'; }
+                \WP_CLI::error( '[TMW-RECOVERY-OPERATOR] REFUSED: ' . $detail . ' — nothing was changed.' );
+            }
+            \WP_CLI::success( sprintf( '[TMW-RECOVERY-OPERATOR] %s resolved at generation %d.', (string) $assoc['resolve'], $generation ) );
+            return;
+        }
+
+        $list = $repo->list_unresolved_outcomes();
+        if ( empty( $list['ok'] ) ) {
+            \WP_CLI::error( '[TMW-RECOVERY] recovery store unreadable (' . (string) $list['status'] . '): ' . (string) $list['reason'] . ' — this is NOT the same as zero outcomes.' );
+        }
+        if ( [] === $list['rows'] ) {
+            \WP_CLI::success( '[TMW-RECOVERY] no unresolved transaction outcomes.' );
+            return;
+        }
+        \WP_CLI::warning( sprintf( '[TMW-RECOVERY] %d unresolved outcome(s) blocking retries:', count( $list['rows'] ) ) );
+        foreach ( $list['rows'] as $row ) {
+            \WP_CLI::log( sprintf(
+                '  key=%s generation=%d row=%d batch=%d type=%s reason=%s',
+                (string) $row['operation_key'], (int) $row['generation'], (int) $row['row_id'],
+                (int) $row['batch_id'], (string) $row['operation_type'], (string) $row['reason']
+            ) );
+        }
+    }
+
 }
 
 \WP_CLI::add_command( 'tmwseo', 'TMWSEO\Engine\CLI\TMWSEOCommand' );

@@ -264,6 +264,7 @@ class Plugin {
             // PR-E: keyword assignment review tables guard (additive schema only).
             add_action('admin_init', [Schema::class, 'ensure_keyword_assignment_review_schema']);
         }
+        Schema::upgrade_unresolved_transaction_outcome_schema(); // PR-H versioned recovery schema
         Schema::reconcile_dfseo_scan_ledger_tables();
         Schema::normalize_cluster_schema_version_option();
         // Install engine-internal FOREIGN KEY constraints. Idempotent —
@@ -409,6 +410,7 @@ class Plugin {
         }
 
         Schema::create_or_update_tables();
+        Schema::ensure_unresolved_transaction_outcome_schema();
         Schema::ensure_intelligence_schema();
         Schema::ensure_keyword_import_history_schema();
         Schema::ensure_keyword_assignments_schema();

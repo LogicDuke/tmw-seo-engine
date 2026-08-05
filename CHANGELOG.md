@@ -1,5 +1,9 @@
 # Changelog
 
+## 5.9.29-recovery-outcomes-v1.0.3 — 2026-08-05
+
+PR-H recovery-outcomes final safety correction. The independent recovery connection now constructs an unconnected `wpdb` subclass and explicitly calls `db_connect(false)`; later reconnects are also forced through `check_connection(false)`, so an unavailable recovery database returns a structured failure instead of terminating the WordPress request. The original `mysqli.connect_timeout` value is captured before the bounded connection attempt and restored afterward. Recovery lookups reject missing criteria and oversized operation keys fail closed across record, find, blocking checks, and resolution. Concurrent marker escalation is generation-gated and the post-write verification checks the exact caller payload; a later writer produces a superseded result rather than false durability. Release header and constant are aligned with this version.
+
 ## 5.9.25-assignment-validation-v1.1.1 — 2026-07-30
 
 PR-F rev 3 — narrow fix for the remaining transaction-boundary blocker; no other part of PR-F redesigned.

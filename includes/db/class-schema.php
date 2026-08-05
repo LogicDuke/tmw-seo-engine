@@ -5,6 +5,11 @@ if (!defined('ABSPATH')) { exit; }
 
 class Schema {
 
+    /** PR-H recovery schema version + option (versioned upgrade path). */
+    public const RECOVERY_SCHEMA_VERSION = '1.0.0';
+    public const RECOVERY_SCHEMA_VERSION_OPTION = 'tmwseo_recovery_schema_version';
+
+
     /** @var array<string,bool> */
     private static array $table_exists_cache = [];
 
@@ -1033,6 +1038,136 @@ class Schema {
         if (false !== $cluster_db_version && false === $cluster_schema_version) {
             update_option('tmw_cluster_schema_version', $cluster_db_version);
         }
+    }
+
+    /**
+     * PR-H — independent transaction-outcome recovery table.
+     *
+     * Deliberately isolated: only the recovery subsystem reads or writes it, and
+     * it is written over an independent connection so a marker survives a
+     * primary connection that is stuck, unknown or gone. ENGINE is pinned to
+     * InnoDB because generation-gated resolution relies on single-row locking
+     * and on conditional UPDATE affected-row counts.
+     */
+    public static function ensure_unresolved_transaction_outcome_schema(): array {
+        global $wpdb;
+        if (!function_exists('dbDelta')) {
+            require_once ABSPATH . 'wp-admin/includes/upgrade.php';
+        }
+        $table   = $wpdb->prefix . 'tmw_unresolved_transaction_outcomes';
+        $collate = $wpdb->get_charset_collate();
+        $sql = "CREATE TABLE {$table} (
+            id BIGINT(20) UNSIGNED NOT NULL AUTO_INCREMENT,
+            operation_key VARCHAR(191) NOT NULL,
+            operation_type VARCHAR(50) NOT NULL DEFAULT '',
+            row_id BIGINT(20) UNSIGNED NOT NULL DEFAULT 0,
+            batch_id BIGINT(20) UNSIGNED NOT NULL DEFAULT 0,
+            expected_candidate_id BIGINT(20) UNSIGNED NOT NULL DEFAULT 0,
+            expected_assignment_key VARCHAR(191) NOT NULL DEFAULT '',
+            correlation_id VARCHAR(64) NOT NULL DEFAULT '',
+            state VARCHAR(20) NOT NULL DEFAULT 'unresolved',
+            reason VARCHAR(191) NOT NULL DEFAULT '',
+            evidence LONGTEXT NULL,
+            generation BIGINT(20) UNSIGNED NOT NULL DEFAULT 1,
+            created_at DATETIME NULL,
+            updated_at DATETIME NULL,
+            resolved_at DATETIME NULL,
+            resolved_by BIGINT(20) UNSIGNED NOT NULL DEFAULT 0,
+            resolution_reason VARCHAR(191) NOT NULL DEFAULT '',
+            PRIMARY KEY  (id),
+            UNIQUE KEY operation_identity (operation_key),
+            KEY state_row (state, row_id)
+        ) ENGINE=InnoDB {$collate};";
+        dbDelta($sql);
+
+        // dbDelta reports nothing useful about correctness, so the result is
+        // VERIFIED against the live schema before the version is stamped. A
+        // failed install must leave the version unset so the next normal
+        // initialization retries.
+        $verified = self::verify_unresolved_transaction_outcome_schema();
+        if (empty($verified['ok'])) {
+            delete_option(self::RECOVERY_SCHEMA_VERSION_OPTION);
+            update_option(\TMWSEO\Engine\Recovery\UnresolvedTransactionOutcomeRepository::SCHEMA_ERROR_OPTION, (string) $verified['reason'], false);
+            error_log('[TMW-RECOVERY] recovery schema installation not verified: ' . (string) $verified['reason']);
+            return $verified;
+        }
+
+        update_option(self::RECOVERY_SCHEMA_VERSION_OPTION, self::RECOVERY_SCHEMA_VERSION, false);
+        delete_option(\TMWSEO\Engine\Recovery\UnresolvedTransactionOutcomeRepository::SCHEMA_ERROR_OPTION);
+        return $verified;
+    }
+
+    /**
+     * Verify the live recovery schema on the PRIMARY connection.
+     *
+     * Used only by the installation/upgrade path. The runtime performs its own
+     * verification on the independent connection.
+     *
+     * @return array{ok:bool,reason:string}
+     */
+    public static function verify_unresolved_transaction_outcome_schema(): array {
+        global $wpdb;
+        $table = $wpdb->prefix . 'tmw_unresolved_transaction_outcomes';
+
+        $status = $wpdb->get_row($wpdb->prepare('SHOW TABLE STATUS LIKE %s', $wpdb->esc_like($table)), ARRAY_A);
+        if (!is_array($status)) {
+            return [ 'ok' => false, 'reason' => 'recovery table ' . $table . ' is missing or unreadable' ];
+        }
+        if ('innodb' !== strtolower((string) ($status['Engine'] ?? ''))) {
+            return [ 'ok' => false, 'reason' => 'recovery table engine is ' . (string) ($status['Engine'] ?? 'unknown') . ', InnoDB is required' ];
+        }
+
+        $columns = $wpdb->get_results('SHOW COLUMNS FROM ' . $table, ARRAY_A);
+        if (!is_array($columns)) {
+            return [ 'ok' => false, 'reason' => 'recovery table columns are unreadable' ];
+        }
+        $present = [];
+        foreach ($columns as $column) { $present[] = (string) ($column['Field'] ?? ''); }
+        $missing = array_diff(
+            \TMWSEO\Engine\Recovery\UnresolvedTransactionOutcomeRepository::REQUIRED_COLUMNS,
+            $present
+        );
+        if ([] !== $missing) {
+            return [ 'ok' => false, 'reason' => 'recovery table is missing column(s): ' . implode(', ', $missing) ];
+        }
+
+        $indexes = $wpdb->get_results('SHOW INDEX FROM ' . $table, ARRAY_A);
+        if (!is_array($indexes)) {
+            return [ 'ok' => false, 'reason' => 'recovery table indexes are unreadable' ];
+        }
+        $identity_rows = [];
+        foreach ($indexes as $index) {
+            if ('operation_identity' === (string) ($index['Key_name'] ?? '')) { $identity_rows[] = $index; }
+        }
+        // Same complete shape check the runtime uses, so installation and
+        // runtime can never disagree about what a valid index is.
+        $shape = \TMWSEO\Engine\Recovery\UnresolvedTransactionOutcomeRepository::identity_index_problem($identity_rows);
+        if ('' !== $shape) {
+            return [ 'ok' => false, 'reason' => $shape ];
+        }
+
+        return [ 'ok' => true, 'reason' => '' ];
+    }
+
+    /**
+     * PR-H — versioned upgrade path. Runs on normal initialization.
+     *
+     * A matching version option is NOT sufficient: the table may have been
+     * dropped or altered since it was stamped, so the live schema is verified
+     * every time and a stale stamp is cleared so the install retries.
+     */
+    public static function upgrade_unresolved_transaction_outcome_schema(): void {
+        $installed = (string) get_option(self::RECOVERY_SCHEMA_VERSION_OPTION, '');
+        if ($installed === (string) self::RECOVERY_SCHEMA_VERSION) {
+            $verified = self::verify_unresolved_transaction_outcome_schema();
+            if (!empty($verified['ok'])) {
+                return;
+            }
+            delete_option(self::RECOVERY_SCHEMA_VERSION_OPTION);
+            update_option(\TMWSEO\Engine\Recovery\UnresolvedTransactionOutcomeRepository::SCHEMA_ERROR_OPTION, (string) $verified['reason'], false);
+            error_log('[TMW-RECOVERY] stamped recovery schema failed verification; reinstalling: ' . (string) $verified['reason']);
+        }
+        self::ensure_unresolved_transaction_outcome_schema();
     }
 
     public static function create_or_update_tables(): void {
