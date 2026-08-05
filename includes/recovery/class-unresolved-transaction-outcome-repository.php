@@ -131,7 +131,10 @@ class UnresolvedTransactionOutcomeRepository {
         elseif ( 1146 === $errno || false !== strpos( $lower, "doesn't exist" ) ) { $class = 'table_missing'; }
         elseif ( 1062 === $errno || false !== strpos( $lower, 'duplicate entry' ) ) { $class = 'duplicate_key'; }
         elseif ( in_array( $errno, [ 2006, 2013 ], true ) || false !== strpos( $lower, 'gone away' ) ) { $class = 'lost_connection'; }
-        return [ 'class' => $class, 'errno' => $errno, 'message' => $message ];
+        // The driver text is useful only for the classification above. It can
+        // contain connection credentials (notably user and host), so it must
+        // never cross the repository boundary in a result or operator log.
+        return [ 'class' => $class, 'errno' => $errno, 'message' => '' ];
     }
 
     // ── Schema ────────────────────────────────────────────────────────────

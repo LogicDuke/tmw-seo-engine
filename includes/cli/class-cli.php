@@ -2453,9 +2453,7 @@ class TMWSEOCommand extends \WP_CLI_Command {
                 'evidence'          => [ 'source' => 'wp-cli' ],
             ] );
             if ( empty( $result['ok'] ) ) {
-                $detail = (string) $result['status'];
-                if ( isset( $result['current_generation'] ) ) { $detail .= ' (current generation is ' . (int) $result['current_generation'] . ')'; }
-                \WP_CLI::error( '[TMW-RECOVERY-OPERATOR] REFUSED: ' . $detail . ' — nothing was changed.' );
+                \WP_CLI::error( self::resolution_failure_message( $result, (string) $assoc['resolve'] ) );
             }
             \WP_CLI::success( sprintf( '[TMW-RECOVERY-OPERATOR] %s resolved at generation %d.', (string) $assoc['resolve'], $generation ) );
             return;
@@ -2477,6 +2475,33 @@ class TMWSEOCommand extends \WP_CLI_Command {
                 (int) $row['batch_id'], (string) $row['operation_type'], (string) $row['reason']
             ) );
         }
+    }
+
+    /**
+     * Build credential-safe resolution guidance without overstating marker state.
+     *
+     * Verification failures occur after the generation-gated write returned
+     * success, so the durable state is indeterminate until independently
+     * inspected. All other failures happen before a successful write.
+     *
+     * @param array<string,mixed> $result
+     */
+    private static function resolution_failure_message( array $result, string $operation_key ): string {
+        $status = (string) ( $result['status'] ?? 'unknown_failure' );
+        $detail = $status;
+        if ( isset( $result['current_generation'] ) ) {
+            $detail .= ' (observed generation ' . (int) $result['current_generation'] . ')';
+        }
+
+        if ( in_array( $status, [ 'verification_failure', 'superseded_after_write' ], true ) ) {
+            return sprintf(
+                '[TMW-RECOVERY-OPERATOR] INDETERMINATE: %s — the resolution write may have succeeded. Inspect marker %s independently; investigate it and reopen it if the intended blocker is no longer present.',
+                $detail,
+                $operation_key
+            );
+        }
+
+        return '[TMW-RECOVERY-OPERATOR] REFUSED: ' . $detail . ' — nothing was changed.';
     }
 
 }

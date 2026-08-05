@@ -65,8 +65,12 @@ final class RecoveryFakeDb {
     public bool $fail_writes = false;
     public bool $lock_timeout = false;
     public bool $fail_reads = false;
+    /** Driver text supplied by fault-injected failed reads. */
+    public string $read_error_message = 'read failure';
     /** Post-write verification read returns nothing even though the write landed. */
     public bool $verification_read_blind = false;
+    /** Post-write verification read fails even though the write landed. */
+    public bool $verification_read_failure = false;
     public bool $closed = false;
     /** SET SESSION statements matching this needle fail. */
     public string $fail_session_statement = '';
@@ -234,12 +238,17 @@ final class RecoveryFakeDb {
 
         if ( preg_match( '/SHOW TABLE STATUS/i', $sql ) ) {
             if ( $this->table_missing ) { return null; }
-            if ( $this->fail_reads ) { $this->last_error = 'read failure'; $this->last_errno = 2013; return null; }
+            if ( $this->fail_reads ) { $this->last_error = $this->read_error_message; $this->last_errno = 2013; return null; }
             return [ 'Name' => $this->prefix . 'tmw_unresolved_transaction_outcomes', 'Engine' => $this->engine ];
         }
 
         if ( preg_match( "/WHERE operation_key = '([^']*)'/i", $sql, $m ) ) {
-            if ( $this->fail_reads ) { $this->last_error = 'read failure'; $this->last_errno = 2013; return null; }
+            if ( $this->verification_read_failure && $this->update_executed ) {
+                $this->last_error = $this->read_error_message;
+                $this->last_errno = 2013;
+                return null;
+            }
+            if ( $this->fail_reads ) { $this->last_error = $this->read_error_message; $this->last_errno = 2013; return null; }
             if ( $this->table_missing ) { $this->last_error = "Table doesn't exist"; $this->last_errno = 1146; return null; }
             if ( $this->verification_read_blind ) { return null; }
             if ( null !== $this->post_write_row_override && $this->update_executed ) {
@@ -259,7 +268,7 @@ final class RecoveryFakeDb {
 
         if ( preg_match( '/SHOW COLUMNS/i', $sql ) ) {
             if ( $this->table_missing ) { $this->last_error = "Table doesn't exist"; $this->last_errno = 1146; return null; }
-            if ( $this->fail_reads ) { $this->last_error = 'read failure'; $this->last_errno = 2013; return null; }
+            if ( $this->fail_reads ) { $this->last_error = $this->read_error_message; $this->last_errno = 2013; return null; }
             $out = [];
             foreach ( self::COLUMNS as $c ) {
                 if ( in_array( $c, $this->missing_columns, true ) ) { continue; }
@@ -269,7 +278,7 @@ final class RecoveryFakeDb {
         }
         if ( preg_match( '/SHOW INDEX/i', $sql ) ) {
             if ( $this->table_missing ) { $this->last_error = "Table doesn't exist"; $this->last_errno = 1146; return null; }
-            if ( $this->fail_reads ) { $this->last_error = 'read failure'; $this->last_errno = 2013; return null; }
+            if ( $this->fail_reads ) { $this->last_error = $this->read_error_message; $this->last_errno = 2013; return null; }
             $out = [];
             foreach ( self::INDEXES as $k ) {
                 if ( in_array( $k, $this->missing_indexes, true ) ) { continue; }
@@ -294,7 +303,7 @@ final class RecoveryFakeDb {
             return $out;
         }
         if ( preg_match( "/WHERE state = '([^']*)'/i", $sql, $m ) ) {
-            if ( $this->fail_reads ) { $this->last_error = 'read failure'; $this->last_errno = 2013; return null; }
+            if ( $this->fail_reads ) { $this->last_error = $this->read_error_message; $this->last_errno = 2013; return null; }
             if ( $this->table_missing ) { $this->last_error = "Table doesn't exist"; $this->last_errno = 1146; return null; }
             $out = [];
             foreach ( $this->rows() as $row ) {
