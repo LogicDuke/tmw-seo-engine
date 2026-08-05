@@ -75,7 +75,7 @@ final class RecoveryFakeDb {
     /** operation_identity reported as covering the wrong column. */
     public string $identity_index_column = 'operation_key';
     /** Prefix length reported for operation_identity (e.g. operation_key(100)). */
-    public ?int $identity_index_sub_part = null;
+    public int|string|null $identity_index_sub_part = null;
     /** Sequence position reported for the operation_identity part. */
     public int $identity_index_seq = 1;
     /** Extra index parts, so multi-column and duplicate-row shapes can be modelled. */

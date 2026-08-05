@@ -144,17 +144,26 @@ class UnresolvedTransactionOutcomeConnection {
             throw new \RuntimeException( 'wpdb class is not loaded' );
         }
 
-        // Do NOT call wpdb::__construct(): core's constructor immediately calls
-        // db_connect() with its default allow_bail=true. This subclass stores
-        // the credentials without connecting, exposes one explicit non-bailing
-        // connect method, and also makes every later reconnect non-bailing.
+        // Run the parent constructor so WordPress initializes its private
+        // database-driver state, but intercept the constructor's automatic
+        // connection attempt. The real connection is made explicitly below
+        // with allow_bail=false.
         return new class( DB_USER, DB_PASSWORD, DB_NAME, DB_HOST ) extends \wpdb {
+            private bool $tmwseo_defer_connect = true;
+
             public function __construct( $dbuser, $dbpassword, $dbname, $dbhost ) {
-                $this->dbuser           = $dbuser;
-                $this->dbpassword       = $dbpassword;
-                $this->dbname           = $dbname;
-                $this->dbhost           = $dbhost;
-                $this->reconnect_retries = 1;
+                parent::__construct( $dbuser, $dbpassword, $dbname, $dbhost );
+
+                $this->tmwseo_defer_connect = false;
+                $this->reconnect_retries    = 1;
+            }
+
+            public function db_connect( $allow_bail = true ) {
+                if ( $this->tmwseo_defer_connect ) {
+                    return true;
+                }
+
+                return parent::db_connect( false );
             }
 
             public function tmwseo_connect_without_bail() {

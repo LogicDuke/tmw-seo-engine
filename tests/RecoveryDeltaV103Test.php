@@ -12,8 +12,30 @@ if ( ! class_exists( 'wpdb', false ) ) {
         protected $dbuser; protected $dbpassword; protected $dbname; protected $dbhost; protected $reconnect_retries=5;
         public string $prefix = 'wp_'; public string $last_error=''; public int $last_errno=0;
         public $dbh = null; public bool $ready=false; public array $connect_allow_bail=[]; public array $check_allow_bail=[];
-        public function __construct( $u, $p, $n, $h ) { throw new RuntimeException('parent wpdb constructor must not be called'); }
-        public function db_connect( $allow_bail = true ) { $this->connect_allow_bail[]=$allow_bail; if($allow_bail){ throw new RuntimeException('bailing connect called'); } if(!self::$connect_result){$this->dbh=null;$this->ready=false;return false;} $this->dbh='connected'; $this->ready=true; return true; }
+        public bool $parent_constructor_called = false;
+        public string $driver_used = '';
+        private bool $use_mysqli = false;
+
+        public function __construct( $u, $p, $n, $h ) {
+            // Model WordPress 6.3: the parent constructor initializes private
+            // driver state, then invokes db_connect() using virtual dispatch.
+            $this->use_mysqli = true;
+            $this->dbuser = $u;
+            $this->dbpassword = $p;
+            $this->dbname = $n;
+            $this->dbhost = $h;
+            $this->parent_constructor_called = true;
+            $this->db_connect();
+        }
+
+        public function db_connect( $allow_bail = true ) {
+            $this->connect_allow_bail[] = $allow_bail;
+            $this->driver_used = $this->use_mysqli ? 'mysqli' : 'mysql';
+            if ( $allow_bail ) { throw new RuntimeException( 'bailing connect called' ); }
+            if ( ! self::$connect_result ) { $this->dbh=null; $this->ready=false; return false; }
+            $this->dbh='connected'; $this->ready=true; return true;
+        }
+
         public function check_connection( $allow_bail = true ) { $this->check_allow_bail[]=$allow_bail; if($allow_bail){ throw new RuntimeException('bailing reconnect called'); } return false; }
         public function suppress_errors( bool $s=true ): bool { return true; }
         public function hide_errors(): bool { return true; }
@@ -67,6 +89,8 @@ final class RecoveryDeltaV103Test extends TestCase {
         $conn=new NonBailingRecoveryConnection(); $result=$conn->open();
         $this->assertTrue((bool)$result['ok'],(string)$result['error']);
         $db=$result['db'];
+        $this->assertTrue($db->parent_constructor_called, 'WordPress parent constructor must initialize private driver state');
+        $this->assertSame('mysqli', $db->driver_used, 'WordPress 6.3-compatible recovery connections must use MySQLi');
         $this->assertSame([false],$db->connect_allow_bail);
         $this->assertFalse((bool)$db->check_connection(), 'reconnect must return false rather than bail');
         $this->assertSame([false],$db->check_allow_bail);

@@ -16,10 +16,12 @@
  * block it.
  *
  * Status values:
- *   ok, not_found, connection_failure, schema_failure, lock_timeout,
- *   duplicate_identity, stale_generation, write_failure, verification_failure,
- *   superseded_before_write, superseded_after_write, invalid_operation_key,
- *   invalid_criteria, invalid_evidence, invalid_resolution
+ *   ok, not_found, connection_failure, connection_policy_failure,
+ *   schema_failure, lock_timeout, duplicate_identity, stale_generation,
+ *   write_failure, read_failure, verification_failure,
+ *   superseded_before_write, superseded_after_write, identity_mismatch,
+ *   invalid_operation_key, invalid_criteria, invalid_evidence,
+ *   invalid_resolution
  *
  * @package TMWSEO\Engine\Recovery
  * @since   5.9.29-recovery-outcomes-v1.0.3

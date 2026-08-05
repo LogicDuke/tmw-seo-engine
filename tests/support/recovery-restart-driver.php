@@ -13,6 +13,11 @@
 
 declare(strict_types=1);
 
+if ( 'cli' !== PHP_SAPI ) {
+    http_response_code( 403 );
+    exit;
+}
+
 require_once __DIR__ . '/../bootstrap/wordpress-stubs.php';
 require_once __DIR__ . '/RecoveryFakeDb.php';
 require_once __DIR__ . '/../../includes/recovery/class-unresolved-transaction-outcome-connection.php';
@@ -22,6 +27,11 @@ use TMWSEO\Engine\Recovery\UnresolvedTransactionOutcomeRepository as Repo;
 
 $path = (string) ( $argv[1] ?? '' );
 $key  = (string) ( $argv[2] ?? '' );
+
+if ( '' === $path || '' === $key ) {
+    fwrite( STDERR, "usage: recovery-restart-driver.php <store-path> <operation-key>\n" );
+    exit( 2 );
+}
 
 $db      = new RecoveryFakeDb( new RecoveryStore( $path ) );
 $factory = new RecoveryFakeConnectionFactory( $db );

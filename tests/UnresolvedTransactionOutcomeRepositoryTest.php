@@ -179,7 +179,7 @@ final class UnresolvedTransactionOutcomeRepositoryTest extends TestCase {
 
         // A genuinely separate PHP process reads the same durable store.
         $driver = __DIR__ . '/support/recovery-restart-driver.php';
-        $cmd = escapeshellcmd( PHP_BINARY ) . ' ' . escapeshellarg( $driver ) . ' '
+        $cmd = escapeshellarg( PHP_BINARY ) . ' ' . escapeshellarg( $driver ) . ' '
             . escapeshellarg( $this->store->path ) . ' ' . escapeshellarg( 'manual_approval:row:900' ) . ' 2>&1';
         $out = (string) shell_exec( $cmd );
         if ( ! preg_match( '/__RESTART_PROBE__(.*?)__END__/s', $out, $m ) ) {

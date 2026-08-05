@@ -215,7 +215,7 @@ final class RecoveryDeltaV102Test extends TestCase {
 
     public function test_empty_string_sub_part_is_accepted_as_full_column(): void {
         // Some drivers report '' rather than NULL for a full-column index part.
-        $this->db->identity_index_sub_part = 0;
+        $this->db->identity_index_sub_part = '';
         $result = $this->repo()->verify_schema();
         $this->assertTrue( (bool) $result['ok'], (string) $result['reason'] );
     }
