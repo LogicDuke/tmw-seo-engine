@@ -6,7 +6,7 @@ if (!defined('ABSPATH')) { exit; }
 class Schema {
 
     /** PR-H recovery schema version + option (versioned upgrade path). */
-    public const RECOVERY_SCHEMA_VERSION = '1.0.1';
+    public const RECOVERY_SCHEMA_VERSION = '1.0.2';
     public const RECOVERY_SCHEMA_VERSION_OPTION = 'tmwseo_recovery_schema_version';
 
 
@@ -1058,7 +1058,7 @@ class Schema {
         $collate = $wpdb->get_charset_collate();
         $sql = "CREATE TABLE {$table} (
             id BIGINT(20) UNSIGNED NOT NULL AUTO_INCREMENT,
-            operation_key VARCHAR(191) NOT NULL,
+            operation_key VARBINARY(191) NOT NULL,
             operation_type VARCHAR(50) NOT NULL DEFAULT '',
             row_id BIGINT(20) UNSIGNED NOT NULL DEFAULT 0,
             batch_id BIGINT(20) UNSIGNED NOT NULL DEFAULT 0,
@@ -1080,6 +1080,23 @@ class Schema {
             KEY state_row (state, row_id)
         ) ENGINE=InnoDB {$collate};";
         dbDelta($sql);
+
+        // dbDelta may not reliably change only the comparison contract of an
+        // already-indexed column, so repair older VARCHAR installations
+        // explicitly and verify the result before stamping the schema version.
+        $operation_key = $wpdb->get_row(
+            "SHOW FULL COLUMNS FROM {$table} LIKE 'operation_key'",
+            ARRAY_A
+        );
+
+        if (
+            is_array($operation_key)
+            && '' !== \TMWSEO\Engine\Recovery\UnresolvedTransactionOutcomeRepository::operation_key_column_problem($operation_key)
+        ) {
+            $wpdb->query(
+                "ALTER TABLE {$table} MODIFY operation_key VARBINARY(191) NOT NULL"
+            );
+        }
 
         // dbDelta reports nothing useful about correctness, so the result is
         // VERIFIED against the live schema before the version is stamped. A
@@ -1118,18 +1135,32 @@ class Schema {
             return [ 'ok' => false, 'reason' => 'recovery table engine is ' . (string) ($status['Engine'] ?? 'unknown') . ', InnoDB is required' ];
         }
 
-        $columns = $wpdb->get_results('SHOW COLUMNS FROM ' . $table, ARRAY_A);
+        $columns = $wpdb->get_results('SHOW FULL COLUMNS FROM ' . $table, ARRAY_A);
         if (!is_array($columns)) {
             return [ 'ok' => false, 'reason' => 'recovery table columns are unreadable' ];
         }
         $present = [];
-        foreach ($columns as $column) { $present[] = (string) ($column['Field'] ?? ''); }
+        $column_map = [];
+
+        foreach ($columns as $column) {
+            $field = (string) ($column['Field'] ?? '');
+            $present[] = $field;
+            $column_map[$field] = $column;
+        }
+
         $missing = array_diff(
             \TMWSEO\Engine\Recovery\UnresolvedTransactionOutcomeRepository::REQUIRED_COLUMNS,
             $present
         );
         if ([] !== $missing) {
             return [ 'ok' => false, 'reason' => 'recovery table is missing column(s): ' . implode(', ', $missing) ];
+        }
+
+        $key_problem = \TMWSEO\Engine\Recovery\UnresolvedTransactionOutcomeRepository::operation_key_column_problem(
+            $column_map['operation_key'] ?? []
+        );
+        if ('' !== $key_problem) {
+            return [ 'ok' => false, 'reason' => $key_problem ];
         }
 
         $indexes = $wpdb->get_results('SHOW INDEX FROM ' . $table, ARRAY_A);

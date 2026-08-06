@@ -25,7 +25,7 @@
  *  - everything fails closed.
  *
  * @package TMWSEO\Engine\Recovery
- * @since   5.9.29-recovery-outcomes-v1.0.4
+ * @since   5.9.29-recovery-outcomes-v1.0.5
  */
 
 declare(strict_types=1);
@@ -116,7 +116,28 @@ class UnresolvedTransactionOutcomeConnection {
         }
 
         global $wpdb;
-        $db->set_prefix( isset( $wpdb->prefix ) ? $wpdb->prefix : $db->prefix );
+        if ( ! is_object( $wpdb )
+            || ! isset( $wpdb->base_prefix, $wpdb->prefix, $wpdb->blogid )
+            || ! method_exists( $db, 'set_prefix' )
+            || ! method_exists( $db, 'set_blog_id' )
+        ) {
+            $this->close( $db );
+            return [
+                'ok' => false, 'status' => 'connection_policy_failure', 'db' => null,
+                'error' => 'recovery blog context could not be applied',
+            ];
+        }
+
+        $db->set_prefix( (string) $wpdb->base_prefix );
+        $db->set_blog_id( (int) $wpdb->blogid );
+
+        if ( (string) $db->prefix !== (string) $wpdb->prefix ) {
+            $this->close( $db );
+            return [
+                'ok' => false, 'status' => 'connection_policy_failure', 'db' => null,
+                'error' => 'recovery blog context could not be applied',
+            ];
+        }
 
         $policy = self::apply_session_policy( $db );
         if ( empty( $policy['ok'] ) ) {
@@ -155,7 +176,7 @@ class UnresolvedTransactionOutcomeConnection {
                 parent::__construct( $dbuser, $dbpassword, $dbname, $dbhost );
 
                 $this->tmwseo_defer_connect = false;
-                $this->reconnect_retries    = 1;
+                $this->reconnect_retries    = 0;
             }
 
             public function db_connect( $allow_bail = true ) {
@@ -171,7 +192,9 @@ class UnresolvedTransactionOutcomeConnection {
             }
 
             public function check_connection( $allow_bail = true ) {
-                return parent::check_connection( false );
+                // Fail closed. A replacement handle would not have the
+                // recovery timeout policies re-established and verified.
+                return false;
             }
         };
     }

@@ -16,8 +16,9 @@ use TMWSEO\Engine\Schema;
 use TMWSEO\Engine\Recovery\UnresolvedTransactionOutcomeRepository as Repo;
 
 require_once __DIR__ . '/support/RecoveryFakeDb.php';
-require_once __DIR__ . '/../includes/db/class-schema.php';
+require_once __DIR__ . '/../includes/recovery/class-unresolved-transaction-outcome-connection.php';
 require_once __DIR__ . '/../includes/recovery/class-unresolved-transaction-outcome-repository.php';
+require_once __DIR__ . '/../includes/db/class-schema.php';
 
 if ( ! function_exists( 'dbDelta' ) ) {
     /**
@@ -75,6 +76,21 @@ final class RecoverySchemaInstallationTest extends TestCase {
         return (string) get_option( Repo::SCHEMA_ERROR_OPTION, '' );
     }
 
+    /** @return array<string,mixed> */
+    private function outcome( string $key ): array {
+        return [
+            'operation_key'            => $key,
+            'operation_type'           => 'manual_approval',
+            'row_id'                    => 900,
+            'batch_id'                  => 70,
+            'expected_candidate_id'     => 10,
+            'expected_assignment_key'   => 'assignment-a',
+            'correlation_id'            => 'corr-a',
+            'reason'                    => 'commit_unknown',
+            'evidence'                  => [ 'state' => 'open' ],
+        ];
+    }
+
     // ── Successful installation ───────────────────────────────────────────
 
     public function test_verified_installation_stamps_the_version_and_clears_the_error(): void {
@@ -115,6 +131,85 @@ final class RecoverySchemaInstallationTest extends TestCase {
 
         $this->assertFalse( $result['ok'] );
         $this->assertStringContainsString( 'resolution_decision', $result['reason'] );
+    }
+
+    public function test_installation_ddl_uses_case_sensitive_operation_key(): void {
+        Schema::ensure_unresolved_transaction_outcome_schema();
+
+        $this->assertStringContainsString(
+            'operation_key VARBINARY(191) NOT NULL',
+            implode( "\n", $GLOBALS['_tmw_dbdelta_queries'] )
+        );
+    }
+
+    public function test_v104_schema_is_upgraded_to_case_sensitive_operation_key(): void {
+        update_option( Schema::RECOVERY_SCHEMA_VERSION_OPTION, '1.0.1', false );
+        $this->primary->operation_key_type = 'varchar(191)';
+        $this->primary->operation_key_collation = 'utf8mb4_unicode_ci';
+
+        Schema::upgrade_unresolved_transaction_outcome_schema();
+
+        $this->assertSame( 'varbinary(191)', $this->primary->operation_key_type );
+        $this->assertNull( $this->primary->operation_key_collation );
+        $this->assertSame( Schema::RECOVERY_SCHEMA_VERSION, $this->version() );
+        $this->assertSame( 1, $GLOBALS['_tmw_dbdelta_calls'] );
+
+        $altered = false;
+        foreach ( $this->primary->statements as $statement ) {
+            if ( false !== stripos(
+                $statement,
+                'MODIFY operation_key VARBINARY(191) NOT NULL'
+            ) ) {
+                $altered = true;
+            }
+        }
+        $this->assertTrue( $altered, 'the existing v1.0.4 column must be explicitly migrated' );
+    }
+
+    public function test_primary_verification_rejects_case_insensitive_operation_key(): void {
+        $this->primary->operation_key_type = 'varchar(191)';
+        $this->primary->operation_key_collation = 'utf8mb4_unicode_ci';
+
+        $result = Schema::verify_unresolved_transaction_outcome_schema();
+
+        $this->assertFalse( (bool) $result['ok'] );
+        $this->assertStringContainsString( 'VARBINARY(191)', (string) $result['reason'] );
+    }
+
+    public function test_runtime_verification_rejects_case_insensitive_operation_key(): void {
+        $this->primary->operation_key_type = 'varchar(191)';
+        $this->primary->operation_key_collation = 'utf8mb4_unicode_ci';
+
+        $repo = new Repo( new RecoveryFakeConnectionFactory( $this->primary ) );
+        $result = $repo->verify_schema();
+
+        $this->assertFalse( (bool) $result['ok'] );
+        $this->assertSame( 'schema_failure', (string) $result['status'] );
+        $this->assertStringContainsString( 'VARBINARY(191)', (string) $result['reason'] );
+    }
+
+    public function test_operation_keys_that_differ_only_by_case_remain_distinct(): void {
+        $repo = new Repo( new RecoveryFakeConnectionFactory( $this->primary ) );
+        $upper = 'Manual_Approval:row:900';
+        $lower = 'manual_approval:row:900';
+
+        $first = $repo->record_unresolved_outcome( $this->outcome( $upper ) );
+        $second = $repo->record_unresolved_outcome( $this->outcome( $lower ) );
+
+        $this->assertTrue( (bool) $first['ok'], (string) $first['reason'] );
+        $this->assertTrue( (bool) $second['ok'], (string) $second['reason'] );
+
+        $found_upper = $repo->find_unresolved_outcome( $upper );
+        $found_lower = $repo->find_unresolved_outcome( $lower );
+
+        $this->assertTrue( (bool) $found_upper['found'] );
+        $this->assertTrue( (bool) $found_lower['found'] );
+        $this->assertSame( $upper, (string) $found_upper['row']['operation_key'] );
+        $this->assertSame( $lower, (string) $found_lower['row']['operation_key'] );
+        $this->assertNotSame(
+            (int) $found_upper['row']['id'],
+            (int) $found_lower['row']['id']
+        );
     }
 
     // ── Failures must not stamp the version ───────────────────────────────

@@ -58,6 +58,8 @@ final class RecoveryFakeDb {
     // Fault injection.
     public bool $table_missing = false;
     public string $engine = 'InnoDB';
+    public string $operation_key_type = 'varbinary(191)';
+    public ?string $operation_key_collation = null;
     /** @var array<int,string> columns to hide from SHOW COLUMNS */
     public array $missing_columns = [];
     /** @var array<int,string> indexes to hide from SHOW INDEX */
@@ -178,6 +180,13 @@ final class RecoveryFakeDb {
             return 0;
         }
 
+        if ( preg_match( '/^ALTER TABLE .* MODIFY operation_key VARBINARY\(191\) NOT NULL/i', $sql ) ) {
+            if ( ! $this->guard_write() ) { return false; }
+            $this->operation_key_type = 'varbinary(191)';
+            $this->operation_key_collation = null;
+            return 1;
+        }
+
         if ( preg_match( '/^INSERT IGNORE INTO/i', $sql ) ) {
             if ( ! $this->guard_write() ) { return false; }
             if ( ! preg_match( '/\(([^)]+)\)\s*VALUES\s*\((.*)\)\s*$/is', $sql, $m ) ) { return false; }
@@ -236,6 +245,23 @@ final class RecoveryFakeDb {
         $this->reset();
         $this->statements[] = $sql;
 
+        if ( preg_match( "/SHOW FULL COLUMNS .* LIKE 'operation_key'/i", $sql ) ) {
+            if ( $this->table_missing || in_array( 'operation_key', $this->missing_columns, true ) ) {
+                return null;
+            }
+            if ( $this->fail_reads ) {
+                $this->last_error = $this->read_error_message;
+                $this->last_errno = 2013;
+                return null;
+            }
+            return [
+                'Field'     => 'operation_key',
+                'Type'      => $this->operation_key_type,
+                'Collation' => $this->operation_key_collation,
+                'Null'      => 'NO',
+            ];
+        }
+
         if ( preg_match( '/SHOW TABLE STATUS/i', $sql ) ) {
             if ( $this->table_missing ) { return null; }
             if ( $this->fail_reads ) { $this->last_error = $this->read_error_message; $this->last_errno = 2013; return null; }
@@ -266,13 +292,19 @@ final class RecoveryFakeDb {
         $this->reset();
         $this->statements[] = $sql;
 
-        if ( preg_match( '/SHOW COLUMNS/i', $sql ) ) {
+        if ( preg_match( '/SHOW (?:FULL )?COLUMNS/i', $sql ) ) {
             if ( $this->table_missing ) { $this->last_error = "Table doesn't exist"; $this->last_errno = 1146; return null; }
             if ( $this->fail_reads ) { $this->last_error = $this->read_error_message; $this->last_errno = 2013; return null; }
             $out = [];
             foreach ( self::COLUMNS as $c ) {
                 if ( in_array( $c, $this->missing_columns, true ) ) { continue; }
-                $out[] = [ 'Field' => $c ];
+                $row = [ 'Field' => $c ];
+                if ( 'operation_key' === $c ) {
+                    $row['Type'] = $this->operation_key_type;
+                    $row['Collation'] = $this->operation_key_collation;
+                    $row['Null'] = 'NO';
+                }
+                $out[] = $row;
             }
             return $out;
         }

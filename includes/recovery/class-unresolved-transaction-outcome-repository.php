@@ -24,7 +24,7 @@
  *   invalid_resolution
  *
  * @package TMWSEO\Engine\Recovery
- * @since   5.9.29-recovery-outcomes-v1.0.4
+ * @since   5.9.29-recovery-outcomes-v1.0.5
  */
 
 declare(strict_types=1);
@@ -176,17 +176,33 @@ class UnresolvedTransactionOutcomeRepository {
             );
         }
 
-        $columns = $db->get_results( 'SHOW COLUMNS FROM ' . $table, ARRAY_A );
+        $columns = $db->get_results( 'SHOW FULL COLUMNS FROM ' . $table, ARRAY_A );
         if ( ! is_array( $columns ) ) {
             return $this->record_schema_error( 'recovery table columns are unreadable', $this->classify( $db ) );
         }
         $present = [];
-        foreach ( $columns as $column ) { $present[] = (string) ( $column['Field'] ?? '' ); }
-        $missing = array_diff( self::REQUIRED_COLUMNS, $present );
-        if ( [] !== $missing ) {
-            return $this->record_schema_error( 'recovery table is missing column(s): ' . implode( ', ', $missing ), [] );
+        $column_map = [];
+
+        foreach ( $columns as $column ) {
+            $field = (string) ( $column['Field'] ?? '' );
+            $present[] = $field;
+            $column_map[ $field ] = $column;
         }
 
+        $missing = array_diff( self::REQUIRED_COLUMNS, $present );
+        if ( [] !== $missing ) {
+            return $this->record_schema_error(
+                'recovery table is missing column(s): ' . implode( ', ', $missing ),
+                []
+            );
+        }
+
+        $key_problem = self::operation_key_column_problem(
+            $column_map['operation_key'] ?? []
+        );
+        if ( '' !== $key_problem ) {
+            return $this->record_schema_error( $key_problem, [] );
+        }
         $indexes = $db->get_results( 'SHOW INDEX FROM ' . $table, ARRAY_A );
         if ( ! is_array( $indexes ) ) {
             return $this->record_schema_error( 'recovery table indexes are unreadable', $this->classify( $db ) );
@@ -221,6 +237,30 @@ class UnresolvedTransactionOutcomeRepository {
         return $this->fail( 'schema_failure', $reason, [ 'db_error' => $db_error ] );
     }
 
+    /**
+     * Validate the case-sensitive operation-key identity column.
+     *
+     * @param array<string,mixed> $column SHOW FULL COLUMNS row
+     * @return string Empty when valid, otherwise the failure reason.
+     */
+    public static function operation_key_column_problem( array $column ): string {
+        if ( [] === $column ) {
+            return 'recovery table is missing the operation_key column';
+        }
+
+        $type = strtolower( trim( (string) ( $column['Type'] ?? '' ) ) );
+        if ( 'varbinary(191)' !== $type ) {
+            return 'recovery operation_key must be VARBINARY(191) for case-sensitive identity; found '
+                . ( '' === $type ? '(unknown)' : $type );
+        }
+
+        $collation = $column['Collation'] ?? null;
+        if ( null !== $collation && '' !== (string) $collation ) {
+            return 'recovery operation_key must use binary comparison without a text collation';
+        }
+
+        return '';
+    }
     /**
      * Validate the COMPLETE shape of the operation_identity index.
      *

@@ -83,11 +83,18 @@ final class RecoveryIsolationGuardTest extends TestCase {
         $this->assertSame( [], $offenders, 'independent connections must exist only in the recovery subsystem' );
         $this->assertStringContainsString( 'extends \\wpdb', self::$conn, 'recovery must use its confined wpdb subclass' );
         $this->assertStringContainsString( 'db_connect( false )', self::$conn, 'initial recovery connection must not bail' );
-        $this->assertStringContainsString( 'parent::check_connection( false )', self::$conn, 'reconnects must not bail' );
         $this->assertSame(
             1,
-            preg_match( '/\$this->reconnect_retries\s*=\s*1\s*;/', self::$conn ),
-            'recovery reconnect retries must remain bounded'
+            preg_match(
+                '/public function check_connection\s*\([^)]*\)\s*\{.*?return false;\s*\}/s',
+                self::$conn
+            ),
+            'recovery reconnects must fail closed without invoking the parent reconnect path'
+        );
+        $this->assertSame(
+            1,
+            preg_match( '/\$this->reconnect_retries\s*=\s*0\s*;/', self::$conn ),
+            'automatic recovery reconnects must remain disabled'
         );
         $this->assertStringNotContainsString( 'new \\wpdb( DB_USER, DB_PASSWORD, DB_NAME, DB_HOST )', self::$conn, 'core wpdb constructor would connect with allow_bail=true' );
     }

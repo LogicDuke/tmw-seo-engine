@@ -1,5 +1,17 @@
 # Changelog
 
+## 5.9.29-recovery-outcomes-v1.0.5 - 2026-08-06
+
+- Disables automatic recovery-query replay after connection loss. Recovery
+  operations now fail closed rather than reconnecting without verified bounded
+  timeout policies.
+- Initializes the independent recovery connection from the WordPress network
+  base prefix and current blog ID, and verifies the site-specific prefix.
+- Migrates `operation_key` to `VARBINARY(191)` so durable recovery identities
+  that differ only by case remain distinct.
+- Verifies the binary operation-key column and full unique-index contract on
+  both installation and independent runtime connections.
+
 ## 5.9.29-recovery-outcomes-v1.0.4 — 2026-08-05
 
 - Moves recovery schema upgrade and metadata verification off ordinary frontend

@@ -63,7 +63,6 @@ final class RecoveryResolutionSafetyTest extends TestCase {
     /** @param array<string,mixed> $result */
     private function message( array $result ): string {
         $method = new ReflectionMethod( TMWSEOCommand::class, 'resolution_failure_message' );
-        $method->setAccessible( true );
         return (string) $method->invoke( null, $result, 'manual_approval:row:900' );
     }
 

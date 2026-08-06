@@ -59,7 +59,7 @@ final class RecoveryDeltaV104Test extends TestCase {
 
     public function test_wp_cli_verify_performs_live_repository_verification(): void {
         $this->assertStringContainsString( '$result = $repo->verify_schema();', self::$cli );
-        $this->assertStringContainsString( 'independent connection and recovery schema verified', self::$cli );
+        $this->assertStringContainsString( 'independent connection, timeout policy and recovery schema verified', self::$cli );
     }
 
     public function test_activation_installs_and_verifies_recovery_schema(): void {
@@ -70,6 +70,7 @@ final class RecoveryDeltaV104Test extends TestCase {
     public function test_schema_contract_requires_resolution_decision(): void {
         $this->assertContains( 'resolution_decision', Repo::REQUIRED_COLUMNS );
         $this->assertStringContainsString( "resolution_decision VARCHAR(20) NOT NULL DEFAULT ''", self::$schema );
-        $this->assertStringContainsString( "public const RECOVERY_SCHEMA_VERSION = '1.0.1'", self::$schema );
+        $this->assertStringContainsString( 'operation_key VARBINARY(191) NOT NULL', self::$schema );
+        $this->assertStringContainsString( "public const RECOVERY_SCHEMA_VERSION = '1.0.2'", self::$schema );
     }
 }

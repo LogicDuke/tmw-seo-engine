@@ -10,7 +10,7 @@ if ( ! class_exists( 'wpdb', false ) ) {
     class wpdb {
         public static bool $connect_result = true;
         protected $dbuser; protected $dbpassword; protected $dbname; protected $dbhost; protected $reconnect_retries=5;
-        public string $prefix = 'wp_'; public string $last_error=''; public int $last_errno=0;
+        public string $base_prefix = 'wp_'; public string $prefix = 'wp_'; public int $blogid = 1; public string $last_error=''; public int $last_errno=0;
         public $dbh = null; public bool $ready=false; public array $connect_allow_bail=[]; public array $check_allow_bail=[];
         public bool $parent_constructor_called = false;
         public string $driver_used = '';
@@ -39,7 +39,17 @@ if ( ! class_exists( 'wpdb', false ) ) {
         public function check_connection( $allow_bail = true ) { $this->check_allow_bail[]=$allow_bail; if($allow_bail){ throw new RuntimeException('bailing reconnect called'); } return false; }
         public function suppress_errors( bool $s=true ): bool { return true; }
         public function hide_errors(): bool { return true; }
-        public function set_prefix( string $p ): string { $this->prefix=$p; return $p; }
+        public function set_prefix( string $p ): string {
+            $this->base_prefix = $p;
+            $this->prefix = $this->blogid > 1 ? $p . $this->blogid . '_' : $p;
+            return $p;
+        }
+        public function set_blog_id( int $id ): int {
+            $previous = $this->blogid;
+            $this->blogid = $id;
+            $this->prefix = $id > 1 ? $this->base_prefix . $id . '_' : $this->base_prefix;
+            return $previous;
+        }
         public function query( string $sql ) { return 0; }
         public function close(): bool { $this->dbh=null; return true; }
     }
@@ -66,16 +76,22 @@ final class TimeoutTrackingRecoveryConnection extends Conn {
     protected function read_connect_timeout() { return end($this->values); }
     protected function write_connect_timeout( string $value ) { $this->writes[]=$value; $previous=end($this->values); $this->values[]=$value; return $previous; }
     protected function create_wpdb() { return new class {
-        public string $prefix='wp_'; public string $last_error=''; public $dbh='connected'; public string $error='';
+        public string $base_prefix='wp_'; public string $prefix='wp_'; public int $blogid=1; public string $last_error=''; public $dbh='connected'; public string $error='';
         public function suppress_errors(bool $s=true):bool{return true;} public function hide_errors():bool{return true;}
-        public function set_prefix(string $p):string{$this->prefix=$p;return $p;} public function query(string $q){return 0;} public function close():bool{return true;}
+        public function set_prefix(string $p):string{$this->base_prefix=$p;$this->prefix=$this->blogid>1?$p.$this->blogid.'_':$p;return $p;}
+        public function set_blog_id(int $id):int{$previous=$this->blogid;$this->blogid=$id;$this->prefix=$id>1?$this->base_prefix.$id.'_':$this->base_prefix;return $previous;}
+        public function query(string $q){return 0;} public function close():bool{return true;}
     }; }
 }
 
 final class RecoveryDeltaV103Test extends TestCase {
     protected function setUp(): void {
         set_error_handler(static function(int $no,string $msg,string $file='',int $line=0):bool{ if(0===(error_reporting()&$no))return false; throw new ErrorException($msg,0,$no,$file,$line); });
-        $GLOBALS['wpdb']=new class { public string $prefix='wp_'; };
+        $GLOBALS['wpdb']=new class {
+            public string $base_prefix='wp_';
+            public string $prefix='wp_';
+            public int $blogid=1;
+        };
     }
     protected function tearDown(): void { restore_error_handler(); }
 
@@ -85,7 +101,7 @@ final class RecoveryDeltaV103Test extends TestCase {
     ],$o); }
     private function repo(?RecoveryFakeDb &$db=null): Repo { $store=RecoveryStore::fresh('v103-'.uniqid('',true)); $db=new RecoveryFakeDb($store); return new Repo(new RecoveryFakeConnectionFactory($db)); }
 
-    public function test_real_factory_uses_non_bailing_connect_and_reconnect(): void {
+    public function test_real_factory_uses_non_bailing_connect_and_fail_closed_reconnect(): void {
         $conn=new NonBailingRecoveryConnection(); $result=$conn->open();
         $this->assertTrue((bool)$result['ok'],(string)$result['error']);
         $db=$result['db'];
@@ -93,7 +109,7 @@ final class RecoveryDeltaV103Test extends TestCase {
         $this->assertSame('mysqli', $db->driver_used, 'WordPress 6.3-compatible recovery connections must use MySQLi');
         $this->assertSame([false],$db->connect_allow_bail);
         $this->assertFalse((bool)$db->check_connection(), 'reconnect must return false rather than bail');
-        $this->assertSame([false],$db->check_allow_bail);
+        $this->assertSame([], $db->check_allow_bail, 'the parent reconnect path must not run');
         $conn->close($db);
     }
 
@@ -145,9 +161,9 @@ final class RecoveryDeltaV103Test extends TestCase {
         $this->assertSame('corr-a',(string)$r['row']['correlation_id']); $this->assertSame(10,(int)$r['row']['expected_candidate_id']);
     }
 
-    public function test_release_identity_is_exact_v104(): void {
+    public function test_release_identity_is_exact_v105(): void {
         $plugin=(string)file_get_contents(__DIR__.'/../tmw-seo-engine.php'); $changelog=(string)file_get_contents(__DIR__.'/../CHANGELOG.md');
-        $version='5.9.29-recovery-outcomes-v1.0.4';
+        $version='5.9.29-recovery-outcomes-v1.0.5';
         $this->assertStringContainsString('Version: '.$version,$plugin);
         $this->assertStringContainsString("TMWSEO_ENGINE_VERSION', '".$version,$plugin);
         $this->assertStringContainsString('## '.$version,$changelog);

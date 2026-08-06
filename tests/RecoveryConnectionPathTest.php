@@ -64,18 +64,37 @@ final class TestableRecoveryConnection extends Conn {
 
 /** Minimal wpdb-shaped double for the connection class. */
 final class RecoveryConnectionDouble {
+    public string $base_prefix = 'wp_';
     public string $prefix = 'wp_';
+    public int $blogid = 1;
     public string $last_error = '';
     public int $last_errno = 0;
     public $dbh = 'resource';
     public string $error = '';
     public bool $closed = false;
     public array $statements = [];
+    public array $prefix_calls = [];
+    public array $blog_id_calls = [];
     public string $fail_statement = '';
 
     public function suppress_errors( bool $s = true ): bool { return true; }
     public function hide_errors(): bool { return true; }
-    public function set_prefix( string $p ): string { $this->prefix = $p; return $p; }
+    public function set_prefix( string $p ): string {
+        $this->prefix_calls[] = $p;
+        $this->base_prefix = $p;
+        $this->prefix = $this->blogid > 1 ? $p . $this->blogid . '_' : $p;
+        return $p;
+    }
+
+    public function set_blog_id( int $blog_id ): int {
+        $previous = $this->blogid;
+        $this->blogid = $blog_id;
+        $this->blog_id_calls[] = $blog_id;
+        $this->prefix = $blog_id > 1
+            ? $this->base_prefix . $blog_id . '_'
+            : $this->base_prefix;
+        return $previous;
+    }
     public function close(): bool { $this->closed = true; return true; }
 
     public function query( string $sql ) {
@@ -104,7 +123,11 @@ final class RecoveryConnectionPathTest extends TestCase {
         $this->db = new RecoveryConnectionDouble();
         $this->conn = new TestableRecoveryConnection();
         $this->conn->next_db = $this->db;
-        $GLOBALS['wpdb'] = new class { public string $prefix = 'wp_'; };
+        $GLOBALS['wpdb'] = new class {
+            public string $base_prefix = 'wp_';
+            public string $prefix = 'wp_';
+            public int $blogid = 1;
+        };
     }
 
     protected function tearDown(): void { restore_error_handler(); }
@@ -127,6 +150,19 @@ final class RecoveryConnectionPathTest extends TestCase {
     }
 
     // ── Session policy at the factory level ───────────────────────────────
+
+    public function test_current_multisite_blog_context_is_copied(): void {
+        $GLOBALS['wpdb']->base_prefix = 'network_';
+        $GLOBALS['wpdb']->prefix = 'network_7_';
+        $GLOBALS['wpdb']->blogid = 7;
+
+        $result = $this->conn->open();
+
+        $this->assertTrue( (bool) $result['ok'], (string) $result['error'] );
+        $this->assertSame( [ 'network_' ], $this->db->prefix_calls );
+        $this->assertSame( [ 7 ], $this->db->blog_id_calls );
+        $this->assertSame( 'network_7_', $this->db->prefix );
+    }
 
     public function test_innodb_timeout_failure_at_the_factory_returns_policy_failure(): void {
         $this->db->fail_statement = 'innodb_lock_wait_timeout';
