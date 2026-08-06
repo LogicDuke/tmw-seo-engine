@@ -113,6 +113,67 @@ final class RecoveryResolutionSafetyTest extends TestCase {
         $this->assertTrue( $result['ok'], (string) $result['status'] );
         $this->assertSame( 'ok', $result['status'] );
         $this->assertSame( 'resolved', $result['row']['state'] );
+        $this->assertSame( 'acknowledged', $result['row']['resolution_decision'] );
+    }
+
+    public function test_discarded_decision_is_persisted_and_verified(): void {
+        $recorded = $this->repo->record_unresolved_outcome( $this->outcome() );
+        $decision = $this->decision();
+        $decision['decision'] = 'discarded';
+
+        $result = $this->repo->resolve_outcome( 'manual_approval:row:900', (int) $recorded['generation'], $decision );
+
+        $this->assertTrue( $result['ok'], (string) $result['status'] );
+        $this->assertSame( 'discarded', $result['row']['resolution_decision'] );
+    }
+
+    public function test_mismatched_post_write_decision_is_indeterminate(): void {
+        $recorded = $this->repo->record_unresolved_outcome( $this->outcome() );
+        $this->db->post_write_row_override = [
+            'operation_key' => 'manual_approval:row:900', 'operation_type' => 'manual_approval',
+            'row_id' => 900, 'batch_id' => 70, 'generation' => (int) $recorded['generation'],
+            'state' => 'resolved', 'resolved_by' => 42,
+            'resolution_reason' => 'verified against committed state',
+            'resolution_decision' => 'discarded',
+        ];
+
+        $result = $this->repo->resolve_outcome( 'manual_approval:row:900', (int) $recorded['generation'], $this->decision() );
+
+        $this->assertSame( 'verification_failure', $result['status'] );
+        $this->assertStringContainsString( 'INDETERMINATE', $this->message( $result ) );
+    }
+
+    public function test_stale_generation_does_not_overwrite_persisted_decision(): void {
+        $recorded = $this->repo->record_unresolved_outcome( $this->outcome() );
+        $resolved = $this->repo->resolve_outcome( 'manual_approval:row:900', (int) $recorded['generation'], $this->decision() );
+        $decision = $this->decision();
+        $decision['decision'] = 'discarded';
+
+        $refused = $this->repo->resolve_outcome( 'manual_approval:row:900', (int) $recorded['generation'] + 1, $decision );
+        $row = ( new RecoveryFakeDb( new RecoveryStore( $this->store->path ) ) )->get_row(
+            "SELECT * FROM wp_tmw_unresolved_transaction_outcomes WHERE operation_key = 'manual_approval:row:900' LIMIT 1",
+            ARRAY_A
+        );
+
+        $this->assertFalse( $refused['ok'] );
+        $this->assertSame( 'acknowledged', $resolved['row']['resolution_decision'] );
+        $this->assertSame( 'acknowledged', $row['resolution_decision'] );
+    }
+
+    public function test_zero_row_resolution_does_not_overwrite_persisted_decision(): void {
+        $recorded = $this->repo->record_unresolved_outcome( $this->outcome() );
+        $this->repo->resolve_outcome( 'manual_approval:row:900', (int) $recorded['generation'], $this->decision() );
+        $decision = $this->decision();
+        $decision['decision'] = 'discarded';
+
+        $refused = $this->repo->resolve_outcome( 'manual_approval:row:900', (int) $recorded['generation'], $decision );
+        $row = ( new RecoveryFakeDb( new RecoveryStore( $this->store->path ) ) )->get_row(
+            "SELECT * FROM wp_tmw_unresolved_transaction_outcomes WHERE operation_key = 'manual_approval:row:900' LIMIT 1",
+            ARRAY_A
+        );
+
+        $this->assertSame( 'stale_generation', $refused['status'] );
+        $this->assertSame( 'acknowledged', $row['resolution_decision'] );
     }
 
     public function test_credential_bearing_driver_error_is_redacted_from_results_and_output(): void {

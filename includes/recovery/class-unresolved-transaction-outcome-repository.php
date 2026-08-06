@@ -24,7 +24,7 @@
  *   invalid_resolution
  *
  * @package TMWSEO\Engine\Recovery
- * @since   5.9.29-recovery-outcomes-v1.0.3
+ * @since   5.9.29-recovery-outcomes-v1.0.4
  */
 
 declare(strict_types=1);
@@ -50,7 +50,7 @@ class UnresolvedTransactionOutcomeRepository {
         'id', 'operation_key', 'operation_type', 'row_id', 'batch_id',
         'expected_candidate_id', 'expected_assignment_key', 'correlation_id',
         'state', 'reason', 'evidence', 'generation',
-        'created_at', 'updated_at', 'resolved_at', 'resolved_by', 'resolution_reason',
+        'created_at', 'updated_at', 'resolved_at', 'resolved_by', 'resolution_reason', 'resolution_decision',
     ];
 
     public const REQUIRED_UNIQUE_INDEX = 'operation_identity';
@@ -303,6 +303,7 @@ class UnresolvedTransactionOutcomeRepository {
             'resolved_at'              => null,
             'resolved_by'              => 0,
             'resolution_reason'        => '',
+            'resolution_decision'      => '',
         ];
 
         $opened = $this->open_connection();
@@ -324,8 +325,8 @@ class UnresolvedTransactionOutcomeRepository {
             $created = $db->query( $db->prepare(
                 'INSERT IGNORE INTO ' . $table
                 . ' (operation_key, operation_type, row_id, batch_id, expected_candidate_id, expected_assignment_key,'
-                . ' correlation_id, state, reason, evidence, generation, created_at, updated_at, resolved_at, resolved_by, resolution_reason)'
-                . " VALUES (%s, %s, %d, %d, %d, %s, %s, %s, %s, %s, 1, %s, %s, NULL, 0, '')",
+                . ' correlation_id, state, reason, evidence, generation, created_at, updated_at, resolved_at, resolved_by, resolution_reason, resolution_decision)'
+                . " VALUES (%s, %s, %d, %d, %d, %s, %s, %s, %s, %s, 1, %s, %s, NULL, 0, '', '')",
                 $expected['operation_key'], $expected['operation_type'], $expected['row_id'], $expected['batch_id'],
                 $expected['expected_candidate_id'], $expected['expected_assignment_key'], $expected['correlation_id'],
                 $expected['state'], $expected['reason'], $expected['evidence'], $now, $now
@@ -365,7 +366,7 @@ class UnresolvedTransactionOutcomeRepository {
                 $updated = $db->query( $db->prepare(
                     'UPDATE ' . $table . ' SET generation = generation + 1, state = %s, reason = %s, evidence = %s,'
                     . ' expected_candidate_id = %d, expected_assignment_key = %s, correlation_id = %s, updated_at = %s,'
-                    . " resolved_at = NULL, resolved_by = 0, resolution_reason = ''"
+                    . " resolved_at = NULL, resolved_by = 0, resolution_reason = '', resolution_decision = ''"
                     . ' WHERE operation_key = %s AND generation = %d',
                     $expected['state'], $expected['reason'], $expected['evidence'],
                     $expected['expected_candidate_id'], $expected['expected_assignment_key'], $expected['correlation_id'],
@@ -634,10 +635,10 @@ class UnresolvedTransactionOutcomeRepository {
             // this write is NOT resolved.
             $updated = $db->query( $db->prepare(
                 'UPDATE ' . $this->table( $db ) . ' SET state = %s, resolved_at = %s, resolved_by = %d,'
-                . ' resolution_reason = %s, updated_at = %s'
+                . ' resolution_reason = %s, resolution_decision = %s, updated_at = %s'
                 . ' WHERE operation_key = %s AND generation = %d AND state = %s',
                 self::STATE_RESOLVED, $this->now(), $resolved_by,
-                $this->bounded( $why, 191 ), $this->now(),
+                $this->bounded( $why, 191 ), $choice, $this->now(),
                 $key, $expected_generation, self::STATE_UNRESOLVED
             ) );
 
@@ -680,6 +681,7 @@ class UnresolvedTransactionOutcomeRepository {
             elseif ( self::STATE_RESOLVED !== (string) ( $row['state'] ?? '' ) ) { $mismatch = 'state'; }
             elseif ( (int) ( $row['resolved_by'] ?? 0 ) !== $resolved_by ) { $mismatch = 'resolved_by'; }
             elseif ( (string) ( $row['resolution_reason'] ?? '' ) !== $this->bounded( $why, 191 ) ) { $mismatch = 'resolution_reason'; }
+            elseif ( (string) ( $row['resolution_decision'] ?? '' ) !== $choice ) { $mismatch = 'resolution_decision'; }
             elseif ( '' !== $this->identity_conflict( $row, $existing['row'] ) ) { $mismatch = 'operation identity'; }
 
             if ( '' !== $mismatch ) {
@@ -712,7 +714,7 @@ class UnresolvedTransactionOutcomeRepository {
     private function record_verification_mismatch( array $row, array $expected ): string {
         foreach ( [
             'operation_key', 'operation_type', 'expected_assignment_key', 'correlation_id',
-            'state', 'reason', 'evidence', 'resolution_reason',
+            'state', 'reason', 'evidence', 'resolution_reason', 'resolution_decision',
         ] as $field ) {
             if ( (string) ( $row[ $field ] ?? '' ) !== (string) ( $expected[ $field ] ?? '' ) ) { return $field; }
         }

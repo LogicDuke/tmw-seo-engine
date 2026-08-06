@@ -25,7 +25,7 @@
  *  - everything fails closed.
  *
  * @package TMWSEO\Engine\Recovery
- * @since   5.9.29-recovery-outcomes-v1.0.3
+ * @since   5.9.29-recovery-outcomes-v1.0.4
  */
 
 declare(strict_types=1);

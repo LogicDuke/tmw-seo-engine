@@ -99,7 +99,7 @@ final class RecoveryFakeDb {
         'id', 'operation_key', 'operation_type', 'row_id', 'batch_id',
         'expected_candidate_id', 'expected_assignment_key', 'correlation_id',
         'state', 'reason', 'evidence', 'generation',
-        'created_at', 'updated_at', 'resolved_at', 'resolved_by', 'resolution_reason',
+        'created_at', 'updated_at', 'resolved_at', 'resolved_by', 'resolution_reason', 'resolution_decision',
     ];
     public const INDEXES = [ 'PRIMARY', 'operation_identity', 'state_row' ];
 

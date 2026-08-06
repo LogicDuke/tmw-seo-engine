@@ -145,9 +145,9 @@ final class RecoveryDeltaV103Test extends TestCase {
         $this->assertSame('corr-a',(string)$r['row']['correlation_id']); $this->assertSame(10,(int)$r['row']['expected_candidate_id']);
     }
 
-    public function test_release_identity_is_exact_v103(): void {
+    public function test_release_identity_is_exact_v104(): void {
         $plugin=(string)file_get_contents(__DIR__.'/../tmw-seo-engine.php'); $changelog=(string)file_get_contents(__DIR__.'/../CHANGELOG.md');
-        $version='5.9.29-recovery-outcomes-v1.0.3';
+        $version='5.9.29-recovery-outcomes-v1.0.4';
         $this->assertStringContainsString('Version: '.$version,$plugin);
         $this->assertStringContainsString("TMWSEO_ENGINE_VERSION', '".$version,$plugin);
         $this->assertStringContainsString('## '.$version,$changelog);

@@ -30,7 +30,15 @@ if ( ! function_exists( 'dbDelta' ) ) {
      */
     function dbDelta( $queries = '', $execute = true ) {
         $GLOBALS['_tmw_dbdelta_calls'] = (int) ( $GLOBALS['_tmw_dbdelta_calls'] ?? 0 ) + 1;
+        $GLOBALS['_tmw_dbdelta_queries'][] = (string) $queries;
         if ( ! empty( $GLOBALS['_tmw_dbdelta_should_fail'] ) ) { return []; }
+        if ( isset( $GLOBALS['wpdb'] ) && $GLOBALS['wpdb'] instanceof RecoveryFakeDb
+            && false !== stripos( (string) $queries, 'resolution_decision' ) ) {
+            $GLOBALS['wpdb']->missing_columns = array_values( array_diff(
+                $GLOBALS['wpdb']->missing_columns,
+                [ 'resolution_decision' ]
+            ) );
+        }
         return [ 'created' ];
     }
 }
@@ -50,6 +58,7 @@ final class RecoverySchemaInstallationTest extends TestCase {
         $GLOBALS['_tmw_test_options'] = [];
         // dbDelta is a no-op by default: the table double already "exists".
         $GLOBALS['_tmw_dbdelta_calls'] = 0;
+        $GLOBALS['_tmw_dbdelta_queries'] = [];
         $GLOBALS['_tmw_dbdelta_should_fail'] = false;
     }
 
@@ -76,6 +85,36 @@ final class RecoverySchemaInstallationTest extends TestCase {
         $this->assertTrue( (bool) $result['ok'], (string) ( $result['reason'] ?? '' ) );
         $this->assertSame( Schema::RECOVERY_SCHEMA_VERSION, $this->version() );
         $this->assertSame( '', $this->error(), 'a verified install clears the operator error' );
+    }
+
+    public function test_installation_ddl_includes_resolution_decision(): void {
+        Schema::ensure_unresolved_transaction_outcome_schema();
+
+        $this->assertNotEmpty( $GLOBALS['_tmw_dbdelta_queries'] );
+        $this->assertStringContainsString(
+            "resolution_decision VARCHAR(20) NOT NULL DEFAULT ''",
+            implode( "\n", $GLOBALS['_tmw_dbdelta_queries'] )
+        );
+    }
+
+    public function test_v103_schema_is_upgraded_with_resolution_decision(): void {
+        update_option( Schema::RECOVERY_SCHEMA_VERSION_OPTION, '1.0.0', false );
+        $this->primary->missing_columns = [ 'resolution_decision' ];
+
+        Schema::upgrade_unresolved_transaction_outcome_schema();
+
+        $this->assertSame( [], $this->primary->missing_columns );
+        $this->assertSame( Schema::RECOVERY_SCHEMA_VERSION, $this->version() );
+        $this->assertSame( 1, $GLOBALS['_tmw_dbdelta_calls'] );
+    }
+
+    public function test_schema_verification_fails_closed_without_resolution_decision(): void {
+        $this->primary->missing_columns = [ 'resolution_decision' ];
+
+        $result = Schema::verify_unresolved_transaction_outcome_schema();
+
+        $this->assertFalse( $result['ok'] );
+        $this->assertStringContainsString( 'resolution_decision', $result['reason'] );
     }
 
     // ── Failures must not stamp the version ───────────────────────────────

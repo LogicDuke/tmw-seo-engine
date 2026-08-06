@@ -6,7 +6,7 @@ if (!defined('ABSPATH')) { exit; }
 class Schema {
 
     /** PR-H recovery schema version + option (versioned upgrade path). */
-    public const RECOVERY_SCHEMA_VERSION = '1.0.0';
+    public const RECOVERY_SCHEMA_VERSION = '1.0.1';
     public const RECOVERY_SCHEMA_VERSION_OPTION = 'tmwseo_recovery_schema_version';
 
 
@@ -1074,6 +1074,7 @@ class Schema {
             resolved_at DATETIME NULL,
             resolved_by BIGINT(20) UNSIGNED NOT NULL DEFAULT 0,
             resolution_reason VARCHAR(191) NOT NULL DEFAULT '',
+            resolution_decision VARCHAR(20) NOT NULL DEFAULT '',
             PRIMARY KEY  (id),
             UNIQUE KEY operation_identity (operation_key),
             KEY state_row (state, row_id)
@@ -1150,7 +1151,8 @@ class Schema {
     }
 
     /**
-     * PR-H — versioned upgrade path. Runs on normal initialization.
+     * PR-H — versioned upgrade path. Runs during activation, admin_init, and
+     * WP-CLI initialization, but never on an ordinary frontend request.
      *
      * A matching version option is NOT sufficient: the table may have been
      * dropped or altered since it was stamped, so the live schema is verified
