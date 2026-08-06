@@ -263,6 +263,14 @@ class Plugin {
             add_action('admin_init', [Schema::class, 'ensure_keyword_assignments_schema']);
             // PR-E: keyword assignment review tables guard (additive schema only).
             add_action('admin_init', [Schema::class, 'ensure_keyword_assignment_review_schema']);
+            // PR-H schema metadata checks belong to explicit administration,
+            // never the ordinary frontend request path.
+            add_action('admin_init', [Schema::class, 'upgrade_unresolved_transaction_outcome_schema']);
+        } elseif (defined('WP_CLI') && WP_CLI) {
+            // CLI maintenance retains the versioned upgrade path. The explicit
+            // recovery-outcomes --verify command additionally verifies the
+            // independent connection and live recovery schema.
+            Schema::upgrade_unresolved_transaction_outcome_schema();
         }
         Schema::reconcile_dfseo_scan_ledger_tables();
         Schema::normalize_cluster_schema_version_option();
@@ -409,6 +417,7 @@ class Plugin {
         }
 
         Schema::create_or_update_tables();
+        Schema::ensure_unresolved_transaction_outcome_schema();
         Schema::ensure_intelligence_schema();
         Schema::ensure_keyword_import_history_schema();
         Schema::ensure_keyword_assignments_schema();

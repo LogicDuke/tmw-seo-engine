@@ -1,5 +1,26 @@
 # Changelog
 
+## 5.9.29-recovery-outcomes-v1.0.5 - 2026-08-06
+
+- Disables automatic recovery-query replay after connection loss. Recovery
+  operations now fail closed rather than reconnecting without verified bounded
+  timeout policies.
+- Initializes the independent recovery connection from the WordPress network
+  base prefix and current blog ID, and verifies the site-specific prefix.
+- Migrates `operation_key` to `VARBINARY(191)` so durable recovery identities
+  that differ only by case remain distinct.
+- Verifies the binary operation-key column and full unique-index contract on
+  both installation and independent runtime connections.
+
+## 5.9.29-recovery-outcomes-v1.0.4 — 2026-08-05
+
+- Moves recovery schema upgrade and metadata verification off ordinary frontend
+  requests while retaining activation, admin, and WP-CLI maintenance paths.
+- Adds the durable `resolution_decision` recovery column and verifies the exact
+  acknowledged/discarded choice after generation-gated resolution writes.
+
+PR-H recovery-outcomes final safety correction. The independent recovery connection now constructs an unconnected `wpdb` subclass and explicitly calls `db_connect(false)`; later reconnects are also forced through `check_connection(false)`, so an unavailable recovery database returns a structured failure instead of terminating the WordPress request. The original `mysqli.connect_timeout` value is captured before the bounded connection attempt and restored afterward. Recovery lookups reject missing criteria and oversized operation keys fail closed across record, find, blocking checks, and resolution. Concurrent marker escalation is generation-gated and the post-write verification checks the exact caller payload; a later writer produces a superseded result rather than false durability. Release header and constant are aligned with this version.
+
 ## 5.9.25-assignment-validation-v1.1.1 — 2026-07-30
 
 PR-F rev 3 — narrow fix for the remaining transaction-boundary blocker; no other part of PR-F redesigned.

@@ -151,6 +151,9 @@ class Loader {
         tmwseo_safe_require( $p . 'class-model-fallback-keyword-pack-builder.php' );
         tmwseo_safe_require( TMWSEO_ENGINE_PATH . 'includes/models/class-model-entity-resolver.php' );
         tmwseo_safe_require( $p . 'class-keyword-pool-selected-import-service.php' );
+        // PR-H recovery subsystem (infrastructure only; no manual-approval behaviour)
+        tmwseo_safe_require( dirname( $p ) . '/recovery/class-unresolved-transaction-outcome-connection.php' );
+        tmwseo_safe_require( dirname( $p ) . '/recovery/class-unresolved-transaction-outcome-repository.php' );
         tmwseo_safe_require( $p . 'class-model-keyword-entity-repair-service.php' );
         tmwseo_safe_require( $p . 'class-page-type-keyword-filter.php' );
         tmwseo_safe_require( $p . 'class-category-page-keyword-generator.php' );
