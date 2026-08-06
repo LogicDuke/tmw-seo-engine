@@ -122,7 +122,25 @@ class UnresolvedTransactionOutcomeRepository {
      * @return array{class:string,errno:int,message:string}
      */
     private function classify( $db ): array {
-        $errno   = (int) ( $db->last_errno ?? 0 );
+        $errno = null;
+
+        if ( is_object( $db ) && method_exists( $db, 'tmwseo_driver_errno' ) ) {
+            try {
+                $driver_errno = $db->tmwseo_driver_errno();
+                if ( null !== $driver_errno ) {
+                    $errno = (int) $driver_errno;
+                }
+            } catch ( \Throwable $e ) {
+                $errno = null;
+            }
+        }
+
+        // Injected test doubles do not own a live mysqli handle, so preserve
+        // their existing numeric fallback without relying on it in production.
+        if ( null === $errno ) {
+            $errno = isset( $db->last_errno ) ? (int) $db->last_errno : 0;
+        }
+
         $message = (string) ( $db->last_error ?? '' );
         $lower   = strtolower( $message );
         $class   = 'generic';

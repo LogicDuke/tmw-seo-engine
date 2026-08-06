@@ -188,4 +188,24 @@ final class RecoveryResolutionSafetyTest extends TestCase {
             $this->assertStringNotContainsString( $sensitive, $serialized );
         }
     }
-}
+
+    public function test_live_driver_errno_is_preserved_without_last_errno_property(): void {
+        $db = new class {
+            public string $last_error = 'Lost connection to MySQL server during query';
+
+            public function tmwseo_driver_errno(): ?int {
+                return 2013;
+            }
+        };
+
+        $method = new ReflectionMethod( Repo::class, 'classify' );
+        $result = $method->invoke( $this->repo, $db );
+
+        $this->assertFalse(
+            property_exists( $db, 'last_errno' ),
+            'the production-shaped connection must not depend on last_errno'
+        );
+        $this->assertSame( 2013, $result['errno'] );
+        $this->assertSame( 'lost_connection', $result['class'] );
+        $this->assertSame( '', $result['message'] );
+    }}

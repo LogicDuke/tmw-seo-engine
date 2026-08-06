@@ -191,6 +191,24 @@ class UnresolvedTransactionOutcomeConnection {
                 return $this->db_connect( false );
             }
 
+            /**
+             * Return the active driver errno without exposing the handle.
+             *
+             * Null means no live mysqli handle was available, allowing injected
+             * test doubles to supply their existing last_errno fallback.
+             */
+            public function tmwseo_driver_errno(): ?int {
+                if ( ! is_object( $this->dbh ) || ! ( $this->dbh instanceof \mysqli ) ) {
+                    return null;
+                }
+
+                try {
+                    return \mysqli_errno( $this->dbh );
+                } catch ( \Throwable $e ) {
+                    return null;
+                }
+            }
+
             public function check_connection( $allow_bail = true ) {
                 // Fail closed. A replacement handle would not have the
                 // recovery timeout policies re-established and verified.
