@@ -282,12 +282,12 @@ final class RecoveryDeltaV101Test extends TestCase {
 
     // ══ Item 7 — release identity is consistent ══════════════════════════
 
-    public function test_source_release_version_matches_the_pr_h_release(): void {
+    public function test_source_release_version_matches_current_release(): void {
         $plugin = (string) file_get_contents( __DIR__ . '/../tmw-seo-engine.php' );
         $changelog = (string) file_get_contents( __DIR__ . '/../CHANGELOG.md' );
         $conn = (string) file_get_contents( __DIR__ . '/../includes/recovery/class-unresolved-transaction-outcome-connection.php' );
 
-        $release = '5.9.29-recovery-outcomes-v1.0.6';
+        $release = '5.9.30-manual-approval-multi-owner-v1.0.0';
         $this->assertStringContainsString( 'Version: ' . $release, $plugin, 'the plugin header must state the PR-H release version' );
         $this->assertStringContainsString( "TMWSEO_ENGINE_VERSION', '" . $release, $plugin, 'the runtime constant must state the PR-H release version' );
         $this->assertStringContainsString( '## ' . $release, $changelog, 'the changelog must state the PR-H release version' );

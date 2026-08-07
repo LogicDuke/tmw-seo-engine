@@ -404,6 +404,23 @@ class KeywordPoolImportBatchRepository {
         return is_array($row) ? $row : null;
     }
 
+    /**
+     * Current import-row read under a caller-owned transaction.
+     * Query errors remain visible through `$wpdb->last_error`.
+     *
+     * @return array<string,mixed>|null
+     */
+    public function get_row_for_update(int $row_id): ?array {
+        global $wpdb;
+        if ($row_id <= 0 || !$this->tables_exist()) { return null; }
+        $wpdb->last_error = '';
+        $row = $wpdb->get_row($wpdb->prepare(
+            'SELECT * FROM ' . $this->rows_table() . ' WHERE id = %d LIMIT 1 FOR UPDATE',
+            $row_id
+        ), ARRAY_A);
+        return is_array($row) ? $row : null;
+    }
+
     /** @return array<int,array<string,mixed>> */
     public function query_rows(int $batch_id, string $status = '', int $limit = 100, int $offset = 0, string $orderby = '', string $order = 'desc', string $search = ''): array {
         global $wpdb;

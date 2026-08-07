@@ -340,11 +340,38 @@ class KeywordPoolCandidateRepository {
         return $columns;
     }
 
+    /**
+     * Global keyword-identity lookup used by manual assignment approval.
+     *
+     * This intentionally uses the same normalized `keyword` identity as save().
+     * When `$for_update` is true the caller must already own the transaction.
+     * Query failures remain visible through `$wpdb->last_error`.
+     *
+     * @return array<string,mixed>|null
+     */
+    public function find_existing_by_keyword_global(string $keyword, bool $for_update = false): ?array {
+        global $wpdb;
+        if (!$this->table_exists()) {
+            return null;
+        }
+        $keyword = $this->normalize_keyword($keyword);
+        if ('' === $keyword) {
+            return null;
+        }
+        if (property_exists($wpdb, 'last_error')) {
+            $wpdb->last_error = '';
+        }
+        $sql = 'SELECT * FROM ' . $this->table_name() . ' WHERE keyword = %s LIMIT 1';
+        if ($for_update) {
+            $sql .= ' FOR UPDATE';
+        }
+        $row = $wpdb->get_row($wpdb->prepare($sql, $keyword), ARRAY_A);
+        return is_array($row) ? $row : null;
+    }
+
     /** @return array<string,mixed>|null */
     private function find_existing_by_keyword(string $keyword): ?array {
-        global $wpdb;
-        $row = $wpdb->get_row($wpdb->prepare('SELECT * FROM ' . $this->table_name() . ' WHERE keyword = %s LIMIT 1', $keyword), ARRAY_A);
-        return is_array($row) ? $row : null;
+        return $this->find_existing_by_keyword_global($keyword, false);
     }
 
 

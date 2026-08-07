@@ -304,6 +304,21 @@ class KeywordAssignmentRepository {
         ) ) > 0;
     }
 
+    /**
+     * Lock every assignment row for one candidate inside a caller-owned
+     * transaction. Returns false on missing schema or any read error.
+     */
+    public function lock_assignments_for_candidate( int $candidate_id ): bool {
+        if ( $candidate_id <= 0 || ! $this->table_exists() ) { return false; }
+        global $wpdb;
+        $wpdb->last_error = '';
+        $rows = $wpdb->get_results( $wpdb->prepare(
+            'SELECT id FROM ' . $this->table() . ' WHERE keyword_candidate_id = %d FOR UPDATE',
+            $candidate_id
+        ), ARRAY_A );
+        return is_array( $rows ) && '' === (string) $wpdb->last_error;
+    }
+
     // ── Writes ────────────────────────────────────────────────────────────
 
     /**

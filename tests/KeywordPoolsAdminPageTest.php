@@ -571,11 +571,17 @@ dani daniels,1200,2.50,0.10,75
         $source = file_get_contents(__DIR__ . '/../includes/admin/class-keyword-pools-admin-page.php');
         $this->assertIsString($source);
         $contractPos = strpos($source, 'self::import_row_approval_contract($row)');
+        $assignmentPos = strpos($source, 'approve_existing_category_candidate($row, $batch)');
         $persistPos = strpos($source, 'approve_import_row_as_candidate_result($row, $batch)');
         $this->assertNotFalse($contractPos);
+        $this->assertNotFalse($assignmentPos);
         $this->assertNotFalse($persistPos);
+        $this->assertLessThan($assignmentPos, $contractPos);
         $this->assertLessThan($persistPos, $contractPos);
         $this->assertStringContainsString("'result_action' => !empty($approval_was_blocked) ? 'manual_approval_blocked' : 'manual_approval_failed'", $source);
+        $this->assertStringContainsString('if ($approved_candidate_id > 0) {', $source);
+        $this->assertStringContainsString('if (!$approval_row_persisted) {', $source);
+        $this->assertStringNotContainsString('if ($approved_candidate_id > 0 && !$approval_row_persisted)', $source);
     }
 
     public function test_post_approve_attempt_contract_blocks_non_overridable_rows_and_allows_review(): void {

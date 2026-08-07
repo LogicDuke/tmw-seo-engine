@@ -287,9 +287,9 @@ final class RecoveryDeltaV103Test extends TestCase {
             $probe->calls
         );
     }
-    public function test_release_identity_is_exact_v106(): void {
+    public function test_release_identity_is_exact_multi_owner_v100(): void {
         $plugin=(string)file_get_contents(__DIR__.'/../tmw-seo-engine.php'); $changelog=(string)file_get_contents(__DIR__.'/../CHANGELOG.md');
-        $version='5.9.29-recovery-outcomes-v1.0.6';
+        $version='5.9.30-manual-approval-multi-owner-v1.0.0';
         $this->assertStringContainsString('Version: '.$version,$plugin);
         $this->assertStringContainsString("TMWSEO_ENGINE_VERSION', '".$version,$plugin);
         $this->assertStringContainsString('## '.$version,$changelog);

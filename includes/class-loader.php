@@ -135,7 +135,7 @@ class Loader {
         tmwseo_safe_require( $p . 'class-keyword-pool-dry-run-service.php' );
         tmwseo_safe_require( $p . 'class-keyword-pool-candidate-repository.php' );
         tmwseo_safe_require( $p . 'class-keyword-ownership-report-service.php' ); // PR-A read-only diagnostics
-        tmwseo_safe_require( $p . 'class-keyword-assignment-repository.php' ); // PR-C assignment layer (no production callers yet)
+        tmwseo_safe_require( $p . 'class-keyword-assignment-repository.php' ); // per-target assignment layer
         tmwseo_safe_require( $p . 'class-keyword-assignment-migration-analyzer.php' ); // PR-D migration analysis (read-only classifier)
         tmwseo_safe_require( $p . 'class-keyword-assignment-migration-service.php' ); // PR-D migration orchestrator (dry-run default)
         tmwseo_safe_require( $p . 'class-keyword-assignment-review-repository.php' ); // PR-E review state + audit (CLI workflow only)
@@ -145,6 +145,7 @@ class Loader {
         tmwseo_safe_require( $p . 'class-keyword-assignment-validation-fixture-repository.php' ); // PR-F validation fixtures (require only; CLI workflow only)
         tmwseo_safe_require( $p . 'class-keyword-assignment-validation-service.php' ); // PR-F validation workflows (dry-run default; never instantiated here)
         tmwseo_safe_require( $p . 'class-keyword-pool-import-batch-repository.php' );
+        tmwseo_safe_require( $p . 'class-keyword-pool-manual-approval-service.php' );
         tmwseo_safe_require( $p . 'class-keyword-pool-import-row-repair-service.php' );
         tmwseo_safe_require( $p . 'class-classified-model-keyword-provider.php' );
         tmwseo_safe_require( $p . 'class-keyword-pool-classification-apply-service.php' );

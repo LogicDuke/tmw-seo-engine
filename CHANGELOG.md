@@ -1,5 +1,17 @@
 # Changelog
 
+## 5.9.30-manual-approval-multi-owner-v1.0.0 - 2026-08-07
+
+- Cuts existing category import-row approval over to per-target assignments.
+- Preserves the globally unique candidate and any canonical primary owner while
+  creating or reactivating approved secondary assignments for additional owners.
+- Sets `shared_secondary_allowed=1` and never grants canonical ownership or
+  Rank Math activation from the manual extra-keyword approval path.
+- Commits candidate-status, assignment, and selected import-row writes in one
+  transaction; failures roll back and leave the row unapproved.
+- Keeps candidate-absent and non-category approval behavior on the unchanged
+  legacy path, and retains the candidate repository's different-target guard.
+
 ## 5.9.29-recovery-outcomes-v1.0.6 - 2026-08-06
 
 - Disables automatic recovery-query replay after connection loss. Recovery

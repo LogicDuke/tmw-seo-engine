@@ -13,6 +13,7 @@ use TMWSEO\Engine\Keywords\KeywordPoolCsvParser;
 use TMWSEO\Engine\Keywords\KeywordPoolDryRunService;
 use TMWSEO\Engine\Keywords\KeywordPoolClassificationPolicy;
 use TMWSEO\Engine\Keywords\KeywordPoolImportBatchRepository;
+use TMWSEO\Engine\Keywords\KeywordPoolManualApprovalService;
 use TMWSEO\Engine\Keywords\KeywordPoolSelectedImportService;
 
 if (!defined('ABSPATH')) { exit; }
@@ -384,26 +385,42 @@ class KeywordPoolsAdminPage {
             $approved_candidate_id = 0;
             $approval_was_blocked = false;
             $approval_failure_reason = (string) ($approval_contract['approval_block_reason'] ?? 'approval_unavailable');
+            $approval_row_persisted = false;
             if (empty($approval_contract['can_approve'])) {
                 $approval_was_blocked = true;
                 $approval_failure_reason = '' !== $approval_failure_reason ? $approval_failure_reason : 'approval_unavailable';
-            } elseif ($candidate_id > 0 && $repository->update_candidate_status($candidate_id, 'approved')) {
-                $approved_candidate_id = $candidate_id;
             } else {
-                $approval_result = (new KeywordPoolSelectedImportService())->approve_import_row_as_candidate_result($row, $batch);
-                $approved_candidate_id = !empty($approval_result['ok']) ? (int) ($approval_result['candidate_id'] ?? 0) : 0;
-                $approval_failure_reason = (string) ($approval_result['safe_reason'] ?? 'candidate_persistence_failed');
+                // [TMW-KW-MANUAL-APPROVE] Existing category candidates are
+                // approved through per-target assignments so one keyword can
+                // serve several owners without rewriting canonical ownership.
+                $assignment_approval = (new KeywordPoolManualApprovalService())
+                    ->approve_existing_category_candidate($row, $batch);
+                if (!empty($assignment_approval['handled'])) {
+                    $approved_candidate_id = !empty($assignment_approval['ok'])
+                        ? (int) ($assignment_approval['candidate_id'] ?? 0)
+                        : 0;
+                    $approval_failure_reason = (string) ($assignment_approval['safe_reason'] ?? 'assignment_approval_failed');
+                    $approval_row_persisted = !empty($assignment_approval['row_persisted']);
+                } elseif ($candidate_id > 0 && $repository->update_candidate_status($candidate_id, 'approved')) {
+                    $approved_candidate_id = $candidate_id;
+                } else {
+                    $approval_result = (new KeywordPoolSelectedImportService())->approve_import_row_as_candidate_result($row, $batch);
+                    $approved_candidate_id = !empty($approval_result['ok']) ? (int) ($approval_result['candidate_id'] ?? 0) : 0;
+                    $approval_failure_reason = (string) ($approval_result['safe_reason'] ?? 'candidate_persistence_failed');
+                }
             }
 
             if ($approved_candidate_id > 0) {
-                $repository->update_import_row($row_id, [
-                    'status' => 'approved',
-                    'result_action' => 'approved',
-                    'result_reason' => 'manually_approved',
-                    'candidate_id' => $approved_candidate_id,
-                    'reviewed_by' => get_current_user_id(),
-                    'reviewed_at' => $now,
-                ]);
+                if (!$approval_row_persisted) {
+                    $repository->update_import_row($row_id, [
+                        'status' => 'approved',
+                        'result_action' => 'approved',
+                        'result_reason' => 'manually_approved',
+                        'candidate_id' => $approved_candidate_id,
+                        'reviewed_by' => get_current_user_id(),
+                        'reviewed_at' => $now,
+                    ]);
+                }
             } else {
                 $repository->update_import_row($row_id, [
                     'result_action' => !empty($approval_was_blocked) ? 'manual_approval_blocked' : 'manual_approval_failed',
