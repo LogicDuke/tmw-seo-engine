@@ -287,10 +287,9 @@ final class RecoveryDeltaV101Test extends TestCase {
         $changelog = (string) file_get_contents( __DIR__ . '/../CHANGELOG.md' );
         $conn = (string) file_get_contents( __DIR__ . '/../includes/recovery/class-unresolved-transaction-outcome-connection.php' );
 
-        preg_match( '/@since\s+(\S+)/', $conn, $m );
-        $release = (string) ( $m[1] ?? '' );
-        $this->assertNotSame( '', $release );
-        $this->assertStringContainsString( $release, $plugin, 'the plugin header must state the PR-H release version' );
-        $this->assertStringContainsString( $release, $changelog, 'the changelog must state the PR-H release version' );
+        $release = '5.9.29-recovery-outcomes-v1.0.6';
+        $this->assertStringContainsString( 'Version: ' . $release, $plugin, 'the plugin header must state the PR-H release version' );
+        $this->assertStringContainsString( "TMWSEO_ENGINE_VERSION', '" . $release, $plugin, 'the runtime constant must state the PR-H release version' );
+        $this->assertStringContainsString( '## ' . $release, $changelog, 'the changelog must state the PR-H release version' );
     }
 }

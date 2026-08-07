@@ -9,8 +9,8 @@ use TMWSEO\Engine\Recovery\UnresolvedTransactionOutcomeRepository as Repo;
 if ( ! class_exists( 'wpdb', false ) ) {
     class wpdb {
         public static bool $connect_result = true;
-        protected $dbuser; protected $dbpassword; protected $dbname; protected $dbhost; protected $reconnect_retries=5;
-        public string $base_prefix = 'wp_'; public string $prefix = 'wp_'; public int $blogid = 1; public string $last_error=''; public int $last_errno=0;
+        protected $dbuser; protected $dbpassword; protected $dbname; protected $dbhost; protected $reconnect_retries=5; protected bool $has_connected=false;
+        public string $base_prefix = 'wp_'; public string $prefix = 'wp_'; public int $blogid = 1; public string $last_error=''; public int $last_errno=0; public bool $is_mysql=false;
         public $dbh = null; public bool $ready=false; public array $connect_allow_bail=[]; public array $check_allow_bail=[];
         public bool $parent_constructor_called = false;
         public string $driver_used = '';
@@ -39,6 +39,18 @@ if ( ! class_exists( 'wpdb', false ) ) {
         public function check_connection( $allow_bail = true ) { $this->check_allow_bail[]=$allow_bail; if($allow_bail){ throw new RuntimeException('bailing reconnect called'); } return false; }
         public function suppress_errors( bool $s=true ): bool { return true; }
         public function hide_errors(): bool { return true; }
+
+        public function parse_db_host( $host ) {
+            return [ $host, null, null, false ];
+        }
+
+        public function init_charset(): void {}
+
+        public function set_charset( $dbh ): void {}
+
+        public function set_sql_mode(): void {}
+
+        public function select( $dbname, $dbh = null ): void {}
         public function set_prefix( string $p ): string {
             $this->base_prefix = $p;
             $this->prefix = $this->blogid > 1 ? $p . $this->blogid . '_' : $p;
@@ -58,6 +70,7 @@ if ( ! defined( 'DB_NAME' ) ) { define( 'DB_NAME', 'tmw_test_db' ); }
 if ( ! defined( 'DB_USER' ) ) { define( 'DB_USER', 'tmw_test_user' ); }
 if ( ! defined( 'DB_PASSWORD' ) ) { define( 'DB_PASSWORD', 'secret' ); }
 if ( ! defined( 'DB_HOST' ) ) { define( 'DB_HOST', 'db.invalid' ); }
+if ( ! defined( 'MYSQLI_OPT_CONNECT_TIMEOUT' ) ) { define( 'MYSQLI_OPT_CONNECT_TIMEOUT', 987654 ); }
 
 require_once __DIR__ . '/support/RecoveryFakeDb.php';
 require_once __DIR__ . '/../includes/recovery/class-unresolved-transaction-outcome-connection.php';
@@ -65,23 +78,36 @@ require_once __DIR__ . '/../includes/recovery/class-unresolved-transaction-outco
 
 
 final class NonBailingRecoveryConnection extends Conn {
-    private string $timeout = '60';
-    protected function read_connect_timeout() { return $this->timeout; }
-    protected function write_connect_timeout( string $value ) { $previous=$this->timeout; $this->timeout=$value; return $previous; }
-}
+    public array $native_calls = [];
 
-final class TimeoutTrackingRecoveryConnection extends Conn {
-    public array $values = [ '17' ];
-    public array $writes = [];
-    protected function read_connect_timeout() { return end($this->values); }
-    protected function write_connect_timeout( string $value ) { $this->writes[]=$value; $previous=end($this->values); $this->values[]=$value; return $previous; }
-    protected function create_wpdb() { return new class {
-        public string $base_prefix='wp_'; public string $prefix='wp_'; public int $blogid=1; public string $last_error=''; public $dbh='connected'; public string $error='';
-        public function suppress_errors(bool $s=true):bool{return true;} public function hide_errors():bool{return true;}
-        public function set_prefix(string $p):string{$this->base_prefix=$p;$this->prefix=$this->blogid>1?$p.$this->blogid.'_':$p;return $p;}
-        public function set_blog_id(int $id):int{$previous=$this->blogid;$this->blogid=$id;$this->prefix=$id>1?$this->base_prefix.$id.'_':$this->base_prefix;return $previous;}
-        public function query(string $q){return 0;} public function close():bool{return true;}
-    }; }
+    protected function recovery_mysqli_disable_reporting(): bool {
+        $this->native_calls[] = [ 'reporting_off' ];
+        return true;
+    }
+
+    protected function recovery_mysqli_init() {
+        $this->native_calls[] = [ 'init' ];
+        return (object) [ 'handle' => true ];
+    }
+
+    protected function recovery_mysqli_options( $dbh, int $option, int $value ): bool {
+        $this->native_calls[] = [ 'option', $option, $value ];
+        return true;
+    }
+
+    protected function recovery_mysqli_real_connect(
+        $dbh,
+        string $host,
+        string $user,
+        string $password,
+        ?string $database,
+        ?int $port,
+        ?string $socket,
+        int $flags
+    ): bool {
+        $this->native_calls[] = [ 'connect', $host ];
+        return wpdb::$connect_result;
+    }
 }
 
 final class RecoveryDeltaV103Test extends TestCase {
@@ -101,16 +127,39 @@ final class RecoveryDeltaV103Test extends TestCase {
     ],$o); }
     private function repo(?RecoveryFakeDb &$db=null): Repo { $store=RecoveryStore::fresh('v103-'.uniqid('',true)); $db=new RecoveryFakeDb($store); return new Repo(new RecoveryFakeConnectionFactory($db)); }
 
-    public function test_real_factory_uses_non_bailing_connect_and_fail_closed_reconnect(): void {
-        $conn=new NonBailingRecoveryConnection(); $result=$conn->open();
-        $this->assertTrue((bool)$result['ok'],(string)$result['error']);
-        $db=$result['db'];
-        $this->assertTrue($db->parent_constructor_called, 'WordPress parent constructor must initialize private driver state');
-        $this->assertSame('mysqli', $db->driver_used, 'WordPress 6.3-compatible recovery connections must use MySQLi');
-        $this->assertSame([false],$db->connect_allow_bail);
-        $this->assertFalse((bool)$db->check_connection(), 'reconnect must return false rather than bail');
-        $this->assertSame([], $db->check_allow_bail, 'the parent reconnect path must not run');
-        $conn->close($db);
+    public function test_real_factory_uses_native_bounded_connect_and_fail_closed_reconnect(): void {
+        $conn = new NonBailingRecoveryConnection();
+        $result = $conn->open();
+
+        $this->assertTrue( (bool) $result['ok'], (string) $result['error'] );
+        $db = $result['db'];
+
+        $this->assertTrue(
+            $db->parent_constructor_called,
+            'WordPress parent constructor must initialize private driver state'
+        );
+
+        $this->assertSame(
+            [
+                [ 'reporting_off' ],
+                [ 'init' ],
+                [ 'option', MYSQLI_OPT_CONNECT_TIMEOUT, Conn::CONNECT_TIMEOUT ],
+                [ 'connect', DB_HOST ],
+            ],
+            $conn->native_calls
+        );
+
+        $this->assertFalse(
+            (bool) $db->check_connection(),
+            'reconnect must return false rather than bail'
+        );
+        $this->assertSame(
+            [],
+            $db->check_allow_bail,
+            'the parent reconnect path must not run'
+        );
+
+        $conn->close( $db );
     }
 
     public function test_unavailable_independent_connection_returns_without_terminating_request(): void {
@@ -122,10 +171,20 @@ final class RecoveryDeltaV103Test extends TestCase {
         } finally { wpdb::$connect_result=true; }
     }
 
-    public function test_original_connect_timeout_is_captured_before_change_and_restored(): void {
-        $conn=new TimeoutTrackingRecoveryConnection(); $result=$conn->open();
-        $this->assertTrue((bool)$result['ok'],(string)$result['error']);
-        $this->assertSame(['3','17'],$conn->writes,'must apply 3 then restore original 17');
+    public function test_native_connect_timeout_is_applied_during_factory_open(): void {
+        $conn = new NonBailingRecoveryConnection();
+        $result = $conn->open();
+
+        $this->assertTrue( (bool) $result['ok'], (string) $result['error'] );
+        $this->assertSame(
+            [
+                [ 'reporting_off' ],
+                [ 'init' ],
+                [ 'option', MYSQLI_OPT_CONNECT_TIMEOUT, Conn::CONNECT_TIMEOUT ],
+                [ 'connect', DB_HOST ],
+            ],
+            $conn->native_calls
+        );
     }
 
     public function test_empty_blocking_criteria_fail_closed(): void {
@@ -161,9 +220,76 @@ final class RecoveryDeltaV103Test extends TestCase {
         $this->assertSame('corr-a',(string)$r['row']['correlation_id']); $this->assertSame(10,(int)$r['row']['expected_candidate_id']);
     }
 
-    public function test_release_identity_is_exact_v105(): void {
+
+    public function test_native_mysqli_timeout_is_applied_before_real_connect(): void {
+        if ( ! defined( 'MYSQLI_OPT_CONNECT_TIMEOUT' ) ) {
+            define( 'MYSQLI_OPT_CONNECT_TIMEOUT', 987654 );
+        }
+
+        require_once __DIR__ . '/../includes/recovery/class-recovery-native-mysqli-connect-trait.php';
+
+        $probe = new class {
+            use \TMWSEO\Engine\Recovery\RecoveryNativeMysqliConnectTrait;
+
+            public array $calls = [];
+
+            protected function recovery_mysqli_disable_reporting(): bool {
+                $this->calls[] = [ 'reporting_off' ];
+                return true;
+            }
+
+            protected function recovery_mysqli_init() {
+                $this->calls[] = [ 'init' ];
+                return (object) [ 'handle' => true ];
+            }
+
+            protected function recovery_mysqli_options( $dbh, int $option, int $value ): bool {
+                $this->calls[] = [ 'option', $option, $value ];
+                return true;
+            }
+
+            protected function recovery_mysqli_real_connect(
+                $dbh,
+                string $host,
+                string $user,
+                string $password,
+                ?string $database,
+                ?int $port,
+                ?string $socket,
+                int $flags
+            ): bool {
+                $this->calls[] = [ 'connect', $host ];
+                return true;
+            }
+
+            public function run() {
+                return $this->recovery_native_mysqli_connect(
+                    'db.internal.example',
+                    'tmw_test_user',
+                    'secret',
+                    'tmw_test_db',
+                    null,
+                    null,
+                    0,
+                    Conn::CONNECT_TIMEOUT
+                );
+            }
+        };
+
+        $this->assertNotFalse( $probe->run() );
+        $this->assertSame(
+            [
+                [ 'reporting_off' ],
+                [ 'init' ],
+                [ 'option', MYSQLI_OPT_CONNECT_TIMEOUT, 3 ],
+                [ 'connect', 'db.internal.example' ],
+            ],
+            $probe->calls
+        );
+    }
+    public function test_release_identity_is_exact_v106(): void {
         $plugin=(string)file_get_contents(__DIR__.'/../tmw-seo-engine.php'); $changelog=(string)file_get_contents(__DIR__.'/../CHANGELOG.md');
-        $version='5.9.29-recovery-outcomes-v1.0.5';
+        $version='5.9.29-recovery-outcomes-v1.0.6';
         $this->assertStringContainsString('Version: '.$version,$plugin);
         $this->assertStringContainsString("TMWSEO_ENGINE_VERSION', '".$version,$plugin);
         $this->assertStringContainsString('## '.$version,$changelog);

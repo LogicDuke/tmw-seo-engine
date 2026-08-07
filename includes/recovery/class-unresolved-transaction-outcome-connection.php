@@ -33,8 +33,11 @@ declare(strict_types=1);
 namespace TMWSEO\Engine\Recovery;
 
 if ( ! defined( 'ABSPATH' ) ) { exit; }
+require_once __DIR__ . '/class-recovery-native-mysqli-connect-trait.php';
 
 class UnresolvedTransactionOutcomeConnection {
+
+    use RecoveryNativeMysqliConnectTrait;
 
     /** Seconds a recovery statement may wait for a row lock before giving up. */
     public const LOCK_WAIT_TIMEOUT = 3;
@@ -62,25 +65,6 @@ class UnresolvedTransactionOutcomeConnection {
             }
         }
 
-        // Capture the process setting BEFORE changing it. The recovery attempt
-        // must not leak its short timeout into the rest of the PHP request.
-        $previous_timeout = $this->read_connect_timeout();
-        if ( false === $previous_timeout ) {
-            $this->log( 'connect timeout could not be read; refusing to change a process setting that cannot be restored' );
-            return [
-                'ok' => false, 'status' => 'connection_policy_failure', 'db' => null,
-                'error' => 'recovery connect timeout could not be inspected',
-            ];
-        }
-        if ( ! $this->bound_connect_timeout() ) {
-            $this->restore_connect_timeout( $previous_timeout );
-            $this->log( 'connect timeout could not be bounded; refusing to open an unbounded recovery connection' );
-            return [
-                'ok' => false, 'status' => 'connection_policy_failure', 'db' => null,
-                'error' => 'recovery connect timeout could not be applied',
-            ];
-        }
-
         $db             = null;
         $connected      = false;
         $connection_err = false;
@@ -97,16 +81,6 @@ class UnresolvedTransactionOutcomeConnection {
             // Driver/constructor messages can echo connection details, so they
             // are never propagated.
             $connection_err = true;
-        }
-
-        $restored = $this->restore_connect_timeout( $previous_timeout );
-        if ( ! $restored ) {
-            $this->log( 'connect timeout could not be restored after recovery connection attempt' );
-            $this->close( $db );
-            return [
-                'ok' => false, 'status' => 'connection_policy_failure', 'db' => null,
-                'error' => 'recovery connect timeout could not be restored',
-            ];
         }
 
         if ( $connection_err || ! $connected ) {
@@ -187,8 +161,55 @@ class UnresolvedTransactionOutcomeConnection {
                 return parent::db_connect( false );
             }
 
-            public function tmwseo_connect_without_bail() {
-                return $this->db_connect( false );
+
+            public function tmwseo_connect_with_native_timeout( callable $connector ): bool {
+                $this->is_mysql = true;
+
+                $host    = $this->dbhost;
+                $port    = null;
+                $socket  = null;
+                $is_ipv6 = false;
+
+                $parsed = $this->parse_db_host( $this->dbhost );
+                if ( $parsed ) {
+                    [ $host, $port, $socket, $is_ipv6 ] = $parsed;
+                }
+
+                if ( $is_ipv6 && extension_loaded( 'mysqlnd' ) ) {
+                    $host = '[' . $host . ']';
+                }
+
+                $flags = defined( 'MYSQL_CLIENT_FLAGS' ) ? (int) MYSQL_CLIENT_FLAGS : 0;
+
+                $dbh = $connector(
+                    (string) $host,
+                    (string) $this->dbuser,
+                    (string) $this->dbpassword,
+                    null,
+                    null === $port ? null : (int) $port,
+                    null === $socket ? null : (string) $socket,
+                    $flags
+                );
+
+                if ( false === $dbh || null === $dbh ) {
+                    $this->dbh   = null;
+                    $this->ready = false;
+                    return false;
+                }
+
+                $this->dbh = $dbh;
+                $this->init_charset();
+                $this->set_charset( $this->dbh );
+                $this->ready = true;
+
+                if ( property_exists( $this, 'has_connected' ) ) {
+                    $this->has_connected = true;
+                }
+
+                $this->set_sql_mode();
+                $this->select( $this->dbname, $this->dbh );
+
+                return true;
             }
 
             /**
@@ -219,48 +240,35 @@ class UnresolvedTransactionOutcomeConnection {
 
     /** Connect an unconnected recovery wpdb without allowing WordPress to bail. */
     protected function connect_wpdb( $db ): bool {
-        if ( is_object( $db ) && method_exists( $db, 'tmwseo_connect_without_bail' ) ) {
-            return true === $db->tmwseo_connect_without_bail();
+        if ( ! is_object( $db ) ) {
+            return false;
         }
-        if ( is_object( $db ) && method_exists( $db, 'db_connect' ) ) {
-            return true === $db->db_connect( false );
+
+        if ( method_exists( $db, 'tmwseo_connect_with_native_timeout' ) ) {
+            return true === $db->tmwseo_connect_with_native_timeout(
+                fn(
+                    string $host,
+                    string $user,
+                    string $password,
+                    ?string $database,
+                    ?int $port,
+                    ?string $socket,
+                    int $flags
+                ) => $this->recovery_native_mysqli_connect(
+                    $host,
+                    $user,
+                    $password,
+                    $database,
+                    $port,
+                    $socket,
+                    $flags,
+                    self::CONNECT_TIMEOUT
+                )
+            );
         }
+
         // Test doubles may arrive already connected.
-        return is_object( $db ) && ! empty( $db->dbh );
-    }
-
-    /** @return string|false */
-    protected function read_connect_timeout() {
-        return ini_get( 'mysqli.connect_timeout' );
-    }
-
-    /** @return string|false the previous value, matching ini_set() */
-    protected function write_connect_timeout( string $value ) {
-        return @ini_set( 'mysqli.connect_timeout', $value );
-    }
-
-    /** Restore the process-level setting captured before this operation. */
-    protected function restore_connect_timeout( $previous_timeout ): bool {
-        if ( false === $previous_timeout ) { return true; }
-        $applied = $this->write_connect_timeout( (string) $previous_timeout );
-        if ( false !== $applied ) {
-            return (string) $previous_timeout === (string) $this->read_connect_timeout();
-        }
-        return (string) $previous_timeout === (string) $this->read_connect_timeout();
-    }
-
-    /**
-     * Bound the connect attempt and CONFIRM the bound was accepted.
-     *
-     * An unbounded connect can hang a request that is already in an unknown
-     * state, so failure here refuses the connection rather than proceeding.
-     */
-    protected function bound_connect_timeout(): bool {
-        $applied = $this->write_connect_timeout( (string) self::CONNECT_TIMEOUT );
-        if ( false !== $applied ) {
-            return (string) self::CONNECT_TIMEOUT === (string) $this->read_connect_timeout();
-        }
-        return (string) self::CONNECT_TIMEOUT === (string) $this->read_connect_timeout();
+        return ! empty( $db->dbh );
     }
 
     /**

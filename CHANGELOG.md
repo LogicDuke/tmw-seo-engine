@@ -1,6 +1,6 @@
 # Changelog
 
-## 5.9.29-recovery-outcomes-v1.0.5 - 2026-08-06
+## 5.9.29-recovery-outcomes-v1.0.6 - 2026-08-06
 
 - Disables automatic recovery-query replay after connection loss. Recovery
   operations now fail closed rather than reconnecting without verified bounded
