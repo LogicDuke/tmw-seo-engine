@@ -42,20 +42,6 @@ final class TestableRecoveryConnection extends Conn {
         return $this->next_db;
     }
 
-    protected function read_connect_timeout() {
-        return $this->connect_timeout;
-    }
-
-    protected function write_connect_timeout( string $value ) {
-        $previous = $this->connect_timeout;
-        $this->connect_timeout = $value;
-        return $previous;
-    }
-
-    protected function bound_connect_timeout(): bool {
-        if ( ! $this->can_bound_connect_timeout ) { return false; }
-        return parent::bound_connect_timeout();
-    }
 
     protected function log( string $message ): void {
         $this->logged[] = $message;
@@ -140,16 +126,16 @@ final class RecoveryConnectionPathTest extends TestCase {
         $this->assertSame( 1, $this->conn->constructed );
     }
 
-    public function test_unbounded_connect_timeout_returns_connection_policy_failure(): void {
+    public function test_process_ini_timeout_gate_is_not_required_for_connection(): void {
         $this->conn->can_bound_connect_timeout = false;
+
         $result = $this->conn->open();
 
-        $this->assertFalse( (bool) $result['ok'] );
-        $this->assertSame( 'connection_policy_failure', (string) $result['status'] );
-        $this->assertSame( 0, $this->conn->constructed, 'no connection may be attempted unbounded' );
+        $this->assertTrue( (bool) $result['ok'], (string) $result['error'] );
+        $this->assertSame( 1, $this->conn->constructed );
     }
 
-    // ── Session policy at the factory level ───────────────────────────────
+    // -- Session policy at the factory level --
 
     public function test_current_multisite_blog_context_is_copied(): void {
         $GLOBALS['wpdb']->base_prefix = 'network_';
