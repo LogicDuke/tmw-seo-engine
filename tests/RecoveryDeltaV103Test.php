@@ -80,6 +80,11 @@ require_once __DIR__ . '/../includes/recovery/class-unresolved-transaction-outco
 final class NonBailingRecoveryConnection extends Conn {
     public array $native_calls = [];
 
+    protected function recovery_mysqli_disable_reporting(): bool {
+        $this->native_calls[] = [ 'reporting_off' ];
+        return true;
+    }
+
     protected function recovery_mysqli_init() {
         $this->native_calls[] = [ 'init' ];
         return (object) [ 'handle' => true ];
@@ -136,6 +141,7 @@ final class RecoveryDeltaV103Test extends TestCase {
 
         $this->assertSame(
             [
+                [ 'reporting_off' ],
                 [ 'init' ],
                 [ 'option', MYSQLI_OPT_CONNECT_TIMEOUT, Conn::CONNECT_TIMEOUT ],
                 [ 'connect', DB_HOST ],
@@ -172,6 +178,7 @@ final class RecoveryDeltaV103Test extends TestCase {
         $this->assertTrue( (bool) $result['ok'], (string) $result['error'] );
         $this->assertSame(
             [
+                [ 'reporting_off' ],
                 [ 'init' ],
                 [ 'option', MYSQLI_OPT_CONNECT_TIMEOUT, Conn::CONNECT_TIMEOUT ],
                 [ 'connect', DB_HOST ],
@@ -226,6 +233,11 @@ final class RecoveryDeltaV103Test extends TestCase {
 
             public array $calls = [];
 
+            protected function recovery_mysqli_disable_reporting(): bool {
+                $this->calls[] = [ 'reporting_off' ];
+                return true;
+            }
+
             protected function recovery_mysqli_init() {
                 $this->calls[] = [ 'init' ];
                 return (object) [ 'handle' => true ];
@@ -267,6 +279,7 @@ final class RecoveryDeltaV103Test extends TestCase {
         $this->assertNotFalse( $probe->run() );
         $this->assertSame(
             [
+                [ 'reporting_off' ],
                 [ 'init' ],
                 [ 'option', MYSQLI_OPT_CONNECT_TIMEOUT, 3 ],
                 [ 'connect', 'db.internal.example' ],
@@ -274,9 +287,9 @@ final class RecoveryDeltaV103Test extends TestCase {
             $probe->calls
         );
     }
-    public function test_release_identity_is_exact_v105(): void {
+    public function test_release_identity_is_exact_v106(): void {
         $plugin=(string)file_get_contents(__DIR__.'/../tmw-seo-engine.php'); $changelog=(string)file_get_contents(__DIR__.'/../CHANGELOG.md');
-        $version='5.9.29-recovery-outcomes-v1.0.5';
+        $version='5.9.29-recovery-outcomes-v1.0.6';
         $this->assertStringContainsString('Version: '.$version,$plugin);
         $this->assertStringContainsString("TMWSEO_ENGINE_VERSION', '".$version,$plugin);
         $this->assertStringContainsString('## '.$version,$changelog);

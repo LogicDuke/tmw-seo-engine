@@ -36,6 +36,10 @@ trait RecoveryNativeMysqliConnectTrait {
             return false;
         }
 
+        if ( ! $this->recovery_mysqli_disable_reporting() ) {
+            return false;
+        }
+
         $dbh = $this->recovery_mysqli_init();
         if ( ! $dbh ) {
             return false;
@@ -59,6 +63,15 @@ trait RecoveryNativeMysqliConnectTrait {
         }
 
         return $dbh;
+    }
+
+    protected function recovery_mysqli_disable_reporting(): bool {
+        if ( ! function_exists( 'mysqli_report' ) || ! defined( 'MYSQLI_REPORT_OFF' ) ) {
+            return false;
+        }
+
+        \mysqli_report( MYSQLI_REPORT_OFF );
+        return true;
     }
 
     protected function recovery_mysqli_init() {
