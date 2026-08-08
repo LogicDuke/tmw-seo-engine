@@ -394,6 +394,11 @@ class KeywordPoolsAdminPage {
                 $approved_candidate_id = !empty($approval_result['ok']) ? (int) ($approval_result['candidate_id'] ?? 0) : 0;
                 $approval_persisted_by_service = $approved_candidate_id > 0;
                 $approval_failure_reason = (string) ($approval_result['safe_reason'] ?? 'candidate_persistence_failed');
+                if ($approved_candidate_id <= 0 && $candidate_id <= 0 && 'candidate_not_found' === $approval_failure_reason) {
+                    $approval_result = (new KeywordPoolSelectedImportService())->approve_import_row_as_candidate_result($row, $batch);
+                    $approved_candidate_id = !empty($approval_result['ok']) ? (int) ($approval_result['candidate_id'] ?? 0) : 0;
+                    $approval_failure_reason = (string) ($approval_result['safe_reason'] ?? 'candidate_persistence_failed');
+                }
             } elseif ($candidate_id > 0 && $repository->update_candidate_status($candidate_id, 'approved')) {
                 $approved_candidate_id = $candidate_id;
             } else {

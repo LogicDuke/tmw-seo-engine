@@ -576,7 +576,9 @@ dani daniels,1200,2.50,0.10,75
         $this->assertNotFalse($persistPos);
         $this->assertLessThan($persistPos, $contractPos);
         $this->assertStringContainsString("'result_action' => !empty(\$approval_was_blocked) ? 'manual_approval_blocked' : 'manual_approval_failed'", $source);
-        $this->assertStringContainsString("'category' === (string) (\$batch['pool'] ?? '')", $source);
+        $this->assertStringContainsString("} elseif ('category' === (string) (\$batch['pool'] ?? '')) {", $source);
+        $this->assertStringNotContainsString("} elseif (\$candidate_id > 0 && 'category' === (string) (\$batch['pool'] ?? '')) {", $source);
+        $this->assertStringContainsString("if (\$approved_candidate_id <= 0 && \$candidate_id <= 0 && 'candidate_not_found' === \$approval_failure_reason) {", $source);
         $this->assertStringContainsString('$repository->update_candidate_status($candidate_id, \'approved\')', $source, 'Existing model/global candidates retain the legacy status-only approval path.');
         $this->assertStringContainsString('approve_import_row_as_candidate_result($row, $batch)', $source, 'Unlinked model/global rows retain candidate persistence.');
     }
