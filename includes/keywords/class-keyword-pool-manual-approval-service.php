@@ -71,9 +71,24 @@ final class KeywordPoolManualApprovalService {
             'target_key'  => 'tmw_category_page:' . $target_id,
         ];
         $existing = $assignments->find_assignment( $candidate_id, $identity );
-        if ( is_array( $existing ) && ( 'secondary' !== (string) ( $existing['role'] ?? '' ) || 0 !== (int) ( $existing['canonical_owner'] ?? 0 ) ) ) {
-            $wpdb->query( 'ROLLBACK' );
-            return $this->result( false, 'existing_assignment_ownership_ambiguous' );
+        if ( is_array( $existing ) ) {
+            $existing_role = (string) ( $existing['role'] ?? '' );
+            $existing_status = (string) ( $existing['status'] ?? '' );
+            $existing_canonical_owner = (int) ( $existing['canonical_owner'] ?? 0 );
+
+            $existing_is_approved_primary =
+                'primary' === $existing_role
+                && 'approved' === $existing_status
+                && 1 === $existing_canonical_owner;
+
+            $existing_is_secondary =
+                'secondary' === $existing_role
+                && 0 === $existing_canonical_owner;
+
+            if ( ! $existing_is_approved_primary && ! $existing_is_secondary ) {
+                $wpdb->query( 'ROLLBACK' );
+                return $this->result( false, 'existing_assignment_ownership_ambiguous' );
+            }
         }
         $primary = $assignments->find_primary_owner( $candidate_id );
         if ( is_array( $primary ) && 'approved' !== (string) ( $primary['status'] ?? '' ) ) {
