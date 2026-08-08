@@ -383,20 +383,37 @@ class KeywordPoolsAdminPage {
         if ('approve' === $requested_action) {
             $approval_contract = self::import_row_approval_contract($row);
             $approved_candidate_id = 0;
+            $approval_persisted_by_service = false;
             $approval_was_blocked = false;
             $approval_failure_reason = (string) ($approval_contract['approval_block_reason'] ?? 'approval_unavailable');
             if (empty($approval_contract['can_approve'])) {
                 $approval_was_blocked = true;
                 $approval_failure_reason = '' !== $approval_failure_reason ? $approval_failure_reason : 'approval_unavailable';
-            } else {
+            } elseif ($candidate_id > 0 && 'category' === (string) ($batch['pool'] ?? '')) {
                 $approval_result = (new KeywordPoolManualApprovalService())->approve($row, $batch, get_current_user_id());
+                $approved_candidate_id = !empty($approval_result['ok']) ? (int) ($approval_result['candidate_id'] ?? 0) : 0;
+                $approval_persisted_by_service = $approved_candidate_id > 0;
+                $approval_failure_reason = (string) ($approval_result['safe_reason'] ?? 'candidate_persistence_failed');
+            } elseif ($candidate_id > 0 && $repository->update_candidate_status($candidate_id, 'approved')) {
+                $approved_candidate_id = $candidate_id;
+            } else {
+                $approval_result = (new KeywordPoolSelectedImportService())->approve_import_row_as_candidate_result($row, $batch);
                 $approved_candidate_id = !empty($approval_result['ok']) ? (int) ($approval_result['candidate_id'] ?? 0) : 0;
                 $approval_failure_reason = (string) ($approval_result['safe_reason'] ?? 'candidate_persistence_failed');
             }
 
             // The service persists successful approval atomically. Never
             // overwrite that durable state with a post-service failure row.
-            if ($approved_candidate_id <= 0) {
+            if ($approved_candidate_id > 0 && !$approval_persisted_by_service) {
+                $repository->update_import_row($row_id, [
+                    'status' => 'approved',
+                    'result_action' => 'approved',
+                    'result_reason' => 'manually_approved',
+                    'candidate_id' => $approved_candidate_id,
+                    'reviewed_by' => get_current_user_id(),
+                    'reviewed_at' => $now,
+                ]);
+            } elseif ($approved_candidate_id <= 0) {
                 $repository->update_import_row($row_id, [
                     'result_action' => !empty($approval_was_blocked) ? 'manual_approval_blocked' : 'manual_approval_failed',
                     'result_reason' => $approval_failure_reason ?? 'candidate_persistence_failed',

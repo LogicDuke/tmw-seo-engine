@@ -132,11 +132,21 @@ class CategoryApprovedKeywordResolver {
             $this->fetch_approved_rows( $table, $post_id, $has_volume ),
             $this->fetch_approved_assignment_rows( $table, $post_id, $has_volume )
         );
+        $rows = $this->order_and_limit_rows( $rows );
         if ( empty( $rows ) ) {
             return $empty;
         }
 
         return $this->process_rows( $rows, $focus_keyword, $rankmath_limit, $content_limit, $post_id );
+    }
+
+    /** @param array<int,array<string,mixed>> $rows @return array<int,array<string,mixed>> */
+    protected function order_and_limit_rows( array $rows ): array {
+        usort( $rows, static function ( array $a, array $b ): int {
+            $volume_order = (int) ( $b['volume'] ?? 0 ) <=> (int) ( $a['volume'] ?? 0 );
+            return 0 !== $volume_order ? $volume_order : (int) ( $a['id'] ?? 0 ) <=> (int) ( $b['id'] ?? 0 );
+        } );
+        return array_slice( $rows, 0, self::DB_FETCH_LIMIT );
     }
 
     // ── Private: DB ──────────────────────────────────────────────────────────
@@ -219,24 +229,20 @@ class CategoryApprovedKeywordResolver {
             $sql = $wpdb->prepare(
                 $select . $table
                 . ' WHERE intent_type = %s AND ' . $ownership . ' AND status = %s'
-                . ' ' . $order
-                . ' LIMIT %d',
+                . ' ' . $order,
                 'category',
                 $post_id,
                 $post_id,
-                self::SAFE_STATUS,
-                self::DB_FETCH_LIMIT
+                self::SAFE_STATUS
             );
         } else {
             $sql = $wpdb->prepare(
                 $select . $table
                 . ' WHERE intent_type = %s AND ' . $ownership . ' AND status = %s'
-                . ' ' . $order
-                . ' LIMIT %d',
+                . ' ' . $order,
                 'category',
                 $post_id,
-                self::SAFE_STATUS,
-                self::DB_FETCH_LIMIT
+                self::SAFE_STATUS
             );
         }
         // phpcs:enable
@@ -270,14 +276,13 @@ class CategoryApprovedKeywordResolver {
         $order  = $has_volume ? 'COALESCE(NULLIF(c.volume, 0), 0) DESC, c.id ASC' : 'c.id ASC';
         // phpcs:disable WordPress.DB.PreparedSQL.InterpolatedNotPrepared
         $sql = $wpdb->prepare(
-            "SELECT c.id, c.keyword, c.status, {$volume} FROM {$assignment_table} a INNER JOIN {$candidate_table} c ON c.id = a.keyword_candidate_id WHERE a.pool = %s AND a.page_type = %s AND a.target_type = %s AND a.target_id = %d AND a.status = %s AND c.status = %s ORDER BY {$order} LIMIT %d",
+            "SELECT c.id, c.keyword, c.status, {$volume} FROM {$assignment_table} a INNER JOIN {$candidate_table} c ON c.id = a.keyword_candidate_id WHERE a.pool = %s AND a.page_type = %s AND a.target_type = %s AND a.target_id = %d AND a.status = %s AND c.status = %s ORDER BY {$order}",
             'category',
             'tmw_category_page',
-            'category_page',
+            'tmw_category_page',
             $post_id,
             self::SAFE_STATUS,
-            self::SAFE_STATUS,
-            self::DB_FETCH_LIMIT
+            self::SAFE_STATUS
         );
         // phpcs:enable
         $rows = $wpdb->get_results( $sql, ARRAY_A );

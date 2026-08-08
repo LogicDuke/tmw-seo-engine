@@ -17,7 +17,7 @@ final class KeywordPoolManualApprovalService {
         $candidate_id = (int) ( $row['candidate_id'] ?? 0 );
         $target_id   = (int) ( $row['target_id'] ?? $batch['target_id'] ?? 0 );
         $target_type = (string) ( $row['target_type'] ?? $batch['target_type'] ?? '' );
-        if ( $row_id <= 0 || $target_id <= 0 || 'category_page' !== $target_type ) {
+        if ( $row_id <= 0 || $target_id <= 0 || ! in_array( $target_type, [ 'category_page', 'tmw_category_page' ], true ) ) {
             return $this->result( false, 'invalid_assignment_target' );
         }
 
@@ -42,9 +42,9 @@ final class KeywordPoolManualApprovalService {
         $identity = [
             'pool'        => 'category',
             'page_type'   => 'tmw_category_page',
-            'target_type' => 'category_page',
+            'target_type' => 'tmw_category_page',
             'target_id'   => $target_id,
-            'target_key'  => 'category_page:' . $target_id,
+            'target_key'  => 'tmw_category_page:' . $target_id,
         ];
         $existing = $assignments->find_assignment( $candidate_id, $identity );
         if ( is_array( $existing ) && ( 'secondary' !== (string) ( $existing['role'] ?? '' ) || 0 !== (int) ( $existing['canonical_owner'] ?? 0 ) ) ) {
@@ -107,7 +107,7 @@ final class KeywordPoolManualApprovalService {
             return is_array( $found ) ? $found : null;
         }
         $wpdb->last_error = '';
-        $keyword = strtolower( trim( (string) preg_replace( '/\s+/', ' ', $keyword ) ) );
+        $keyword = ( new KeywordPoolCandidateRepository() )->normalize_keyword( $keyword );
         if ( '' === $keyword ) { return null; }
         $wpdb->last_error = '';
         $found = $wpdb->get_row( $wpdb->prepare( "SELECT * FROM {$table} WHERE keyword = %s LIMIT 1 FOR UPDATE", $keyword ), ARRAY_A );
