@@ -38,4 +38,20 @@ final class KeywordPoolManualApprovalServiceTest extends TestCase {
         $this->assertTrue( false !== $start );
         $this->assertLessThan( $start, $engine );
     }
+
+    public function test_creates_missing_candidate_inside_approval_transaction(): void {
+        $start = strpos( $this->source, "query( 'START TRANSACTION'" );
+        $create = strpos( $this->source, 'approve_import_row_as_candidate_result( $row, $batch )' );
+        $assignment = strpos( $this->source, '$assignments->upsert_assignment(' );
+        $commit = strpos( $this->source, "query( 'COMMIT'" );
+
+        $this->assertNotFalse( $start );
+        $this->assertNotFalse( $create );
+        $this->assertNotFalse( $assignment );
+        $this->assertNotFalse( $commit );
+        $this->assertLessThan( $create, $start );
+        $this->assertLessThan( $assignment, $create );
+        $this->assertLessThan( $commit, $assignment );
+        $this->assertStringContainsString("return \$this->result( false, (string) ( \$candidate_result['safe_reason'] ?? 'candidate_persistence_failed' ) );", $this->source);
+    }
 }

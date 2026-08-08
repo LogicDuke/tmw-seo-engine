@@ -394,19 +394,6 @@ class KeywordPoolsAdminPage {
                 $approved_candidate_id = !empty($approval_result['ok']) ? (int) ($approval_result['candidate_id'] ?? 0) : 0;
                 $approval_persisted_by_service = $approved_candidate_id > 0;
                 $approval_failure_reason = (string) ($approval_result['safe_reason'] ?? 'candidate_persistence_failed');
-                if ($approved_candidate_id <= 0 && $candidate_id <= 0 && 'candidate_not_found' === $approval_failure_reason) {
-                    $candidate_result = (new KeywordPoolSelectedImportService())->approve_import_row_as_candidate_result($row, $batch);
-                    $candidate_id = !empty($candidate_result['ok']) ? (int) ($candidate_result['candidate_id'] ?? 0) : 0;
-                    if ($candidate_id > 0) {
-                        $row['candidate_id'] = $candidate_id;
-                        $approval_result = (new KeywordPoolManualApprovalService())->approve($row, $batch, get_current_user_id());
-                        $approved_candidate_id = !empty($approval_result['ok']) ? (int) ($approval_result['candidate_id'] ?? 0) : 0;
-                        $approval_persisted_by_service = $approved_candidate_id > 0;
-                        $approval_failure_reason = (string) ($approval_result['safe_reason'] ?? 'assignment_write_failed');
-                    } else {
-                        $approval_failure_reason = (string) ($candidate_result['safe_reason'] ?? 'candidate_persistence_failed');
-                    }
-                }
             } elseif ($candidate_id > 0 && $repository->update_candidate_status($candidate_id, 'approved')) {
                 $approved_candidate_id = $candidate_id;
             } else {

@@ -35,8 +35,30 @@ final class KeywordPoolManualApprovalService {
 
         $candidate = $this->find_candidate( $candidate_table, $candidate_id, (string) ( $row['normalized_keyword'] ?? $row['keyword'] ?? '' ) );
         if ( null === $candidate ) {
-            $wpdb->query( 'ROLLBACK' );
-            return $this->result( false, '' !== (string) $wpdb->last_error ? 'candidate_lookup_failed' : 'candidate_not_found' );
+            if ( '' !== (string) $wpdb->last_error ) {
+                $wpdb->query( 'ROLLBACK' );
+                return $this->result( false, 'candidate_lookup_failed' );
+            }
+            if ( $candidate_id > 0 ) {
+                $wpdb->query( 'ROLLBACK' );
+                return $this->result( false, 'candidate_not_found' );
+            }
+
+            // Candidate-less import rows must be materialized on the same connection and
+            // inside this transaction so a later assignment/import-row failure rolls the
+            // candidate write back with the rest of the approval.
+            $candidate_result = ( new KeywordPoolSelectedImportService() )->approve_import_row_as_candidate_result( $row, $batch );
+            $candidate_id = ! empty( $candidate_result['ok'] ) ? (int) ( $candidate_result['candidate_id'] ?? 0 ) : 0;
+            if ( $candidate_id <= 0 ) {
+                $wpdb->query( 'ROLLBACK' );
+                return $this->result( false, (string) ( $candidate_result['safe_reason'] ?? 'candidate_persistence_failed' ) );
+            }
+            $candidate = $this->find_candidate( $candidate_table, $candidate_id, '' );
+            if ( null === $candidate ) {
+                $reason = '' !== (string) $wpdb->last_error ? 'candidate_lookup_failed' : 'candidate_not_found';
+                $wpdb->query( 'ROLLBACK' );
+                return $this->result( false, $reason );
+            }
         }
         $candidate_id = (int) ( $candidate['id'] ?? 0 );
         $identity = [
