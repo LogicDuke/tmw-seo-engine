@@ -14,14 +14,15 @@ final class KeywordPoolManualApprovalServiceTest extends TestCase {
         $this->source = $source;
     }
 
-    public function test_uses_canonical_migration_identity_and_secondary_payload(): void {
+    public function test_uses_canonical_migration_identity_and_role_appropriate_payload(): void {
         $this->assertStringContainsString("'pool'        => 'category'", $this->source);
         $this->assertStringContainsString("'page_type'   => 'tmw_category_page'", $this->source);
         $this->assertStringContainsString("'target_type' => 'tmw_category_page'", $this->source);
         $this->assertStringContainsString("'target_key'  => 'tmw_category_page:'", $this->source);
-        $this->assertStringContainsString("'role'                     => 'secondary'", $this->source);
-        $this->assertStringContainsString("'canonical_owner'          => 0", $this->source);
-        $this->assertStringContainsString("'shared_secondary_allowed' => 1", $this->source);
+        $this->assertStringContainsString("\$assignment_role = \$candidate_created ? 'primary' : 'secondary'", $this->source);
+        $this->assertStringContainsString("'role'                     => \$assignment_role", $this->source);
+        $this->assertStringContainsString("'canonical_owner'          => \$candidate_created ? 1 : 0", $this->source);
+        $this->assertStringContainsString("'shared_secondary_allowed' => \$candidate_created ? 0 : 1", $this->source);
         $this->assertStringContainsString("'active_in_rank_math'      => 0", $this->source);
     }
 
@@ -53,5 +54,6 @@ final class KeywordPoolManualApprovalServiceTest extends TestCase {
         $this->assertLessThan( $assignment, $create );
         $this->assertLessThan( $commit, $assignment );
         $this->assertStringContainsString("return \$this->result( false, (string) ( \$candidate_result['safe_reason'] ?? 'candidate_persistence_failed' ) );", $this->source);
+        $this->assertStringContainsString("'safe_reason'   => \$candidate_created ? 'manually_approved_primary' : 'manually_approved_secondary'", $this->source);
     }
 }

@@ -33,6 +33,7 @@ final class KeywordPoolManualApprovalService {
             return $this->result( false, 'transaction_start_failed' );
         }
 
+        $candidate_created = false;
         $candidate = $this->find_candidate( $candidate_table, $candidate_id, (string) ( $row['normalized_keyword'] ?? $row['keyword'] ?? '' ) );
         if ( null === $candidate ) {
             if ( '' !== (string) $wpdb->last_error ) {
@@ -53,6 +54,7 @@ final class KeywordPoolManualApprovalService {
                 $wpdb->query( 'ROLLBACK' );
                 return $this->result( false, (string) ( $candidate_result['safe_reason'] ?? 'candidate_persistence_failed' ) );
             }
+            $candidate_created = true;
             $candidate = $this->find_candidate( $candidate_table, $candidate_id, '' );
             if ( null === $candidate ) {
                 $reason = '' !== (string) $wpdb->last_error ? 'candidate_lookup_failed' : 'candidate_not_found';
@@ -79,14 +81,15 @@ final class KeywordPoolManualApprovalService {
             return $this->result( false, 'canonical_primary_not_approved' );
         }
 
+        $assignment_role = $candidate_created ? 'primary' : 'secondary';
         $assignment = $assignments->upsert_assignment( array_merge( $identity, [
             'keyword_candidate_id'     => $candidate_id,
             'target_name'              => (string) ( $row['target_name'] ?? $batch['target_name'] ?? '' ),
             'target_slug'              => (string) ( $batch['target_slug'] ?? '' ),
-            'role'                     => 'secondary',
+            'role'                     => $assignment_role,
             'status'                   => 'approved',
-            'canonical_owner'          => 0,
-            'shared_secondary_allowed' => 1,
+            'canonical_owner'          => $candidate_created ? 1 : 0,
+            'shared_secondary_allowed' => $candidate_created ? 0 : 1,
             'active_in_rank_math'      => 0,
             'approval_reason'          => 'manual_approval',
             'source_batch_id'          => (int) ( $row['batch_id'] ?? $batch['id'] ?? 0 ),
@@ -116,7 +119,12 @@ final class KeywordPoolManualApprovalService {
             $wpdb->query( 'ROLLBACK' );
             return $this->result( false, 'transaction_commit_failed' );
         }
-        return [ 'ok' => true, 'candidate_id' => $candidate_id, 'assignment_id' => (int) ( $assignment['id'] ?? 0 ), 'safe_reason' => 'manually_approved_secondary' ];
+        return [
+            'ok'            => true,
+            'candidate_id'  => $candidate_id,
+            'assignment_id' => (int) ( $assignment['id'] ?? 0 ),
+            'safe_reason'   => $candidate_created ? 'manually_approved_primary' : 'manually_approved_secondary',
+        ];
     }
 
     /** @return array<string,mixed>|null */
