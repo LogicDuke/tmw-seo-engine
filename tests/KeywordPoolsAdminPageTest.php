@@ -579,6 +579,8 @@ dani daniels,1200,2.50,0.10,75
         $this->assertStringContainsString("} elseif ('category' === (string) (\$batch['pool'] ?? '')) {", $source);
         $this->assertStringNotContainsString("} elseif (\$candidate_id > 0 && 'category' === (string) (\$batch['pool'] ?? '')) {", $source);
         $this->assertStringContainsString("if (\$approved_candidate_id <= 0 && \$candidate_id <= 0 && 'candidate_not_found' === \$approval_failure_reason) {", $source);
+        $this->assertStringContainsString("\$row['candidate_id'] = \$candidate_id;", $source);
+        $this->assertSame(2, substr_count($source, 'KeywordPoolManualApprovalService())->approve($row, $batch, get_current_user_id())'), 'Candidate-less category approval retries the assignment workflow after creating the candidate.');
         $this->assertStringContainsString('$repository->update_candidate_status($candidate_id, \'approved\')', $source, 'Existing model/global candidates retain the legacy status-only approval path.');
         $this->assertStringContainsString('approve_import_row_as_candidate_result($row, $batch)', $source, 'Unlinked model/global rows retain candidate persistence.');
     }
