@@ -262,6 +262,17 @@ class KeywordAssignmentRepository {
         return is_array( $row ) ? $row : null;
     }
 
+    /** Return any recorded primary evidence, including inactive/non-canonical rows. */
+    public function find_primary_assignment( int $candidate_id ): ?array {
+        if ( $candidate_id <= 0 || ! $this->table_exists() ) { return null; }
+        global $wpdb;
+        $row = $wpdb->get_row( $wpdb->prepare(
+            "SELECT * FROM {$this->table()} WHERE keyword_candidate_id = %d AND role = 'primary' ORDER BY id ASC LIMIT 1 FOR UPDATE",
+            $candidate_id
+        ), ARRAY_A );
+        return is_array( $row ) ? $row : null;
+    }
+
     /**
      * PR-D — read rows by source attribution (rollback/diagnostics scope).
      *
@@ -403,6 +414,51 @@ class KeywordAssignmentRepository {
         }
         $this->log( sprintf( 'upserted assignment id=%d candidate=%d (existing identity)', $existing_id, (int) $normalized['keyword_candidate_id'] ) );
         return [ 'ok' => true, 'id' => $existing_id, 'action' => 'updated' ];
+    }
+
+    /**
+     * Create an assignment while the caller owns the current transaction.
+     *
+     * Unlike create_assignment(), this method never starts or finishes a
+     * transaction. Primary creation still locks the candidate's assignments
+     * and verifies the single-active-owner invariant before returning.
+     *
+     * @return array{ok:bool,id?:int,error?:string}
+     */
+    public function create_assignment_in_transaction( array $data ): array {
+        if ( ! $this->table_exists() ) { return [ 'ok' => false, 'error' => 'assignments_table_missing' ]; }
+        $normalized = $this->normalize_assignment( $data );
+        if ( isset( $normalized['error'] ) ) { return [ 'ok' => false, 'error' => (string) $normalized['error'] ]; }
+
+        global $wpdb;
+        $candidate_id = (int) $normalized['keyword_candidate_id'];
+        $wpdb->last_error = '';
+        $locked = $wpdb->get_results( $wpdb->prepare(
+            "SELECT id FROM {$this->table()} WHERE keyword_candidate_id = %d FOR UPDATE",
+            $candidate_id
+        ), ARRAY_A );
+        if ( ! is_array( $locked ) || '' !== (string) $wpdb->last_error ) {
+            return [ 'ok' => false, 'error' => 'candidate_lock_failed' ];
+        }
+        if ( (int) $wpdb->get_var( $wpdb->prepare(
+            'SELECT id FROM ' . $this->table() . ' WHERE assignment_key = %s LIMIT 1',
+            $normalized['assignment_key']
+        ) ) > 0 ) {
+            return [ 'ok' => false, 'error' => 'assignment_identity_exists' ];
+        }
+        if ( $this->is_active_canonical_primary( $normalized ) && 0 !== $this->active_owner_count( $candidate_id ) ) {
+            return [ 'ok' => false, 'error' => 'active_primary_owner_already_exists' ];
+        }
+        $normalized['created_at'] = $this->now();
+        $normalized['updated_at'] = $this->now();
+        if ( false === $wpdb->insert( $this->table(), $this->to_row( $normalized ) ) ) {
+            return [ 'ok' => false, 'error' => 'insert_failed' ];
+        }
+        $id = (int) $wpdb->insert_id;
+        if ( $this->is_active_canonical_primary( $normalized ) && 1 !== $this->active_owner_count( $candidate_id ) ) {
+            return [ 'ok' => false, 'error' => 'primary_owner_verification_failed' ];
+        }
+        return [ 'ok' => true, 'id' => $id ];
     }
 
     /**

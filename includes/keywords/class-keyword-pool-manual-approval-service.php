@@ -33,7 +33,6 @@ final class KeywordPoolManualApprovalService {
             return $this->result( false, 'transaction_start_failed' );
         }
 
-        $candidate_created = false;
         $candidate = $this->find_candidate( $candidate_table, $candidate_id, (string) ( $row['normalized_keyword'] ?? $row['keyword'] ?? '' ) );
         if ( null === $candidate ) {
             if ( '' !== (string) $wpdb->last_error ) {
@@ -54,7 +53,6 @@ final class KeywordPoolManualApprovalService {
                 $wpdb->query( 'ROLLBACK' );
                 return $this->result( false, (string) ( $candidate_result['safe_reason'] ?? 'candidate_persistence_failed' ) );
             }
-            $candidate_created = true;
             $candidate = $this->find_candidate( $candidate_table, $candidate_id, '' );
             if ( null === $candidate ) {
                 $reason = '' !== (string) $wpdb->last_error ? 'candidate_lookup_failed' : 'candidate_not_found';
@@ -71,31 +69,55 @@ final class KeywordPoolManualApprovalService {
             'target_key'  => 'tmw_category_page:' . $target_id,
         ];
         $existing = $assignments->find_assignment( $candidate_id, $identity );
-        if ( is_array( $existing ) && ( 'secondary' !== (string) ( $existing['role'] ?? '' ) || 0 !== (int) ( $existing['canonical_owner'] ?? 0 ) ) ) {
-            $wpdb->query( 'ROLLBACK' );
-            return $this->result( false, 'existing_assignment_ownership_ambiguous' );
-        }
         $primary = $assignments->find_primary_owner( $candidate_id );
-        if ( is_array( $primary ) && 'approved' !== (string) ( $primary['status'] ?? '' ) ) {
+        $primary_evidence = $assignments->find_primary_assignment( $candidate_id );
+        if ( is_array( $existing ) ) {
+            $is_approved_primary = 'primary' === (string) ( $existing['role'] ?? '' )
+                && 'approved' === (string) ( $existing['status'] ?? '' )
+                && 1 === (int) ( $existing['canonical_owner'] ?? 0 );
+            $is_approved_secondary = 'secondary' === (string) ( $existing['role'] ?? '' )
+                && 'approved' === (string) ( $existing['status'] ?? '' )
+                && 0 === (int) ( $existing['canonical_owner'] ?? 0 );
+            if ( ! $is_approved_primary && ! $is_approved_secondary ) {
+                $wpdb->query( 'ROLLBACK' );
+                return $this->result( false, 'existing_assignment_state_not_approved' );
+            }
+            $assignment = [ 'ok' => true, 'id' => (int) ( $existing['id'] ?? 0 ) ];
+            $assignment_role = $is_approved_primary ? 'primary' : 'secondary';
+        } elseif ( is_array( $primary ) ) {
+            if ( 'primary' !== (string) ( $primary['role'] ?? '' )
+                || 'approved' !== (string) ( $primary['status'] ?? '' )
+                || 1 !== (int) ( $primary['canonical_owner'] ?? 0 ) ) {
+                $wpdb->query( 'ROLLBACK' );
+                return $this->result( false, 'canonical_primary_not_approved' );
+            }
+            $assignment_role = 'secondary';
+        } elseif ( is_array( $primary_evidence ) ) {
             $wpdb->query( 'ROLLBACK' );
             return $this->result( false, 'canonical_primary_not_approved' );
+        } elseif ( ! $this->legacy_target_matches( $candidate, $target_type, $target_id ) ) {
+            $wpdb->query( 'ROLLBACK' );
+            return $this->result( false, 'role_inference_ambiguous_no_primary_evidence' );
+        } else {
+            $assignment_role = 'primary';
         }
 
-        $assignment_role = $candidate_created ? 'primary' : 'secondary';
-        $assignment = $assignments->upsert_assignment( array_merge( $identity, [
+        if ( ! isset( $assignment ) ) {
+            $assignment = $assignments->create_assignment_in_transaction( array_merge( $identity, [
             'keyword_candidate_id'     => $candidate_id,
             'target_name'              => (string) ( $row['target_name'] ?? $batch['target_name'] ?? '' ),
             'target_slug'              => (string) ( $batch['target_slug'] ?? '' ),
             'role'                     => $assignment_role,
             'status'                   => 'approved',
-            'canonical_owner'          => $candidate_created ? 1 : 0,
-            'shared_secondary_allowed' => $candidate_created ? 0 : 1,
+            'canonical_owner'          => 'primary' === $assignment_role ? 1 : 0,
+            'shared_secondary_allowed' => 'secondary' === $assignment_role ? 1 : 0,
             'active_in_rank_math'      => 0,
             'approval_reason'          => 'manual_approval',
             'source_batch_id'          => (int) ( $row['batch_id'] ?? $batch['id'] ?? 0 ),
             'source_import_row_id'     => $row_id,
             'source_type'              => 'manual_approval',
-        ] ) );
+            ] ) );
+        }
         if ( empty( $assignment['ok'] ) ) {
             $wpdb->query( 'ROLLBACK' );
             return $this->result( false, 'assignment_write_failed' );
@@ -123,8 +145,18 @@ final class KeywordPoolManualApprovalService {
             'ok'            => true,
             'candidate_id'  => $candidate_id,
             'assignment_id' => (int) ( $assignment['id'] ?? 0 ),
-            'safe_reason'   => $candidate_created ? 'manually_approved_primary' : 'manually_approved_secondary',
+            'safe_reason'   => 'primary' === $assignment_role ? 'manually_approved_primary' : 'manually_approved_secondary',
         ];
+    }
+
+    /** @param array<string,mixed> $candidate */
+    private function legacy_target_matches( array $candidate, string $target_type, int $target_id ): bool {
+        $legacy_id = (int) ( $candidate['target_id'] ?? 0 );
+        if ( $legacy_id <= 0 ) { $legacy_id = (int) ( $candidate['entity_id'] ?? 0 ); }
+        $legacy_type = (string) ( $candidate['target_type'] ?? '' );
+        return $legacy_id === $target_id
+            && in_array( $legacy_type, [ 'category_page', 'tmw_category_page' ], true )
+            && in_array( $target_type, [ 'category_page', 'tmw_category_page' ], true );
     }
 
     /** @return array<string,mixed>|null */
