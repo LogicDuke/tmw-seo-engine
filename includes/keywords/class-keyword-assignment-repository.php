@@ -405,6 +405,17 @@ class KeywordAssignmentRepository {
         return [ 'ok' => true, 'id' => $existing_id, 'action' => 'updated' ];
     }
 
+    /** Create an active primary while the caller owns the current transaction. */
+    public function create_primary_assignment_in_transaction( array $data ): array {
+        if ( ! $this->table_exists() ) { return [ 'ok' => false, 'error' => 'assignments_table_missing' ]; }
+        $normalized = $this->normalize_assignment( $data );
+        if ( isset( $normalized['error'] ) ) { return [ 'ok' => false, 'error' => (string) $normalized['error'] ]; }
+        if ( ! $this->is_active_canonical_primary( $normalized ) ) {
+            return [ 'ok' => false, 'error' => 'active_primary_required' ];
+        }
+        return $this->create_active_primary_atomically( $normalized, false );
+    }
+
     /**
      * Assignment-scoped status change. Never touches the candidate table or
      * any other assignment. Moving to a Rank-Math-forbidden status clears
@@ -567,38 +578,39 @@ class KeywordAssignmentRepository {
     }
 
     /** @param array<string,mixed> $normalized @return array{ok:bool,id?:int,error?:string} */
-    private function create_active_primary_atomically( array $normalized ): array {
+    private function create_active_primary_atomically( array $normalized, bool $manage_transaction = true ): array {
         global $wpdb;
         $table = $this->table();
         $candidate_id = (int) $normalized['keyword_candidate_id'];
         $wpdb->last_error = '';
-        if ( false === $wpdb->query( 'START TRANSACTION' ) || '' !== (string) $wpdb->last_error ) {
+        if ( $manage_transaction && ( false === $wpdb->query( 'START TRANSACTION' ) || '' !== (string) $wpdb->last_error ) ) {
             return [ 'ok' => false, 'error' => 'transaction_start_failed' ];
         }
         $wpdb->last_error = '';
         $locked = $wpdb->get_results( $wpdb->prepare( "SELECT id FROM {$table} WHERE keyword_candidate_id = %d FOR UPDATE", $candidate_id ), ARRAY_A );
         if ( ! is_array( $locked ) || '' !== (string) $wpdb->last_error ) {
-            $wpdb->query( 'ROLLBACK' );
+            if ( $manage_transaction ) { $wpdb->query( 'ROLLBACK' ); }
             return [ 'ok' => false, 'error' => 'candidate_lock_failed' ];
         }
         $existing = (int) $wpdb->get_var( $wpdb->prepare( "SELECT id FROM {$table} WHERE assignment_key = %s LIMIT 1", $normalized['assignment_key'] ) );
         if ( $existing > 0 ) {
-            $wpdb->query( 'ROLLBACK' );
+            if ( $manage_transaction ) { $wpdb->query( 'ROLLBACK' ); }
             return [ 'ok' => false, 'error' => 'assignment_identity_exists', 'id' => $existing ];
         }
         if ( 0 !== $this->active_owner_count( $candidate_id ) ) {
-            $wpdb->query( 'ROLLBACK' );
+            if ( $manage_transaction ) { $wpdb->query( 'ROLLBACK' ); }
             return [ 'ok' => false, 'error' => 'active_primary_owner_already_exists' ];
         }
         $normalized['created_at'] = $this->now();
         $normalized['updated_at'] = $this->now();
         if ( false === $wpdb->insert( $table, $this->to_row( $normalized ) ) ) {
-            $wpdb->query( 'ROLLBACK' );
+            if ( $manage_transaction ) { $wpdb->query( 'ROLLBACK' ); }
             return [ 'ok' => false, 'error' => 'insert_failed' ];
         }
         $id = (int) $wpdb->insert_id;
-        if ( 1 !== $this->active_owner_count( $candidate_id ) || false === $wpdb->query( 'COMMIT' ) ) {
-            $wpdb->query( 'ROLLBACK' );
+        if ( 1 !== $this->active_owner_count( $candidate_id )
+            || ( $manage_transaction && false === $wpdb->query( 'COMMIT' ) ) ) {
+            if ( $manage_transaction ) { $wpdb->query( 'ROLLBACK' ); }
             return [ 'ok' => false, 'error' => 'primary_owner_verification_failed' ];
         }
         $this->log( sprintf( 'created assignment id=%d candidate=%d key=%s role=primary status=%s', $id, $candidate_id, (string) $normalized['target_key'], (string) $normalized['status'] ) );
