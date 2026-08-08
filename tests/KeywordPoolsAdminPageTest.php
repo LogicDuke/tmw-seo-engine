@@ -571,18 +571,21 @@ dani daniels,1200,2.50,0.10,75
         $source = file_get_contents(__DIR__ . '/../includes/admin/class-keyword-pools-admin-page.php');
         $this->assertIsString($source);
         $contractPos = strpos($source, 'self::import_row_approval_contract($row)');
-        $persistPos = strpos($source, 'approve_import_row_as_candidate_result($row, $batch)');
+        $persistPos = strpos($source, 'KeywordPoolManualApprovalService())->approve($row, $batch');
         $this->assertNotFalse($contractPos);
         $this->assertNotFalse($persistPos);
         $this->assertLessThan($persistPos, $contractPos);
-        $this->assertStringContainsString("'result_action' => !empty($approval_was_blocked) ? 'manual_approval_blocked' : 'manual_approval_failed'", $source);
+        $this->assertStringContainsString("'result_action' => !empty(\$approval_was_blocked) ? 'manual_approval_blocked' : 'manual_approval_failed'", $source);
+        $this->assertStringContainsString("\$candidate_id > 0 && 'category' === (string) (\$batch['pool'] ?? '')", $source);
+        $this->assertStringContainsString('$repository->update_candidate_status($candidate_id, \'approved\')', $source, 'Existing model/global candidates retain the legacy status-only approval path.');
+        $this->assertStringContainsString('approve_import_row_as_candidate_result($row, $batch)', $source, 'Unlinked model/global rows retain candidate persistence.');
     }
 
     public function test_post_approve_attempt_contract_blocks_non_overridable_rows_and_allows_review(): void {
         $method = new ReflectionMethod(KeywordPoolsAdminPage::class, 'import_row_approval_contract');
         $method->setAccessible(true);
         $cases = [
-            'blocked row POST approve attempt' => [ 'row' => [ 'id' => 1, 'validation_state' => 'blocked', 'decision' => 'block', 'row_payload' => json_encode([ 'reason_codes' => [] ]) ], 'can' => false, 'reason' => 'blocked_non_overridable_policy' ],
+            'blocked row POST approve attempt' => [ 'row' => [ 'id' => 1, 'validation_state' => 'blocked', 'decision' => 'block', 'keyword' => 'blocked example keyword', 'normalized_keyword' => 'blocked example keyword', 'row_payload' => json_encode([ 'keyword' => 'blocked example keyword', 'normalized_keyword' => 'blocked example keyword', 'reason_codes' => [] ]) ], 'can' => false, 'reason' => 'blocked_non_overridable_policy' ],
             'unsafe row POST approve attempt' => [ 'row' => [ 'id' => 2, 'validation_state' => 'blocked', 'decision' => 'block', 'row_payload' => json_encode([ 'reason_codes' => [ 'unsafe_keyword' ] ]) ], 'can' => false, 'reason' => 'unsafe_keyword' ],
             'invalid-metric row POST approve attempt' => [ 'row' => [ 'id' => 3, 'validation_state' => 'review_required', 'decision' => 'review_required', 'normalized_keyword' => 'asian cam models', 'row_payload' => json_encode([ 'ad_difficulty' => 'abc', 'reason_codes' => [ 'invalid_ad_difficulty' ] ]) ], 'can' => false, 'reason' => 'invalid_ad_difficulty' ],
             'valid review row POST approve attempt' => [ 'row' => [ 'id' => 4, 'validation_state' => 'review_required', 'decision' => 'review_required', 'normalized_keyword' => 'free cam chat rooms', 'row_payload' => json_encode([ 'reason_codes' => [ 'target_context_browse_supporting_intent' ] ]) ], 'can' => true, 'reason' => '' ],

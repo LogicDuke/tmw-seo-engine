@@ -49,6 +49,10 @@ class CategoryApprovedKeywordResolverTestable extends \TMWSEO\Engine\Keywords\Ca
     public function test_token_key( string $keyword ): string {
         return $this->token_key( $keyword );
     }
+
+    public function test_order_and_limit_rows( array $rows ): array {
+        return $this->order_and_limit_rows( $rows );
+    }
 }
 
 class CategoryApprovedKeywordResolverTest extends TestCase {
@@ -68,6 +72,18 @@ class CategoryApprovedKeywordResolverTest extends TestCase {
 
     private function unapproved_row( string $keyword, string $status ): array {
         return [ 'keyword' => $keyword, 'status' => $status, 'volume' => 0 ];
+    }
+
+    public function test_assignment_and_legacy_rows_share_one_global_order_and_limit(): void {
+        $rows = [];
+        for ( $id = 1; $id <= 45; $id++ ) {
+            $rows[] = [ 'id' => $id, 'keyword' => 'legacy ' . $id, 'status' => 'approved', 'volume' => 100 - $id ];
+        }
+        $rows[] = [ 'id' => 900, 'keyword' => 'high volume secondary', 'status' => 'approved', 'volume' => 1000 ];
+        $ordered = $this->resolver->test_order_and_limit_rows( $rows );
+        $this->assertCount( 40, $ordered );
+        $this->assertSame( 'high volume secondary', $ordered[0]['keyword'] );
+        $this->assertSame( 900, $ordered[0]['id'] );
     }
 
     // ── Normalisation tests ───────────────────────────────────────────────────

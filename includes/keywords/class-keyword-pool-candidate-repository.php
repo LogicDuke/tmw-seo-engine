@@ -54,6 +54,7 @@ class KeywordPoolCandidateRepository {
     public function save(array $candidate): array {
         global $wpdb;
 
+        $wpdb->last_error = '';
         $keyword = $this->normalize_keyword((string) ($candidate['keyword'] ?? ''));
         $intent = $this->sanitize_intent((string) ($candidate['intent_type'] ?? ''));
         $status = $this->sanitize_status((string) ($candidate['status'] ?? 'queued_for_review'));
@@ -77,6 +78,7 @@ class KeywordPoolCandidateRepository {
         if ('' === $keyword || '' === $intent) {
             return $this->result($keyword, $intent, $status, 'error', 'invalid_candidate_scope', $entity_type, $entity_id);
         }
+        $wpdb->last_error = '';
         if (!$this->table_exists()) {
             return $this->result($keyword, $intent, $status, 'error', 'keyword_candidate_table_unavailable', $entity_type, $entity_id);
         }
@@ -343,6 +345,14 @@ class KeywordPoolCandidateRepository {
     /** @return array<string,mixed>|null */
     private function find_existing_by_keyword(string $keyword): ?array {
         global $wpdb;
+        // Lookup is also used as a not-found probe. Never let an unrelated
+        // earlier query turn that ordinary result into a database failure for
+        // callers which inspect wpdb's error state.
+        $wpdb->last_error = '';
+        if ('' === $keyword) {
+            return null;
+        }
+        $wpdb->last_error = '';
         $row = $wpdb->get_row($wpdb->prepare('SELECT * FROM ' . $this->table_name() . ' WHERE keyword = %s LIMIT 1', $keyword), ARRAY_A);
         return is_array($row) ? $row : null;
     }
