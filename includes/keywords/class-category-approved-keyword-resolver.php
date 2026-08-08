@@ -128,7 +128,10 @@ class CategoryApprovedKeywordResolver {
             return $empty;
         }
 
-        $rows = $this->fetch_approved_rows( $table, $post_id, $has_volume );
+        $rows = array_merge(
+            $this->fetch_approved_rows( $table, $post_id, $has_volume ),
+            $this->fetch_approved_assignment_rows( $table, $post_id, $has_volume )
+        );
         if ( empty( $rows ) ) {
             return $empty;
         }
@@ -238,6 +241,45 @@ class CategoryApprovedKeywordResolver {
         }
         // phpcs:enable
 
+        $rows = $wpdb->get_results( $sql, ARRAY_A );
+        return is_array( $rows ) ? $rows : [];
+    }
+
+    /**
+     * Fetch approved candidate identities assigned to this category.  This is
+     * additive to the legacy candidate-owned read above: assignments never
+     * rewrite the candidate's canonical owner. process_rows() performs the
+     * final normalized/token deduplication across both representations.
+     *
+     * @return array<int, array<string, mixed>>
+     */
+    private function fetch_approved_assignment_rows( string $candidate_table, int $post_id, bool $has_volume ): array {
+        global $wpdb;
+        $assignment_table = $wpdb->prefix . 'tmw_keyword_assignments';
+        if ( ! $this->table_exists( $assignment_table ) ) {
+            return [];
+        }
+
+        $columns = $this->get_columns( $assignment_table );
+        foreach ( [ 'keyword_candidate_id', 'pool', 'page_type', 'target_type', 'target_id', 'status' ] as $required ) {
+            if ( ! isset( $columns[ $required ] ) ) {
+                return [];
+            }
+        }
+        $volume = $has_volume ? 'c.volume' : 'NULL AS volume';
+        $order  = $has_volume ? 'COALESCE(NULLIF(c.volume, 0), 0) DESC, c.id ASC' : 'c.id ASC';
+        // phpcs:disable WordPress.DB.PreparedSQL.InterpolatedNotPrepared
+        $sql = $wpdb->prepare(
+            "SELECT c.id, c.keyword, c.status, {$volume} FROM {$assignment_table} a INNER JOIN {$candidate_table} c ON c.id = a.keyword_candidate_id WHERE a.pool = %s AND a.page_type = %s AND a.target_type = %s AND a.target_id = %d AND a.status = %s AND c.status = %s ORDER BY {$order} LIMIT %d",
+            'category',
+            'tmw_category_page',
+            'category_page',
+            $post_id,
+            self::SAFE_STATUS,
+            self::SAFE_STATUS,
+            self::DB_FETCH_LIMIT
+        );
+        // phpcs:enable
         $rows = $wpdb->get_results( $sql, ARRAY_A );
         return is_array( $rows ) ? $rows : [];
     }

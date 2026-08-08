@@ -571,11 +571,11 @@ dani daniels,1200,2.50,0.10,75
         $source = file_get_contents(__DIR__ . '/../includes/admin/class-keyword-pools-admin-page.php');
         $this->assertIsString($source);
         $contractPos = strpos($source, 'self::import_row_approval_contract($row)');
-        $persistPos = strpos($source, 'approve_import_row_as_candidate_result($row, $batch)');
+        $persistPos = strpos($source, 'KeywordPoolManualApprovalService())->approve($row, $batch');
         $this->assertNotFalse($contractPos);
         $this->assertNotFalse($persistPos);
         $this->assertLessThan($persistPos, $contractPos);
-        $this->assertStringContainsString("'result_action' => !empty($approval_was_blocked) ? 'manual_approval_blocked' : 'manual_approval_failed'", $source);
+        $this->assertStringContainsString("'result_action' => !empty(\$approval_was_blocked) ? 'manual_approval_blocked' : 'manual_approval_failed'", $source);
     }
 
     public function test_post_approve_attempt_contract_blocks_non_overridable_rows_and_allows_review(): void {
