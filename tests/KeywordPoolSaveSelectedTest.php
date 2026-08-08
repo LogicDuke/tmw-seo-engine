@@ -1101,6 +1101,7 @@ final class KeywordPoolSaveSelectedCountingResolver extends ModelEntityResolver 
 final class KeywordPoolSaveSelectedFakeWpdb {
     public string $prefix;
     public int $insert_id = 1000;
+    public string $last_error = '';
     public array $queries = [];
     public array $candidate_inserts = [];
     public array $candidate_updates = [];
