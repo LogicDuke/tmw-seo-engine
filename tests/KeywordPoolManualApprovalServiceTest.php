@@ -14,14 +14,15 @@ final class KeywordPoolManualApprovalServiceTest extends TestCase {
         $this->source = $source;
     }
 
-    public function test_uses_canonical_migration_identity_and_secondary_payload(): void {
+    public function test_uses_canonical_migration_identity_and_role_appropriate_payload(): void {
         $this->assertStringContainsString("'pool'        => 'category'", $this->source);
         $this->assertStringContainsString("'page_type'   => 'tmw_category_page'", $this->source);
         $this->assertStringContainsString("'target_type' => 'tmw_category_page'", $this->source);
         $this->assertStringContainsString("'target_key'  => 'tmw_category_page:'", $this->source);
-        $this->assertStringContainsString("'role'                     => 'secondary'", $this->source);
-        $this->assertStringContainsString("'canonical_owner'          => 0", $this->source);
-        $this->assertStringContainsString("'shared_secondary_allowed' => 1", $this->source);
+        $this->assertStringContainsString("\$assignment_role = \$candidate_created ? 'primary' : 'secondary'", $this->source);
+        $this->assertStringContainsString("'role'                     => \$assignment_role", $this->source);
+        $this->assertStringContainsString("'canonical_owner'          => \$candidate_created ? 1 : 0", $this->source);
+        $this->assertStringContainsString("'shared_secondary_allowed' => \$candidate_created ? 0 : 1", $this->source);
         $this->assertStringContainsString("'active_in_rank_math'      => 0", $this->source);
     }
 
@@ -37,5 +38,22 @@ final class KeywordPoolManualApprovalServiceTest extends TestCase {
         $this->assertTrue( false !== $engine );
         $this->assertTrue( false !== $start );
         $this->assertLessThan( $start, $engine );
+    }
+
+    public function test_creates_missing_candidate_inside_approval_transaction(): void {
+        $start = strpos( $this->source, "query( 'START TRANSACTION'" );
+        $create = strpos( $this->source, 'approve_import_row_as_candidate_result( $row, $batch )' );
+        $assignment = strpos( $this->source, '$assignments->upsert_assignment(' );
+        $commit = strpos( $this->source, "query( 'COMMIT'" );
+
+        $this->assertNotFalse( $start );
+        $this->assertNotFalse( $create );
+        $this->assertNotFalse( $assignment );
+        $this->assertNotFalse( $commit );
+        $this->assertLessThan( $create, $start );
+        $this->assertLessThan( $assignment, $create );
+        $this->assertLessThan( $commit, $assignment );
+        $this->assertStringContainsString("return \$this->result( false, (string) ( \$candidate_result['safe_reason'] ?? 'candidate_persistence_failed' ) );", $this->source);
+        $this->assertStringContainsString("'safe_reason'   => \$candidate_created ? 'manually_approved_primary' : 'manually_approved_secondary'", $this->source);
     }
 }
