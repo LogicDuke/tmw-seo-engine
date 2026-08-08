@@ -82,7 +82,7 @@ final class KeywordPoolManualApprovalService {
         }
 
         $assignment_role = $candidate_created ? 'primary' : 'secondary';
-        $assignment = $assignments->upsert_assignment( array_merge( $identity, [
+        $assignment_data = array_merge( $identity, [
             'keyword_candidate_id'     => $candidate_id,
             'target_name'              => (string) ( $row['target_name'] ?? $batch['target_name'] ?? '' ),
             'target_slug'              => (string) ( $batch['target_slug'] ?? '' ),
@@ -95,7 +95,11 @@ final class KeywordPoolManualApprovalService {
             'source_batch_id'          => (int) ( $row['batch_id'] ?? $batch['id'] ?? 0 ),
             'source_import_row_id'     => $row_id,
             'source_type'              => 'manual_approval',
-        ] ) );
+        ] );
+
+        $assignment = 'primary' === $assignment_role
+            ? $assignments->create_primary_assignment_in_transaction( $assignment_data )
+            : $assignments->upsert_assignment( $assignment_data );
         if ( empty( $assignment['ok'] ) ) {
             $wpdb->query( 'ROLLBACK' );
             return $this->result( false, 'assignment_write_failed' );
