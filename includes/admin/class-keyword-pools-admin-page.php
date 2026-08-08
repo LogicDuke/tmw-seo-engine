@@ -389,7 +389,7 @@ class KeywordPoolsAdminPage {
             if (empty($approval_contract['can_approve'])) {
                 $approval_was_blocked = true;
                 $approval_failure_reason = '' !== $approval_failure_reason ? $approval_failure_reason : 'approval_unavailable';
-            } elseif ($candidate_id > 0 && 'category' === (string) ($batch['pool'] ?? '')) {
+            } elseif ('category' === (string) ($batch['pool'] ?? '')) {
                 $approval_result = (new KeywordPoolManualApprovalService())->approve($row, $batch, get_current_user_id());
                 $approved_candidate_id = !empty($approval_result['ok']) ? (int) ($approval_result['candidate_id'] ?? 0) : 0;
                 $approval_persisted_by_service = $approved_candidate_id > 0;
